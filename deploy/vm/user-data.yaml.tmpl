@@ -1,0 +1,24 @@
+#cloud-config
+# Rendered by vm.sh: __SSH_PUBKEY__ is replaced with the VM's own key.
+hostname: tephra-dev
+users:
+  - name: tephra
+    gecos: Tephra dev
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: docker
+    lock_passwd: true
+    ssh_authorized_keys:
+      - __SSH_PUBKEY__
+ssh_pwauth: false
+package_update: true
+packages:
+  - docker.io
+  - clang
+  - llvm
+  - libbpf-dev
+  - make
+  - git
+  - rsync
+  - curl
+  - ca-certificates

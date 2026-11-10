@@ -1,0 +1,7 @@
+apiVersion: v2
+name: tephra
+description: Kubernetes runtime threat-detection sensor built on eBPF
+type: application
+version: 0.0.1
+appVersion: "0.0.1"
+home: https://github.com/Naved124/Tephra

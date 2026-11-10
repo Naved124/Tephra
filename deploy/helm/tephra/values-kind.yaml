@@ -1,0 +1,5 @@
+# Local kind cluster: the image is side-loaded with `kind load docker-image`.
+image:
+  repository: tephra/tephrad
+  tag: dev
+  pullPolicy: Never

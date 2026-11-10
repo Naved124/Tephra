@@ -1,0 +1,18 @@
+image:
+  repository: ghcr.io/naved124/tephrad
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+agent:
+  # Privileged until the narrowed capability list (BPF, PERFMON, SYS_RESOURCE,
+  # SYS_PTRACE) has been proven to work in M6.
+  privileged: true
+  statsInterval: 10s
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  podAnnotations: {}

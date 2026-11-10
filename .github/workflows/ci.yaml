@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install BPF toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang llvm libbpf-dev clang-format shellcheck
+      - name: Generate
+        run: make generate
+      - name: go vet
+        run: go vet ./...
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.15.0
+      - name: clang-format
+        run: clang-format --dry-run --Werror bpf/*.bpf.c bpf/common.h
+      - name: shellcheck
+        run: shellcheck hack/*.sh deploy/vm/*.sh
+
+  build-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install BPF toolchain
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends clang llvm libbpf-dev
+      - name: Build
+        run: make build
+      - name: Unit tests
+        run: make test
+      - name: Load test on the runner kernel
+        run: make test-root
+
+  e2e-kind:
+    runs-on: ubuntu-24.04
+    needs: [lint, build-test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install kind
+        run: |
+          curl -fsSL -o kind https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-amd64
+          echo "aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d  kind" | sha256sum -c -
+          sudo install -m 0755 kind /usr/local/bin/kind
+      - name: Install helm
+        run: |
+          curl -fsSL -o helm.tgz https://get.helm.sh/helm-v4.3.1-linux-amd64.tar.gz
+          echo "0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b  helm.tgz" | sha256sum -c -
+          tar -xzf helm.tgz linux-amd64/helm
+          sudo install -m 0755 linux-amd64/helm /usr/local/bin/helm
+      - name: Chart lint
+        run: helm lint deploy/helm/tephra -f deploy/helm/tephra/values-kind.yaml
+      - name: make dev (M0 acceptance)
+        run: make dev
+      - name: Agent logs
+        if: always()
+        run: kubectl -n tephra logs -l app.kubernetes.io/component=agent --prefix --tail=100 || true
