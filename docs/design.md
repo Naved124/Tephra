@@ -741,7 +741,7 @@ Where the build diverged from the text above, by milestone. The sections above a
 - **Logs.** Events go to stdout and the agent's own log to stderr, so the event stream stays one JSON event per line.
 - **Metrics** are read from the stats map per scrape instead of every 10 seconds.
 - **Not built yet:** the YAML config file and SIGHUP reload from section 5; the agent takes flags. They are needed first by M4.
-- **Not tested:** the 5.15 kernel floor. Everything ran on 6.8 (dev VM); CI runs on the GitHub runner kernel.
+- **Kernel floor tested.** The programs, compiled on the laptop against a 7.2 `vmlinux.h`, load unchanged on Ubuntu 22.04's 5.15.0-203 kernel: the privileged load tests and the M0 to M2 acceptance tests pass there with zero drops. This is a distribution 5.15, not a vanilla one. It is a manual run (see the README), not part of CI, which runs on the GitHub runner kernel.
 
 ### M2
 

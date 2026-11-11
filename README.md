@@ -98,6 +98,15 @@ The VM runs in the unprivileged libvirt session and is reachable only through
 `127.0.0.1:2222`. `make vm-down` stops it and `make vm-destroy` deletes it with
 its disk.
 
+To test on the 5.15 kernel floor, create a second VM from Ubuntu 22.04 with
+the same script and run `make dev` inside it:
+
+```sh
+VM_NAME=tephra-floor SSH_PORT=2223 UBUNTU_RELEASE=jammy UBUNTU_VERSION=22.04 deploy/vm/vm.sh up
+```
+
+Pass the same variables to `vm.sh sync`, `ssh` and `destroy`.
+
 The VM takes its DNS servers from the laptop when it starts. If the laptop
 moves to another network while the VM is running, image pulls inside it fail;
 `make vm-down && make vm-up` fixes that.

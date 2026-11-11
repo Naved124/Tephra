@@ -19,7 +19,9 @@ UBUNTU_VERSION="${UBUNTU_VERSION:-24.04}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-STATE="$HERE/.state"
+# Per VM, so a second VM (another Ubuntu release, for kernel testing) has its
+# own key and can be destroyed without touching the first.
+STATE="$HERE/.state/$VM_NAME"
 IMAGES="${XDG_DATA_HOME:-$HOME/.local/share}/libvirt/images"
 BASE_NAME="ubuntu-${UBUNTU_VERSION}-server-cloudimg-amd64.img"
 BASE_URL="https://cloud-images.ubuntu.com/releases/${UBUNTU_RELEASE}/release"
