@@ -123,6 +123,18 @@ func (r *CgroupResolver) Path(id uint64) (string, bool) {
 	return p, ok
 }
 
+// Alive reports whether the cgroup with this ID still exists.
+func (r *CgroupResolver) Alive(id uint64) bool {
+	r.mu.Lock()
+	p, ok := r.paths[id]
+	r.mu.Unlock()
+	if !ok {
+		return false
+	}
+	var st syscall.Stat_t
+	return syscall.Stat(filepath.Join(r.root, p), &st) == nil && st.Ino == id
+}
+
 // Scans is the number of hierarchy walks so far.
 func (r *CgroupResolver) Scans() uint64 {
 	r.mu.Lock()

@@ -19,13 +19,20 @@ type Struct struct {
 }
 
 const (
-	hdrSize  = 80
-	commLen  = 16
-	pathLen  = 256
-	argvLen  = 1024
-	execSize = hdrSize + 24 + pathLen + argvLen
-	forkSize = hdrSize + 24
-	exitSize = hdrSize + 8
+	hdrSize   = 80
+	commLen   = 16
+	pathLen   = 256
+	argvLen   = 1024
+	envVarLen = 256
+	envLen    = 3 * envVarLen
+	execSize  = hdrSize + 32 + pathLen + argvLen + envLen + envVarLen
+	netSize   = hdrSize + 40
+	unixSize  = hdrSize + 4 + unixPathMax
+	fileSize  = hdrSize + 24 + pathLen
+
+	unixPathMax = 108
+	forkSize    = hdrSize + 24
+	exitSize    = hdrSize + 8
 
 	hdrTSBoot    = 0
 	hdrStartTime = 8
@@ -46,8 +53,27 @@ const (
 	execDev     = hdrSize + 8
 	execArgvLen = hdrSize + 12
 	execCapEff  = hdrSize + 16
-	execPath    = hdrSize + 24
+	execEnvLen  = hdrSize + 24
+	execPath    = hdrSize + 32
 	execArgv    = execPath + pathLen
+	execEnv     = execArgv + argvLen
+
+	netFamily = hdrSize + 0
+	netLPort  = hdrSize + 2
+	netRPort  = hdrSize + 4
+	netProto  = hdrSize + 6
+	netLAddr  = hdrSize + 8
+	netRAddr  = hdrSize + 24
+
+	unixPathLen = hdrSize + 0
+	unixPath    = hdrSize + 4
+
+	fileInode     = hdrSize + 0
+	fileDev       = hdrSize + 8
+	fileOpenFlags = hdrSize + 12
+	fileWatchBits = hdrSize + 16
+	filePathLen   = hdrSize + 20
+	filePath      = hdrSize + 24
 
 	forkChildPID    = hdrSize + 0
 	forkParentPID   = hdrSize + 4
@@ -81,8 +107,35 @@ var Layout = map[string]Struct{
 		"dev":           {execDev, 4},
 		"argv_len":      {execArgvLen, 4},
 		"cap_effective": {execCapEff, 8},
+		"env_len":       {execEnvLen, 4},
+		"_pad":          {execEnvLen + 4, 4},
 		"path":          {execPath, pathLen},
 		"argv":          {execArgv, argvLen},
+		"env":           {execEnv, envLen},
+		"env_tmp":       {execEnv + envLen, envVarLen},
+	}},
+	"net_event": {Size: netSize, Fields: map[string]Field{
+		"h":      {0, hdrSize},
+		"family": {netFamily, 2},
+		"lport":  {netLPort, 2},
+		"rport":  {netRPort, 2},
+		"proto":  {netProto, 2},
+		"laddr":  {netLAddr, 16},
+		"raddr":  {netRAddr, 16},
+	}},
+	"unix_event": {Size: unixSize, Fields: map[string]Field{
+		"h":        {0, hdrSize},
+		"path_len": {unixPathLen, 4},
+		"path":     {unixPath, unixPathMax},
+	}},
+	"file_event": {Size: fileSize, Fields: map[string]Field{
+		"h":          {0, hdrSize},
+		"inode":      {fileInode, 8},
+		"dev":        {fileDev, 4},
+		"open_flags": {fileOpenFlags, 4},
+		"watch_bits": {fileWatchBits, 4},
+		"path_len":   {filePathLen, 4},
+		"path":       {filePath, pathLen},
 	}},
 	"fork_event": {Size: forkSize, Fields: map[string]Field{
 		"h":                    {0, hdrSize},

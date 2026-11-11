@@ -12,14 +12,14 @@ set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 node=$(probe_up) || exit 1
-cid=$(kubectl -n "$TEST_NS" get pod probe -o jsonpath='{.status.containerStatuses[0].containerID}')
+cid=$(kubectl -n "$TEST_NS" get pod probe -o jsonpath='{.status.containerStatuses[?(@.name=="probe")].containerID}')
 cid="${cid#containerd://}"
 
 # Waits for one exec event matching a jq filter and prints it.
 wait_event() { # since, jq filter, timeout seconds
 	local since="$1" filter="$2" deadline=$((SECONDS + $3)) found=""
 	while [ "$SECONDS" -lt "$deadline" ]; do
-		found=$(events_since "$since" | jq -c "select(.type == \"exec\" and (${filter}))" | head -n1)
+		found=$(events_since "$since" | jq -c "select(.type == \"exec\" and (${filter}))" | sed -n 1p)
 		[ -n "$found" ] && break
 		sleep 1
 	done

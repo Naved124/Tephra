@@ -1,0 +1,84 @@
+{{- if .Values.collector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-collector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collector
+spec:
+  # Stateless: a stream is acknowledged only once Loki has it, so a restart
+  # loses nothing the agents still hold.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "tephra.selectorLabels" (dict "root" . "component" "collector") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "tephra.selectorLabels" (dict "root" . "component" "collector") | nindent 8 }}
+      {{- with .Values.collector.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: collector
+          image: "{{ .Values.collector.image.repository }}:{{ .Values.collector.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.collector.image.pullPolicy }}
+          args:
+            - --listen=:4317
+            - --metrics-addr=:9091
+            - --loki-url={{ include "tephra.lokiUrl" . }}
+            - --cluster={{ .Values.cluster }}
+            - --max-bytes={{ int64 .Values.collector.maxBytes }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: grpc
+              containerPort: 4317
+            - name: metrics
+              containerPort: 9091
+          readinessProbe:
+            grpc:
+              port: 4317
+            periodSeconds: 2
+          livenessProbe:
+            grpc:
+              port: 4317
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            {{- include "tephra.restricted" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.collector.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-collector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collector
+spec:
+  selector:
+    {{- include "tephra.selectorLabels" (dict "root" . "component" "collector") | nindent 4 }}
+  ports:
+    - name: grpc
+      port: 4317
+      targetPort: grpc
+      appProtocol: grpc
+    - name: metrics
+      port: 9091
+      targetPort: metrics
+{{- end }}

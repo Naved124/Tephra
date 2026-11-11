@@ -1,0 +1,18 @@
+id: R011
+title: Write to a cgroup release_agent or to core_pattern
+level: critical
+tags: [attack.privilege_escalation, attack.t1611]
+event: file_open
+detection:
+  selection:
+    file.path|endswith: [/release_agent, /core_pattern]
+    file.write: true
+  condition: selection
+action: alert
+description: >-
+  Both files name a program that the kernel runs on the host, as root,
+  outside every container. Writing them from a container is a known escape.
+  They are matched by name because the attacker chooses where to mount the
+  filesystem that holds them.
+falsepositives:
+  - Crash-reporting services setting core_pattern at boot

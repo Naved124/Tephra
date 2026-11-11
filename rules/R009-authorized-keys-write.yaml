@@ -1,0 +1,16 @@
+id: R009
+title: Write to an authorized_keys file
+level: high
+tags: [attack.persistence, attack.t1098.004]
+event: file_open
+detection:
+  selection:
+    file.path|endswith: [/authorized_keys, /authorized_keys2]
+    file.write: true
+  condition: selection
+action: alert
+description: >-
+  A key added here gives its owner SSH access as that user. The file is
+  matched by name, wherever the home directory is.
+falsepositives:
+  - Provisioning tools (cloud-init, configuration management) writing keys

@@ -46,6 +46,12 @@ jobs:
         run: make build
       - name: Unit tests
         run: make test
+      - name: Rule validation
+        run: make rules-validate
+      - name: Generated API code is up to date
+        run: |
+          make proto
+          git diff --exit-code -- api/
       - name: Load test on the runner kernel
         run: make test-root
 
@@ -67,8 +73,15 @@ jobs:
           sudo install -m 0755 linux-amd64/helm /usr/local/bin/helm
       - name: Chart lint
         run: helm lint deploy/helm/tephra -f deploy/helm/tephra/values-kind.yaml
-      - name: make dev (acceptance tests M0 to M2)
+      - name: make dev (acceptance tests M0 to M5)
         run: make dev
+      - name: Backend state
+        if: failure()
+        run: |
+          kubectl -n tephra get pods -o wide || true
+          kubectl -n tephra logs deployment/tephra-collector --tail=50 || true
+          kubectl -n tephra logs statefulset/tephra-loki --tail=50 || true
+          kubectl -n tephra logs deployment/tephra-grafana --tail=50 || true
       - name: Agent logs
         if: always()
         # The agent's own log lines carry "level"; events share the stream.

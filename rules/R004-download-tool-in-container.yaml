@@ -1,0 +1,29 @@
+id: R004
+title: Download or package tool run in a container
+level: low
+tags: [attack.command_and_control, attack.t1105]
+event: exec
+detection:
+  selection:
+    process.Image|endswith:
+      - /curl
+      - /wget
+      - /apt
+      - /apt-get
+      - /dpkg
+      - /apk
+      - /yum
+      - /dnf
+      - /microdnf
+      - /pip
+      - /pip3
+  host:
+    k8s.namespace: host
+  condition: selection and not host
+action: alert
+description: >-
+  Containers are built once and run unchanged. Fetching files or installing
+  packages in a running one is how tools are brought in after a compromise.
+falsepositives:
+  - Health checks and init scripts that call curl or wget
+  - Images that install packages at start-up

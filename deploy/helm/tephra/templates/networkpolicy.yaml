@@ -1,0 +1,53 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- if .Values.collector.enabled }}
+# Records are accepted from the agents only. Metrics stay open to scrapers.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-collector
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "tephra.selectorLabels" (dict "root" . "component" "collector") | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "tephra.agent.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: 4317
+    - ports:
+        - port: 9091
+{{- end }}
+{{- if .Values.loki.enabled }}
+---
+# Loki has no authentication of its own, so the network is its access
+# control: the collector writes, Grafana reads, nothing else connects.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-loki
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "tephra.selectorLabels" (dict "root" . "component" "loki") | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "tephra.selectorLabels" (dict "root" . "component" "collector") | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "tephra.selectorLabels" (dict "root" . "component" "grafana") | nindent 14 }}
+      ports:
+        - port: 3100
+{{- end }}
+{{- end }}

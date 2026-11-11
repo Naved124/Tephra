@@ -2,8 +2,6 @@
 /* Process lifecycle: exec, fork and exit. */
 #include "common.h"
 
-char LICENSE[] SEC("license") = "GPL";
-
 /* Keep the small event structs in BTF so the agent's layout test sees them. */
 const struct fork_event *__tephra_fork_event __attribute__((unused));
 const struct exit_event *__tephra_exit_event __attribute__((unused));
@@ -17,6 +15,77 @@ static __always_inline bool fd_is_socket(struct task_struct *task, __u32 fd)
 	if (!fds || bpf_probe_read_kernel(&f, sizeof(f), &fds[fd]) || !f)
 		return false;
 	return (BPF_CORE_READ(f, f_inode, i_mode) & S_IFMT) == S_IFSOCK;
+}
+
+/* The dynamic loader variables that change which code a binary runs. Returns
+ * the variable's slot in exec_event.env, or -1. @v has at least ENV_VAR_LEN
+ * readable bytes. */
+static __always_inline int env_slot(const char *v)
+{
+	if (v[0] != 'L' || v[1] != 'D' || v[2] != '_')
+		return -1;
+	if (v[3] == 'P' && v[4] == 'R' && v[5] == 'E' && v[6] == 'L' &&
+	    v[7] == 'O' && v[8] == 'A' && v[9] == 'D' && v[10] == '=')
+		return 0;
+	if (v[3] == 'A' && v[4] == 'U' && v[5] == 'D' && v[6] == 'I' &&
+	    v[7] == 'T' && v[8] == '=')
+		return 1;
+	if (v[3] == 'L' && v[4] == 'I' && v[5] == 'B' && v[6] == 'R' &&
+	    v[7] == 'A' && v[8] == 'R' && v[9] == 'Y' && v[10] == '_' &&
+	    v[11] == 'P' && v[12] == 'A' && v[13] == 'T' && v[14] == 'H' &&
+	    v[15] == '=')
+		return 2;
+	return -1;
+}
+
+/* Scans the environment block of the new image and keeps only the
+ * allowlisted variables. The kernel has just built this block, so no other
+ * thread can be rewriting it. Every variable is read into a work area and
+ * copied to its slot only if its name is on the list; nothing else leaves
+ * the kernel. The first occurrence of a name wins, as it does for the
+ * dynamic loader. A variable longer than the work area is read in pieces,
+ * and only its first piece can match.
+ *
+ * Nothing the loop decides is carried in a register from one iteration to
+ * the next, which is what keeps the verifier's work linear in the bound. */
+static __always_inline void read_env(struct exec_event *e, struct mm_struct *mm)
+{
+	__u64 ptr = BPF_CORE_READ(mm, env_start);
+	__u64 end = BPF_CORE_READ(mm, env_end);
+	long n;
+	int i, slot;
+
+	e->env_len = 0;
+	e->env[0] = 0;
+	e->env[ENV_VAR_LEN] = 0;
+	e->env[2 * ENV_VAR_LEN] = 0;
+
+	for (i = 0; i < ENV_MAX_VARS; i++) {
+		if (ptr >= end)
+			break;
+		n = bpf_probe_read_user_str(e->env_tmp, ENV_VAR_LEN,
+					    (void *)ptr);
+		if (n <= 0)
+			break;
+		ptr += n;
+		slot = env_slot(e->env_tmp);
+		if (slot == 0 && !e->env[0])
+			bpf_probe_read_kernel_str(&e->env[0], ENV_VAR_LEN,
+						  e->env_tmp);
+		else if (slot == 1 && !e->env[ENV_VAR_LEN])
+			bpf_probe_read_kernel_str(&e->env[ENV_VAR_LEN],
+						  ENV_VAR_LEN, e->env_tmp);
+		else if (slot == 2 && !e->env[2 * ENV_VAR_LEN])
+			bpf_probe_read_kernel_str(&e->env[2 * ENV_VAR_LEN],
+						  ENV_VAR_LEN, e->env_tmp);
+		else
+			continue;
+		e->env_len = ENV_LEN;
+	}
+	/* Stopped early: say so, so that padding the environment to hide a
+	 * variable is itself visible. */
+	if (ptr < end)
+		e->h.flags |= EXEC_F_ENV_TRUNC;
 }
 
 /* Fires after a successful exec, once the kernel has resolved the binary, so
@@ -98,11 +167,17 @@ int BPF_PROG(tephra_exec, struct task_struct *p, pid_t old_pid,
 		len = 0;
 	e->argv_len = len;
 
+	read_env(e, mm);
+	e->_pad = 0;
+
 	/* Send only the bytes in use, so a short argv does not cost 1.3 KiB
 	 * of ring space. */
-	total = offsetof(struct exec_event, argv) + len;
+	if (e->env_len)
+		total = offsetof(struct exec_event, env) + ENV_LEN;
+	else
+		total = offsetof(struct exec_event, argv) + len;
 	e->h.size = total;
-	if (total > sizeof(*e)) {
+	if (total > offsetof(struct exec_event, env_tmp)) {
 		s->dropped++;
 		return 0;
 	}

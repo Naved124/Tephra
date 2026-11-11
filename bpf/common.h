@@ -5,12 +5,29 @@
 #include "vmlinux.h"
 
 #include <bpf/bpf_core_read.h>
+#include <bpf/bpf_endian.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
-#define TASK_COMM_LEN 16
-#define PATH_LEN      256
-#define ARGV_LEN      1024
+char LICENSE[] SEC("license") = "GPL";
+
+#define TASK_COMM_LEN  16
+#define PATH_LEN       256
+#define ARGV_LEN       1024
+#define ENV_VAR_LEN    256 /* longest captured variable, name included */
+#define ENV_SLOTS      3   /* one per allowlisted name */
+#define ENV_LEN	       (ENV_SLOTS * ENV_VAR_LEN)
+#define ENV_MAX_VARS   512 /* variables scanned before giving up */
+#define UNIX_PATH_LEN  108
+#define WATCH_PATH_LEN 128
+#define WATCH_NAME_LEN 32
+
+#define AF_UNIX	 1
+#define AF_INET	 2
+#define AF_INET6 10
+
+#define O_ACCMODE 00000003
+#define O_TRUNC	  00001000
 
 #define S_IFMT	 00170000
 #define S_IFSOCK 0140000
@@ -23,6 +40,10 @@ enum event_type {
 	EVENT_EXEC = 1,
 	EVENT_FORK = 2,
 	EVENT_EXIT = 3,
+	EVENT_CONNECT = 4,
+	EVENT_ACCEPT = 5,
+	EVENT_UNIX_CONNECT = 6,
+	EVENT_FILE_OPEN = 7,
 	EVENT_TYPE_MAX = 32,
 };
 
@@ -50,15 +71,24 @@ struct event_hdr {
 #define EXEC_F_UNLINKED	   (1U << 2) /* binary has no link on disk */
 #define EXEC_F_SETUID	   (1U << 3) /* binary has the setuid bit */
 #define EXEC_F_ARGV_TRUNC  (1U << 4)
+#define EXEC_F_ENV_TRUNC   (1U << 5) /* environment not scanned to its end */
 
+/* A record ends after argv_len bytes of argv when env_len is zero, which is
+ * the usual case. With captured variables the whole of argv is sent, followed
+ * by env: one NUL-terminated NAME=value slot per allowlisted name, empty if
+ * the variable is not set. */
 struct exec_event {
 	struct event_hdr h;
 	__u64 inode;
 	__u32 dev;
 	__u32 argv_len; /* bytes used in argv, NUL-separated */
 	__u64 cap_effective;
+	__u32 env_len; /* 0, or ENV_LEN when any slot is filled */
+	__u32 _pad;
 	char path[PATH_LEN];
-	char argv[ARGV_LEN]; /* only argv_len bytes are sent */
+	char argv[ARGV_LEN];
+	char env[ENV_LEN];	   /* allowlisted variables only */
+	char env_tmp[ENV_VAR_LEN]; /* work area, never sent */
 };
 
 /* The header describes the task that called fork. */
@@ -75,6 +105,75 @@ struct exit_event {
 	struct event_hdr h;
 	__u32 exit_code; /* wait status: code << 8 | signal */
 	__u32 _pad;
+};
+
+/* connect and accept. Addresses are in network byte order, IPv4 in the first
+ * four bytes; ports are in host byte order. For connect the local side is
+ * usually still unbound and reads as zero. */
+struct net_event {
+	struct event_hdr h;
+	__u16 family; /* AF_INET or AF_INET6 */
+	__u16 lport;
+	__u16 rport;
+	__u16 proto; /* IPPROTO_* */
+	__u8 laddr[16];
+	__u8 raddr[16];
+};
+
+/* connect to an AF_UNIX socket. An abstract address starts with a NUL. */
+struct unix_event {
+	struct event_hdr h;
+	__u32 path_len; /* bytes used in path */
+	char path[UNIX_PATH_LEN];
+};
+
+#define FILE_F_BY_INODE (1U << 0) /* matched inode_watch */
+#define FILE_F_BY_NAME	(1U << 1) /* matched name_watch */
+#define FILE_F_BY_PATH	(1U << 2) /* matched path_watch */
+#define FILE_F_NO_PATH	(1U << 3) /* path longer than PATH_LEN */
+/* The open ran under credentials the kernel put in place for it, not the
+ * task's own: a filesystem opening a file on the task's behalf, as overlayfs
+ * does for the backing file of every open. */
+#define FILE_F_KERNEL_CREDS (1U << 4)
+
+/* Only path_len bytes of path are sent. */
+struct file_event {
+	struct event_hdr h;
+	__u64 inode;
+	__u32 dev;
+	__u32 open_flags; /* file->f_flags at open, O_TRUNC still present */
+	__u32 watch_bits; /* value of the matching watch entry */
+	__u32 path_len;	  /* bytes used in path, NUL included */
+	char path[PATH_LEN];
+};
+
+/* Watch bits: which kinds of open an entry reports. */
+#define WATCH_READ  (1U << 0)
+#define WATCH_WRITE (1U << 1)
+
+struct path_key {
+	__u32 prefixlen; /* in bits */
+	char path[WATCH_PATH_LEN];
+};
+
+struct inode_key {
+	__u64 inode;
+	__u32 dev;
+	__u32 _pad;
+};
+
+struct name_key {
+	char name[WATCH_NAME_LEN];
+};
+
+struct ip4_key {
+	__u32 prefixlen;
+	__u8 addr[4];
+};
+
+struct ip6_key {
+	__u32 prefixlen;
+	__u8 addr[16];
 };
 
 /* Written by the agent before the programs attach. */
@@ -141,6 +240,50 @@ struct {
 	__type(key, __u64);
 	__type(value, __u8);
 } cgroup_ignore SEC(".maps");
+
+/* Path prefixes file_open reports. An exact file is stored with its
+ * terminating NUL, so it does not also match longer names. */
+struct {
+	__uint(type, BPF_MAP_TYPE_LPM_TRIE);
+	__uint(max_entries, 4096);
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+	__type(key, struct path_key);
+	__type(value, __u32);
+} path_watch SEC(".maps");
+
+/* Files watched by identity, so a hard link or an unexpected path to a
+ * watched file is still reported. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 65536);
+	__type(key, struct inode_key);
+	__type(value, __u32);
+} inode_watch SEC(".maps");
+
+/* Files watched by their last path component, wherever they are. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1024);
+	__type(key, struct name_key);
+	__type(value, __u32);
+} name_watch SEC(".maps");
+
+/* Remote addresses whose connections are never emitted. */
+struct {
+	__uint(type, BPF_MAP_TYPE_LPM_TRIE);
+	__uint(max_entries, 1024);
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+	__type(key, struct ip4_key);
+	__type(value, __u8);
+} net_ignore_v4 SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_LPM_TRIE);
+	__uint(max_entries, 1024);
+	__uint(map_flags, BPF_F_NO_PREALLOC);
+	__type(key, struct ip6_key);
+	__type(value, __u8);
+} net_ignore_v6 SEC(".maps");
 
 static __always_inline struct stats_val *stats_get(__u32 type)
 {

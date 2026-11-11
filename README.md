@@ -20,37 +20,96 @@ Milestones follow section 10 of the design.
 | M0 Skeleton and dev environment | Done |
 | M1 Process events | Done |
 | M2 Process tree and pod attribution | Done |
-| M3 Network and file events | Not started |
+| M3 Network and file events | Done |
+| M4 Rule engine | Done |
+| M5 Backend | Done |
+| M6 Packaging | Not started |
 
-What works today: the agent captures every exec, fork and exit on its node,
-keeps a process tree, and writes each event as one JSON line on stdout with
-its parent, ancestor chain, container and pod. There are no network or file
-events and no detection rules yet.
+What works today: the agent captures process starts and exits, outbound and
+inbound connections (IPv4, IPv6 and Unix sockets) and opens of watched files
+on its node. It attributes each event to a pod, evaluates the detection rules
+in [rules/](rules/), and writes events and alerts as JSON lines on stdout. A
+collector forwards both to Loki, and a Grafana dashboard shows the alerts and
+the sensor's own health.
 
-An exec event, as `kubectl logs` shows it:
+Not built yet: the capability-only security context (the agent still runs
+privileged), the attack harness and coverage report, and the remaining hooks
+(ptrace, module load, mount and others).
+
+An alert, as `kubectl logs` shows it: the event that matched, with the rule
+in front. This one is a bind shell started with `nc -l -p 4445 -e /bin/sh` in
+a test pod; the shell's parent is the container's first process because the
+process that started it had already exited.
 
 ```json
 {
-  "ts": "2026-11-11T08:32:33.501046Z", "type": "exec", "node": "tephra-worker2",
+  "ts": "2026-11-11T19:49:26.482869Z", "type": "exec", "node": "tephra-worker",
+  "rule": {"id": "R001", "title": "Shell with a network socket as stdin and stdout", "level": "high", "tags": ["attack.execution", "attack.t1059.004"]},
   "process": {
-    "pid": 11337, "start_time_ns": 100207744246,
-    "Image": "/bin/ls", "CommandLine": "ls -la /var", "uid": 1000, "gid": 1000, "cgroup_id": 22269,
-    "stdin_is_socket": false, "stdout_is_socket": false, "unlinked": false, "setuid": false, "argv_truncated": false,
-    "inode": 810234, "dev": 321, "cap_effective": 0
+    "pid": 15643, "start_time_ns": 1930144414492,
+    "Image": "/bin/sh", "CommandLine": "/bin/sh", "User": "root", "uid": 0, "gid": 0, "cgroup_id": 51745,
+    "stdin_is_socket": true, "stdout_is_socket": true, "unlinked": false, "setuid": false, "argv_truncated": false,
+    "inode": 812090, "dev": 355, "cap_effective": 2818844155, "env_truncated": false
   },
-  "parent": {"pid": 11324, "Image": "/usr/local/sbin/runc", "CommandLine": "runc --root /run/containerd/runc/k8s.io --log /run/containerd/io.containerd.runtime.v2.task/k8s.io/f603c429b8b70c31a9599e038437c0041dd4cf99bad3e9313b0653c8fcd984fb/log.json --log-format json --systemd-cgroup exec --process /tmp/runc-process3135238854 --detach --pid-file /run/containerd/io.containerd.runtime.v2.task/k8s.io/f603c429b8b70c31a9599e038437c0041dd4cf99bad3e9313b0653c8fcd984fb/89a2ba462eefd7bbb5b44884761f0842b7fdcc5d8f1c9129b406dcfd2fac65f7.pid f603c429b8b70c31a9599e038437c0041dd4cf99bad3e9313b0653c8fcd984fb"},
-  "ancestors": ["/usr/local/sbin/runc", "/usr/local/bin/containerd-shim-runc-v2", "/usr/lib/systemd/systemd"],
-  "container": {"id": "f603c429b8b70c31a9599e038437c0041dd4cf99bad3e9313b0653c8fcd984fb", "name": "probe", "image": "docker.io/library/busybox:1.37"},
+  "parent": {"pid": 1147, "Image": "/bin/httpd", "CommandLine": "/bin/httpd -f -p 8080 -h /tmp"},
+  "ancestors": ["/bin/httpd", "/usr/local/bin/containerd-shim-runc-v2", "/usr/lib/systemd/systemd"],
+  "container": {"id": "6a47c327a3cec33a154dc6f851804207ac257115f9bee65412cf1be9e0496f12", "name": "root", "image": "docker.io/library/busybox:1.37"},
   "k8s": {"namespace": "tephra-test", "pod": "probe", "labels": {"app": "probe"}}
 }
 ```
 
-A process outside every pod has `"k8s": {"namespace": "host"}` and no
-`container`. The agent's own log goes to stderr; its lines have `level` and
-`msg` instead of `type`.
+Connection events add a `network` object (direction, family, protocol,
+`SourceIp`, `SourcePort`, `DestinationIp`, `DestinationPort`, or `unix_path`);
+file events add a `file` object (path, flags, `write`, `truncate`, and
+`target` when a file was recognised through a hard link). A process outside
+every pod has `"k8s": {"namespace": "host"}` and no `container`. The agent's
+own log goes to stderr; its lines have `level` and `msg` instead of `type`.
 
-Per-hook counters (seen, filtered, emitted, dropped) are on `/metrics`, port
-9090 of each agent pod.
+Counters per hook (seen, filtered, emitted, dropped), per rule, and for the
+export queue are on `/metrics`, port 9090 of each agent pod.
+
+## Rules
+
+A rule is a YAML file: one event type, named blocks of field tests, and a
+condition that combines the blocks. [rules/](rules/) holds R001 to R014 and
+R021; section 6 of the design describes the schema.
+
+```sh
+bin/tephrad rules validate rules/                 # check every rule, errors carry file and line
+bin/tephrad rules test rules/ events.jsonl        # run rules over recorded events, print the alerts
+```
+
+`events.jsonl` can be `kubectl logs` output of an agent. Each rule has
+recorded events it must and must not fire on in `rules/testdata/`; `make test`
+checks them.
+
+File rules decide what the kernel reports. Only opens of files that some rule
+names by exact path, by path prefix or by file name leave the kernel, and a
+file rule that cannot be turned into such a filter is refused when it is
+loaded.
+
+The agent re-reads its configuration and rules on SIGHUP. If either is
+invalid it keeps running on what it had and logs why.
+
+## Backend
+
+The chart installs a collector, a single-binary Loki and Grafana next to the
+agents. Open the dashboard with:
+
+```sh
+kubectl -n tephra port-forward svc/tephra-grafana 3000:3000
+kubectl -n tephra get secret tephra-grafana -o jsonpath='{.data.admin-password}' | base64 -d
+```
+
+The user is `admin`; the password is generated at install time. The bundled
+Loki keeps its data in an `emptyDir` unless `loki.persistence.enabled` is set,
+and is meant for a lab or a demo. To use your own Loki, set
+`loki.enabled=false` and `collector.lokiUrl`.
+
+An agent keeps a record until the collector confirms that Loki stored it, so
+a collector restart loses nothing that was queued. The queue is bounded
+(8,192 records by default); when it overflows, raw events are dropped before
+alerts and every drop is counted in `tephra_export_dropped_total`.
 
 ## Requirements
 
@@ -90,6 +149,12 @@ ok: pod event attributed: ...
 ok: host process labelled host, reported once: ...
 ok: after agent restart, a child of a pre-existing process resolves: ...
 PASS: M2
+...
+PASS: M3
+...
+PASS: M4
+...
+PASS: M5
 ```
 
 `make accept` reruns only the tests against the cluster that is already up.
@@ -114,8 +179,10 @@ moves to another network while the VM is running, image pulls inside it fail;
 ## Other targets
 
 ```sh
-make build      # compile the BPF programs and build bin/tephrad
+make build      # compile the BPF programs, build bin/tephrad and bin/collector
 make test       # unit tests, unprivileged
+make rules-validate  # check the shipped rules
+make proto      # regenerate the Go code of the agent-to-collector API
 make test-root  # load the programs into the running kernel and check real events (use the VM)
 make lint       # go vet, golangci-lint, clang-format, shellcheck
 make vmlinux    # regenerate bpf/vmlinux.h from the running kernel
@@ -125,15 +192,23 @@ make help
 ## Layout
 
 ```
+api/                 protobuf definition of the agent-to-collector API
 bpf/                 eBPF programs (C, CO-RE)
-cmd/tephrad/         agent entrypoint
+cmd/tephrad/         agent entrypoint, rules subcommands
+cmd/collector/       gRPC -> Loki
 internal/loader/     bpf2go bindings, attach, kernel feature probes
 internal/events/     Go mirrors of the kernel structs, decoder
 internal/proctree/   process cache and /proc seeding
 internal/k8s/        cgroup ID -> container -> pod
 internal/enrich/     ancestry, user and pod attribution per event
-internal/export/     wire format, JSON lines on stdout
-deploy/docker/       image build
+internal/filter/     what the kernel is told to report
+internal/inodewatch/ watched files by device and inode, per root filesystem
+internal/rules/      rule parser, compiler and matcher
+internal/config/     configuration file
+internal/export/     wire format, JSON lines on stdout, gRPC client
+internal/collector/  stream handling, batching, Loki push
+rules/               shipped detection rules and their recorded events
+deploy/docker/       image builds
 deploy/helm/tephra/  Helm chart
 deploy/kind/         lab cluster definition
 deploy/vm/           dev VM definition

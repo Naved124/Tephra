@@ -1,0 +1,18 @@
+id: R001
+title: Shell with a network socket as stdin and stdout
+level: high
+tags: [attack.execution, attack.t1059.004]
+event: exec
+detection:
+  selection:
+    process.Image|endswith: [/sh, /bash, /dash, /zsh, /ash, /ksh]
+    process.stdin_is_socket: true
+    process.stdout_is_socket: true
+  condition: selection
+action: alert
+description: >-
+  An interactive shell wired to a socket is the shape of a reverse or bind
+  shell. The image is the binary that actually runs, so a shell started
+  through a script still matches.
+falsepositives:
+  - Remote-exec tooling that attaches shells over raw sockets

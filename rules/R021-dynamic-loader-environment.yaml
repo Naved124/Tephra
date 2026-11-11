@@ -1,0 +1,22 @@
+id: R021
+title: Program started in a container with a dynamic loader override
+level: medium
+tags: [attack.persistence, attack.t1574.006]
+event: exec
+detection:
+  selection:
+    process.env_names: [LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH]
+  unchecked:
+    process.env_truncated: true
+  host:
+    k8s.namespace: host
+  condition: (selection or unchecked) and not host
+action: alert
+description: >-
+  These variables make the dynamic loader run code from a library the caller
+  chooses. Only these three names are ever read from the environment. An
+  environment too long to scan to its end is reported too, so that padding it
+  does not hide the variable.
+falsepositives:
+  - Images that set LD_LIBRARY_PATH for bundled libraries (JVMs, GPU runtimes)
+  - Containers with several hundred environment variables

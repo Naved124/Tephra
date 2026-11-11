@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-agent-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    ring_buffer_size: {{ int64 .Values.agent.ringBufSize }}
+    metrics_addr: ":{{ .Values.agent.metricsPort }}"
+    rules_dir: /etc/tephra/rules
+    events: {{ toJson .Values.agent.events }}
+    net_ignore: {{ toJson .Values.agent.netIgnore }}
+    watch: {{ toJson .Values.agent.watch }}
+    k8s_api: {{ toJson .Values.agent.k8sApi }}
+    export:
+      raw_events: {{ .Values.agent.rawEvents }}
+      queue: {{ int .Values.agent.exportQueue }}
+      {{- if .Values.collector.enabled }}
+      collector: "{{ .Release.Name }}-collector.{{ .Release.Namespace }}.svc:4317"
+      {{- end }}
+---
+# The detection rules, one key per file of the repository's rules/ directory.
+# The agent reads them at start-up and again on SIGHUP.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-rules
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+data:
+  {{- range $path, $_ := .Files.Glob "rules/*.yaml" }}
+  {{ base $path }}: |
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}

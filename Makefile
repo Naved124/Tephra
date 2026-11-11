@@ -4,6 +4,7 @@ CLUSTER   ?= tephra
 NAMESPACE ?= tephra
 RELEASE   ?= tephra
 IMAGE     ?= tephra/tephrad:dev
+COLLECTOR_IMAGE ?= tephra/collector:dev
 VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 CHART    := deploy/helm/tephra
@@ -26,9 +27,36 @@ vmlinux: ## Regenerate bpf/vmlinux.h from the running kernel's BTF
 generate: ## Compile the BPF programs and generate their Go bindings (bpf2go)
 	go generate ./...
 
+# protoc is fetched at a pinned version and checked against a pinned digest.
+# The generated Go code is committed, so only changing the .proto needs this.
+PROTOC_VERSION := 36.2
+PROTOC_SHA256  := 121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278
+PROTOC         := .tools/protoc/bin/protoc
+
+$(PROTOC):
+	mkdir -p .tools
+	curl -fsSL -o .tools/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v$(PROTOC_VERSION)/protoc-$(PROTOC_VERSION)-linux-x86_64.zip
+	echo "$(PROTOC_SHA256)  .tools/protoc.zip" | sha256sum -c -
+	rm -rf .tools/protoc && mkdir .tools/protoc
+	python3 -m zipfile -e .tools/protoc.zip .tools/protoc
+	chmod +x $(PROTOC)
+
+.PHONY: proto
+proto: $(PROTOC) ## Regenerate the Go code of the agent-to-collector API
+	GOBIN=$(CURDIR)/.tools/bin go install google.golang.org/protobuf/cmd/protoc-gen-go google.golang.org/grpc/cmd/protoc-gen-go-grpc
+	PATH=$(CURDIR)/.tools/bin:$$PATH $(PROTOC) \
+		--go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		api/tephra/v1/tephra.proto
+
 .PHONY: build
-build: generate ## Build bin/tephrad
+build: generate ## Build bin/tephrad and bin/collector
 	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/tephrad ./cmd/tephrad
+	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/collector ./cmd/collector
+
+.PHONY: rules-validate
+rules-validate: generate ## Check every shipped rule
+	go run ./cmd/tephrad rules validate rules
 
 .PHONY: test
 test: generate ## Unit tests (unprivileged)
@@ -52,8 +80,9 @@ fmt: ## Format Go and C sources
 	clang-format -i $(BPF_SRCS)
 
 .PHONY: image
-image: ## Build the agent container image
+image: ## Build the agent and collector container images
 	docker build -f deploy/docker/tephrad.Dockerfile --build-arg VERSION=$(VERSION) -t $(IMAGE) .
+	docker build -f deploy/docker/collector.Dockerfile --build-arg VERSION=$(VERSION) -t $(COLLECTOR_IMAGE) .
 
 # --- lab cluster (run inside the dev VM) --------------------------------------
 
@@ -73,12 +102,13 @@ kind-down: ## Delete the kind lab cluster
 # same tag still rolls the DaemonSet.
 .PHONY: dev
 dev: kind-up image ## Build, load into kind, install the chart, run the acceptance tests
-	kind load docker-image $(IMAGE) --name $(CLUSTER)
+	kind load docker-image $(IMAGE) $(COLLECTOR_IMAGE) --name $(CLUSTER)
 	helm upgrade --install $(RELEASE) $(CHART) \
 		--kube-context kind-$(CLUSTER) \
 		--namespace $(NAMESPACE) --create-namespace \
 		-f $(CHART)/values-kind.yaml \
-		--set-string 'agent.podAnnotations.tephra\.dev/image-id='"$$(docker image inspect -f '{{.Id}}' $(IMAGE))"
+		--set-string 'agent.podAnnotations.tephra\.dev/image-id='"$$(docker image inspect -f '{{.Id}}' $(IMAGE))" \
+		--set-string 'collector.podAnnotations.tephra\.dev/image-id='"$$(docker image inspect -f '{{.Id}}' $(COLLECTOR_IMAGE))"
 	$(MAKE) accept
 
 .PHONY: accept
@@ -89,6 +119,9 @@ accept: ## Run the acceptance tests of every finished milestone against the clus
 	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m0.sh
 	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m1.sh
 	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m2.sh
+	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m3.sh
+	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m4.sh
+	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m5.sh
 
 # --- dev VM (run on the laptop) ---------------------------------------------
 

@@ -1,0 +1,38 @@
+id: R002
+title: Shell spawned under a network-facing server process
+level: medium
+tags: [attack.execution, attack.t1059.004]
+event: exec
+detection:
+  selection:
+    process.Image|endswith: [/sh, /bash, /dash, /zsh, /ash, /ksh]
+  server:
+    ancestors|endswith:
+      - /nginx
+      - /apache2
+      - /httpd
+      - /php-fpm
+      - /php
+      - /node
+      - /java
+      - /python
+      - /python3
+      - /ruby
+      - /gunicorn
+      - /uwsgi
+      - /haproxy
+      - /envoy
+      - /caddy
+      - /lighttpd
+      - /redis-server
+      - /postgres
+      - /mysqld
+      - /mongod
+  condition: selection and server
+action: alert
+description: >-
+  A shell anywhere below a server process in the process tree usually means
+  the server was made to run a command.
+falsepositives:
+  - Applications that shell out on purpose (build tools, npm scripts, subprocess calls with shell=True)
+  - Container entrypoint scripts that start the server and are then re-entered

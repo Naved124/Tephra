@@ -18,10 +18,13 @@ spec:
     metadata:
       labels:
         {{- include "tephra.agent.selectorLabels" . | nindent 8 }}
-      {{- with .Values.agent.podAnnotations }}
       annotations:
+        # A changed configuration or rule set rolls the agents. Edited in
+        # place, the ConfigMaps are picked up on SIGHUP instead.
+        checksum/config: {{ include (print $.Template.BasePath "/agent-config.yaml") . | sha256sum }}
+        {{- with .Values.agent.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
     spec:
       serviceAccountName: {{ .Release.Name }}-agent
       hostPID: true
@@ -34,8 +37,7 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
-            - --ringbuf-size={{ int64 .Values.agent.ringBufSize }}
-            - --metrics-addr=:{{ .Values.agent.metricsPort }}
+            - --config=/etc/tephra/config.yaml
           ports:
             - name: metrics
               containerPort: {{ .Values.agent.metricsPort }}
@@ -44,11 +46,22 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           securityContext:
             privileged: {{ .Values.agent.privileged }}
           resources:
             {{- toYaml .Values.agent.resources | nindent 12 }}
           volumeMounts:
+            - name: config
+              mountPath: /etc/tephra/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: rules
+              mountPath: /etc/tephra/rules
+              readOnly: true
             - name: btf
               mountPath: /sys/kernel/btf
               readOnly: true
@@ -59,6 +72,12 @@ spec:
               mountPath: /sys/kernel/security
               readOnly: true
       volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-agent-config
+        - name: rules
+          configMap:
+            name: {{ .Release.Name }}-rules
         - name: btf
           hostPath:
             path: /sys/kernel/btf

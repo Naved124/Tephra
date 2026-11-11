@@ -1,0 +1,32 @@
+id: R005
+title: /etc/shadow opened by a process outside the allowlist
+level: high
+tags: [attack.credential_access, attack.t1003.008]
+event: file_open
+detection:
+  selection:
+    file.path: /etc/shadow
+  allowed:
+    process.Image:
+      - /usr/bin/passwd
+      - /usr/bin/chage
+      - /usr/bin/su
+      - /usr/bin/sudo
+      - /usr/bin/login
+      - /bin/login
+      - /usr/sbin/sshd
+      - /usr/sbin/unix_chkpwd
+      - /usr/sbin/useradd
+      - /usr/sbin/usermod
+      - /usr/sbin/userdel
+      - /usr/sbin/chpasswd
+      - /usr/sbin/pwck
+      - /usr/sbin/cron
+  condition: selection and not allowed
+action: alert
+description: >-
+  The password hash file was opened by something that is not part of login or
+  account management. The file is watched by identity as well as by path, so
+  a hard link to it under another name is still reported.
+falsepositives:
+  - Backup and configuration-management agents that read all of /etc

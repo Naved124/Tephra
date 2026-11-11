@@ -4,18 +4,43 @@
 // sinks that carry it.
 package export
 
+import "sort"
+
 // Record is one enriched event. Field names follow Sigma conventions where
 // one exists (Image, CommandLine, User).
 type Record struct {
-	TS        string     `json:"ts"`
-	Type      string     `json:"type"`
-	Node      string     `json:"node"`
+	TS   string `json:"ts"`
+	Type string `json:"type"`
+	Node string `json:"node"`
+	// Rule is set on alerts only. An alert is the event that matched,
+	// with the rule in front.
+	Rule      *Rule      `json:"rule,omitempty"`
 	Process   Process    `json:"process"`
 	Parent    *Parent    `json:"parent,omitempty"`
 	Ancestors []string   `json:"ancestors,omitempty"`
 	Container *Container `json:"container,omitempty"`
 	K8s       K8s        `json:"k8s"`
 	Exit      *Exit      `json:"exit,omitempty"`
+	Network   *Network   `json:"network,omitempty"`
+	File      *File      `json:"file,omitempty"`
+	// Health is set on records of type TypeHealth only. They go to the
+	// collector and are not printed on stdout.
+	Health map[string]uint64 `json:"health,omitempty"`
+}
+
+// TypeHealth is the type of the periodic record that carries a sender's own
+// counters.
+const TypeHealth = "health"
+
+// IsAlert reports whether the record is an alert rather than a raw event.
+func (r *Record) IsAlert() bool { return r.Rule != nil }
+
+// Rule identifies the detection rule behind an alert.
+type Rule struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title"`
+	Level string   `json:"level"`
+	Tags  []string `json:"tags,omitempty"`
 }
 
 // Process is the subject of the event. For a fork it is the new child.
@@ -28,6 +53,9 @@ type Process struct {
 	UID         uint32 `json:"uid"`
 	GID         uint32 `json:"gid"`
 	CgroupID    uint64 `json:"cgroup_id"`
+	// IsMainBinary says the process runs the same binary as its
+	// container's first process. Always false outside a container.
+	IsMainBinary bool `json:"is_main_binary,omitempty"`
 	// Exec is set on exec events only; its fields appear inline.
 	*Exec
 }
@@ -42,6 +70,64 @@ type Exec struct {
 	Inode          uint64 `json:"inode"`
 	Dev            uint32 `json:"dev"`
 	CapEffective   uint64 `json:"cap_effective"`
+	// Env holds only the dynamic loader variables the kernel side
+	// captures (LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH). The rest of the
+	// environment never leaves the kernel.
+	Env map[string]string `json:"env,omitempty"`
+	// EnvTruncated says the environment was too long to scan to its end,
+	// so a variable may have been missed.
+	EnvTruncated bool `json:"env_truncated"`
+}
+
+// EnvNames lists the captured variable names, sorted.
+func (e *Exec) EnvNames() []string {
+	if e == nil || len(e.Env) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(e.Env))
+	for k := range e.Env {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Network is set on connect and accept events. Source is the side that
+// opened the connection: the process itself on connect, the peer on accept.
+type Network struct {
+	// Direction is "outbound" for connect and "inbound" for accept.
+	Direction string `json:"direction"`
+	// Family is "ipv4", "ipv6" or "unix".
+	Family          string `json:"family"`
+	Protocol        string `json:"protocol,omitempty"`
+	SourceIP        string `json:"SourceIp,omitempty"`
+	SourcePort      uint16 `json:"SourcePort,omitempty"`
+	DestinationIP   string `json:"DestinationIp,omitempty"`
+	DestinationPort uint16 `json:"DestinationPort,omitempty"`
+	// UnixPath is the address of a Unix socket; an abstract one starts
+	// with "@".
+	UnixPath string `json:"unix_path,omitempty"`
+	// IsK8sAPI says the destination is the cluster's API server.
+	IsK8sAPI bool `json:"is_k8s_api,omitempty"`
+}
+
+// File is set on file_open events.
+type File struct {
+	// Path is as the opening process sees it, relative to its own root.
+	Path string `json:"path"`
+	// Target is set when the file was recognised by identity and not by
+	// the path used: it is the watched path of the same file. A hard link
+	// to /etc/shadow has the link's name in Path and /etc/shadow here.
+	Target string `json:"target,omitempty"`
+	// Flags are the open(2) flags.
+	Flags    uint32 `json:"flags"`
+	Write    bool   `json:"write"`
+	Truncate bool   `json:"truncate"`
+	Inode    uint64 `json:"inode"`
+	Dev      uint32 `json:"dev"`
+	// MatchedBy is the kernel filter that let the event through: "path",
+	// "name" or "inode".
+	MatchedBy string `json:"matched_by"`
 }
 
 // Parent is the process's parent as the process tree knows it.

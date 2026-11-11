@@ -1,0 +1,16 @@
+id: R007
+title: Write to /etc/ld.so.preload
+level: high
+tags: [attack.persistence, attack.t1574.006]
+event: file_open
+detection:
+  selection:
+    file.path: /etc/ld.so.preload
+    file.write: true
+  condition: selection
+action: alert
+description: >-
+  A library named in this file is loaded into every dynamically linked
+  program that starts afterwards.
+falsepositives:
+  - Rare. Some profiling and sandboxing tools install themselves this way

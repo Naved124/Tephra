@@ -19,10 +19,30 @@ type JSONLines struct {
 // backend.
 func NewJSONLines(w io.Writer) *JSONLines {
 	bw := bufio.NewWriterSize(w, 64<<10)
-	enc := json.NewEncoder(bw)
+	return &JSONLines{w: bw, enc: newEncoder(bw)}
+}
+
+func newEncoder(w io.Writer) *json.Encoder {
+	enc := json.NewEncoder(w)
 	// Command lines are full of <, > and &; keep them readable.
 	enc.SetEscapeHTML(false)
-	return &JSONLines{w: bw, enc: enc}
+	return enc
+}
+
+// lineBuffer collects one encoded record.
+type lineBuffer struct{ b []byte }
+
+func (l *lineBuffer) Write(p []byte) (int, error) {
+	l.b = append(l.b, p...)
+	return len(p), nil
+}
+
+// trimmed returns the bytes without the newline the encoder appends.
+func (l *lineBuffer) trimmed() []byte {
+	if n := len(l.b); n > 0 && l.b[n-1] == '\n' {
+		return l.b[:n-1]
+	}
+	return l.b
 }
 
 // Write buffers one record.

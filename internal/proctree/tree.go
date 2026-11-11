@@ -232,6 +232,46 @@ func (t *Tree) ByPID(pid uint32) (Proc, bool) {
 	return Proc{}, false
 }
 
+// OldestInContainer returns the earliest-started process known in a
+// container, live or lingering: the container's first process, as long as it
+// is still there.
+func (t *Tree) OldestInContainer(containerID string) (Proc, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var best *Proc
+	for _, p := range t.procs {
+		if p.ContainerID == containerID && (best == nil || p.Key.StartNS < best.Key.StartNS) {
+			best = p
+		}
+	}
+	if best == nil {
+		return Proc{}, false
+	}
+	return *best, true
+}
+
+// SetContainerID records which container a process runs in.
+func (t *Tree) SetContainerID(k Key, id string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if p := t.get(k); p != nil {
+		p.ContainerID = id
+	}
+}
+
+// Live returns a copy of every process that has not exited.
+func (t *Tree) Live() []Proc {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]Proc, 0, len(t.procs))
+	for _, p := range t.procs {
+		if p.Exited.IsZero() {
+			out = append(out, *p)
+		}
+	}
+	return out
+}
+
 // SetParent records a new parent, after the kernel re-parented a process
 // whose original parent exited.
 func (t *Tree) SetParent(k, parent Key) {

@@ -1,0 +1,20 @@
+id: R012
+title: Shell history truncated
+level: low
+tags: [attack.defense_evasion, attack.t1070.003]
+event: file_open
+detection:
+  selection:
+    file.path|endswith:
+      - /.bash_history
+      - /.zsh_history
+      - /.ash_history
+      - /.sh_history
+    file.truncate: true
+  condition: selection
+action: alert
+description: >-
+  The history file was opened for truncation, which empties it. Deleting the
+  file or replacing it with a link is not seen: those are not opens.
+falsepositives:
+  - A shell rewriting its whole history on exit, which bash does when the session added more lines than the file holds

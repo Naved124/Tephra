@@ -1,3 +1,6 @@
+# Value of the cluster label on everything stored in Loki.
+cluster: default
+
 image:
   repository: ghcr.io/naved124/tephrad
   # Defaults to the chart appVersion.
@@ -12,6 +15,25 @@ agent:
   ringBufSize: 16777216
   # Prometheus endpoint, /metrics on the pod IP.
   metricsPort: 9090
+  # Export every event, not only alerts. An investigation needs what happened
+  # around an alert, and a rule written later can be run over past events.
+  rawEvents: true
+  # Records buffered for the collector. When it is full raw events are dropped
+  # before alerts, and both are counted.
+  exportQueue: 8192
+  # Event types to capture. Empty means every type while rawEvents is on, and
+  # only what the rules need when it is off.
+  events: []
+  # Destinations whose connections are dropped in the kernel.
+  netIgnore:
+    - 127.0.0.0/8
+    - ::1/128
+  # File watches in addition to the ones the rules ask for, for example
+  #   - {path: /etc/kubernetes/, kind: prefix, ops: [write]}
+  watch: []
+  # Extra addresses of the Kubernetes API, as host:port. The service address
+  # every pod is given is always included.
+  k8sApi: []
   resources:
     requests:
       cpu: 100m
@@ -19,3 +41,64 @@ agent:
     limits:
       memory: 512Mi
   podAnnotations: {}
+
+# Receives the agents' gRPC streams and pushes them to Loki.
+collector:
+  enabled: true
+  image:
+    repository: ghcr.io/naved124/tephra-collector
+    tag: ""
+    pullPolicy: IfNotPresent
+  # Loki to push to. Empty means the Loki installed by this chart.
+  lokiUrl: ""
+  # Bytes of records held in memory before streams are refused.
+  maxBytes: 67108864
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  podAnnotations: {}
+
+# A single-binary Loki on local storage: enough for a lab or a demo, not a
+# production log store. Disable it and set collector.lokiUrl to use your own.
+loki:
+  enabled: true
+  image: grafana/loki:3.6.18
+  # Alerts are kept longer than raw events.
+  retention:
+    alerts: 720h
+    events: 72h
+  # Without persistence the data is lost when the pod is.
+  persistence:
+    enabled: false
+    size: 10Gi
+    storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+grafana:
+  enabled: true
+  image: grafana/grafana:12.3.1
+  # The admin password is generated once and kept in the Secret
+  # <release>-grafana. Anonymous access is off.
+  adminUser: admin
+  # Webhook that the "high or critical alert" rule posts to. Empty leaves the
+  # rule in place with no notification.
+  alertWebhookUrl: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+# Only agents may reach the collector, and only the collector and Grafana may
+# reach Loki. Needs a CNI that enforces NetworkPolicy.
+networkPolicy:
+  enabled: true

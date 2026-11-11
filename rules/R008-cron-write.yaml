@@ -1,0 +1,25 @@
+id: R008
+title: Write under a cron directory
+level: medium
+tags: [attack.persistence, attack.t1053.003]
+event: file_open
+detection:
+  directories:
+    file.path|startswith:
+      - /etc/cron.d/
+      - /etc/cron.hourly/
+      - /etc/cron.daily/
+      - /etc/cron.weekly/
+      - /etc/cron.monthly/
+      - /etc/crontabs/
+      - /var/spool/cron/
+  crontab:
+    file.path: /etc/crontab
+  write:
+    file.write: true
+  condition: (directories or crontab) and write
+action: alert
+description: A new or changed cron entry runs a command on a schedule, surviving restarts of the process that planted it.
+falsepositives:
+  - Package installation and configuration management
+  - Users editing their own crontab

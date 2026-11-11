@@ -1,0 +1,239 @@
+{{- if .Values.grafana.enabled }}
+{{- $name := printf "%s-grafana" .Release.Name }}
+{{- /* The admin password is generated on first install and kept across upgrades. */ -}}
+{{- $password := randAlphaNum 32 }}
+{{- with lookup "v1" "Secret" .Release.Namespace $name }}
+{{- $password = index .data "admin-password" | b64dec }}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+type: Opaque
+stringData:
+  admin-user: {{ .Values.grafana.adminUser | quote }}
+  admin-password: {{ $password | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-provisioning
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Loki
+        uid: loki
+        type: loki
+        access: proxy
+        url: {{ include "tephra.lokiUrl" . }}
+        isDefault: true
+        editable: false
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: tephra
+        folder: Tephra
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        options:
+          path: /etc/tephra/dashboards
+  alerting.yaml: |
+    apiVersion: 1
+    groups:
+      - orgId: 1
+        name: tephra
+        folder: Tephra
+        interval: 10s
+        rules:
+          - uid: tephra-high-critical
+            title: High or critical Tephra alert
+            condition: C
+            for: 0s
+            noDataState: OK
+            execErrState: Error
+            annotations:
+              summary: A detection rule of level high or critical fired in the last minute.
+            labels:
+              source: tephra
+            data:
+              - refId: A
+                queryType: instant
+                datasourceUid: loki
+                relativeTimeRange:
+                  from: 60
+                  to: 0
+                model:
+                  refId: A
+                  queryType: instant
+                  editorMode: code
+                  expr: 'sum(count_over_time({stream="alert", level=~"high|critical"} [1m])) or vector(0)'
+              - refId: C
+                datasourceUid: __expr__
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                model:
+                  refId: C
+                  type: threshold
+                  expression: A
+                  conditions:
+                    - evaluator:
+                        type: gt
+                        params: [0]
+    {{- if .Values.grafana.alertWebhookUrl }}
+    contactPoints:
+      - orgId: 1
+        name: tephra-webhook
+        receivers:
+          - uid: tephra-webhook
+            type: webhook
+            settings:
+              url: {{ .Values.grafana.alertWebhookUrl | quote }}
+    policies:
+      - orgId: 1
+        receiver: tephra-webhook
+        group_by: ["alertname"]
+        group_wait: 0s
+        group_interval: 1m
+    {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-dashboards
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  tephra.json: |
+    {{- .Files.Get "dashboards/tephra.json" | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "tephra.selectorLabels" (dict "root" . "component" "grafana") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "tephra.selectorLabels" (dict "root" . "component" "grafana") | nindent 8 }}
+      annotations:
+        checksum/provisioning: {{ printf "%s%s%s" (.Files.Get "dashboards/tephra.json") (include "tephra.lokiUrl" .) .Values.grafana.alertWebhookUrl | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: {{ .Values.grafana.image }}
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $name }}
+                  key: admin-user
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $name }}
+                  key: admin-password
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_ANALYTICS_REPORTING_ENABLED
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_UPDATES
+              value: "false"
+            - name: GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES
+              value: "false"
+            - name: GF_DASHBOARDS_MIN_REFRESH_INTERVAL
+              value: 5s
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /etc/tephra/dashboards/tephra.json
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 3
+            failureThreshold: 60
+          securityContext:
+            {{- include "tephra.restricted" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.grafana.resources | nindent 12 }}
+          volumeMounts:
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+              subPath: datasources.yaml
+              readOnly: true
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+              subPath: dashboards.yaml
+              readOnly: true
+            - name: provisioning
+              mountPath: /etc/grafana/provisioning/alerting/alerting.yaml
+              subPath: alerting.yaml
+              readOnly: true
+            - name: dashboards
+              mountPath: /etc/tephra/dashboards
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/grafana
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: provisioning
+          configMap:
+            name: {{ $name }}-provisioning
+        - name: dashboards
+          configMap:
+            name: {{ $name }}-dashboards
+        # Everything here is provisioned from the chart, so nothing needs
+        # to survive a restart.
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tephra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  selector:
+    {{- include "tephra.selectorLabels" (dict "root" . "component" "grafana") | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+{{- end }}

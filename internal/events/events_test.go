@@ -72,15 +72,15 @@ func header(typ events.Type, size int) []byte {
 
 func TestDecodeExec(t *testing.T) {
 	argv := "ls\x00-la\x00/tmp\x00"
-	raw := header(events.TypeExec, 360+len(argv))
+	raw := header(events.TypeExec, 368+len(argv))
 	le := binary.LittleEndian
 	le.PutUint32(raw[60:], events.ExecStdinSock|events.ExecArgvTrunc)
 	le.PutUint64(raw[80:], 9001)     // inode
 	le.PutUint32(raw[88:], 0x800001) // dev
 	le.PutUint32(raw[92:], uint32(len(argv)))
 	le.PutUint64(raw[96:], 0x1ffffffff) // cap_effective
-	copy(raw[104:], "/usr/bin/ls")
-	copy(raw[360:], argv)
+	copy(raw[112:], "/usr/bin/ls")
+	copy(raw[368:], argv)
 	// The ring buffer rounds samples up to 8 bytes.
 	raw = append(raw, 0xff, 0xff, 0xff)
 
@@ -95,7 +95,7 @@ func TestDecodeExec(t *testing.T) {
 	want := &events.Exec{
 		Header: events.Header{
 			TSBootNS: 1000, StartTimeNS: 500, CgroupID: 77,
-			Type: events.TypeExec, Size: uint32(360 + len(argv)),
+			Type: events.TypeExec, Size: uint32(368 + len(argv)),
 			PID: 4242, TID: 4243, PPID: 1, UID: 33, GID: 34, PidNS: 11, MntNS: 12,
 			Flags: events.ExecStdinSock | events.ExecArgvTrunc, Comm: "ls",
 		},
@@ -119,9 +119,9 @@ func TestDecodeExecArgvEdges(t *testing.T) {
 		"single unclosed":  {"a", []string{"a"}},
 		"only a separator": {"\x00", []string{""}},
 	} {
-		raw := header(events.TypeExec, 360+len(tc.argv))
+		raw := header(events.TypeExec, 368+len(tc.argv))
 		binary.LittleEndian.PutUint32(raw[92:], uint32(len(tc.argv)))
-		copy(raw[360:], tc.argv)
+		copy(raw[368:], tc.argv)
 		ev, err := events.Decode(raw)
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
@@ -167,14 +167,23 @@ func TestDecodeForkExit(t *testing.T) {
 
 // Malformed records must be rejected, not sliced out of range.
 func TestDecodeRejects(t *testing.T) {
-	short := header(events.TypeExec, 360)[:79]
-	claimsMore := header(events.TypeExec, 360)
+	short := header(events.TypeExec, 368)[:79]
+	claimsMore := header(events.TypeExec, 368)
 	binary.LittleEndian.PutUint32(claimsMore[28:], 4096)
 	execTooShort := header(events.TypeExec, 200)
-	argvOverrun := header(events.TypeExec, 360+4)
+	argvOverrun := header(events.TypeExec, 368+4)
 	binary.LittleEndian.PutUint32(argvOverrun[92:], 900)
-	argvHuge := header(events.TypeExec, 360)
+	argvHuge := header(events.TypeExec, 368)
 	binary.LittleEndian.PutUint32(argvHuge[92:], 0xffffffff)
+	envOverrun := header(events.TypeExec, 368+1024+4)
+	binary.LittleEndian.PutUint32(envOverrun[104:], 900)
+	netShort := header(events.TypeConnect, 100)
+	netFamily := header(events.TypeAccept, 120)
+	binary.LittleEndian.PutUint16(netFamily[80:], 17)
+	unixHuge := header(events.TypeUnixConnect, 192)
+	binary.LittleEndian.PutUint32(unixHuge[80:], 500)
+	fileOverrun := header(events.TypeFileOpen, 104+8)
+	binary.LittleEndian.PutUint32(fileOverrun[100:], 200)
 	forkShort := header(events.TypeFork, 90)
 	unknown := header(events.Type(31), 80)
 
@@ -185,11 +194,118 @@ func TestDecodeRejects(t *testing.T) {
 		"argv_len beyond record":  argvOverrun,
 		"argv_len overflow":       argvHuge,
 		"short fork":              forkShort,
+		"env_len beyond record":   envOverrun,
+		"short connect":           netShort,
+		"unknown address family":  netFamily,
+		"unix path too long":      unixHuge,
+		"path_len beyond record":  fileOverrun,
 		"unknown type":            unknown,
 		"empty":                   nil,
 	} {
 		if ev, err := events.Decode(raw); err == nil {
 			t.Errorf("%s: decoded %+v, want an error", name, ev)
 		}
+	}
+}
+
+// With captured variables the whole of argv is sent, then the variables.
+func TestDecodeExecEnv(t *testing.T) {
+	argv := "sh\x00"
+	raw := header(events.TypeExec, 368+1024+768)
+	le := binary.LittleEndian
+	le.PutUint32(raw[60:], events.ExecEnvTrunc)
+	le.PutUint32(raw[92:], uint32(len(argv)))
+	le.PutUint32(raw[104:], 768)
+	copy(raw[368:], argv)
+	copy(raw[368+1024:], "LD_PRELOAD=/tmp/x.so")
+	copy(raw[368+1024+256:], "LD_AUDIT=/tmp/a.so")
+	ev, err := events.Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := ev.(*events.Exec)
+	if want := []string{"LD_PRELOAD=/tmp/x.so", "LD_AUDIT=/tmp/a.so"}; !reflect.DeepEqual(x.Env, want) {
+		t.Errorf("env %q, want %q", x.Env, want)
+	}
+	if !reflect.DeepEqual(x.Argv, []string{"sh"}) {
+		t.Errorf("argv %q", x.Argv)
+	}
+}
+
+func TestDecodeNet(t *testing.T) {
+	le := binary.LittleEndian
+	raw := header(events.TypeConnect, 120)
+	le.PutUint16(raw[80:], events.AFInet)
+	le.PutUint16(raw[82:], 40000) // lport
+	le.PutUint16(raw[84:], 443)   // rport
+	le.PutUint16(raw[86:], 6)     // tcp
+	copy(raw[88:], []byte{10, 244, 1, 5})
+	copy(raw[104:], []byte{10, 96, 0, 1})
+	ev, err := events.Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := ev.(*events.Net)
+	if n.Local.String() != "10.244.1.5:40000" || n.Remote.String() != "10.96.0.1:443" || n.Proto != 6 {
+		t.Errorf("connect decoded as %s -> %s proto %d", n.Local, n.Remote, n.Proto)
+	}
+
+	raw = header(events.TypeAccept, 120)
+	le.PutUint16(raw[80:], events.AFInet6)
+	le.PutUint16(raw[82:], 8080)
+	le.PutUint16(raw[84:], 51000)
+	copy(raw[88:], []byte{0xfd, 0, 0x10, 0x96, 15: 1})
+	copy(raw[104:], []byte{0xfd, 0, 0x10, 0x96, 15: 2})
+	ev, err = events.Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n = ev.(*events.Net)
+	if n.Local.String() != "[fd00:1096::1]:8080" || n.Remote.String() != "[fd00:1096::2]:51000" {
+		t.Errorf("accept decoded as %s <- %s", n.Local, n.Remote)
+	}
+
+	// An IPv4 peer on an IPv6 socket is reported as IPv4.
+	copy(raw[104:], []byte{10: 0xff, 0xff, 192, 0, 2, 7})
+	ev, _ = events.Decode(raw)
+	if got := ev.(*events.Net).Remote.Addr().String(); got != "192.0.2.7" {
+		t.Errorf("v4-mapped peer decoded as %s", got)
+	}
+}
+
+func TestDecodeUnixAndFile(t *testing.T) {
+	le := binary.LittleEndian
+	for path, want := range map[string]string{
+		"/run/containerd/containerd.sock\x00": "/run/containerd/containerd.sock",
+		"\x00abstract-name":                   "@abstract-name",
+	} {
+		raw := header(events.TypeUnixConnect, 192)
+		le.PutUint32(raw[80:], uint32(len(path)))
+		copy(raw[84:], path)
+		ev, err := events.Decode(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := ev.(*events.UnixConnect).Path; got != want {
+			t.Errorf("unix path %q, want %q", got, want)
+		}
+	}
+
+	path := "/etc/shadow\x00"
+	raw := header(events.TypeFileOpen, 104+len(path))
+	le.PutUint32(raw[60:], events.FileByInode)
+	le.PutUint64(raw[80:], 1234)
+	le.PutUint32(raw[88:], 0x800001)
+	le.PutUint32(raw[92:], 0o1|events.OTrunc)
+	le.PutUint32(raw[96:], 3)
+	le.PutUint32(raw[100:], uint32(len(path)))
+	copy(raw[104:], path)
+	ev, err := events.Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := ev.(*events.FileOpen)
+	if f.Path != "/etc/shadow" || f.Inode != 1234 || f.Dev != 0x800001 || !f.Write() || f.WatchBits != 3 || f.Flags != events.FileByInode {
+		t.Errorf("file_open decoded as %+v", f)
 	}
 }

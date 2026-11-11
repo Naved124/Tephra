@@ -7,6 +7,9 @@
 *_bpfel.o
 *_bpfeb.o
 
+# Tools fetched by `make proto`
+/.tools/
+
 # Dev VM state
 /deploy/vm/.state/
 

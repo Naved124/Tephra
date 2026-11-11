@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"net/netip"
 )
 
 // Type is enum event_type in bpf/common.h.
@@ -18,10 +19,25 @@ const (
 	TypeExec Type = 1
 	TypeFork Type = 2
 	TypeExit Type = 3
+	// TypeConnect and TypeAccept carry a Net event.
+	TypeConnect     Type = 4
+	TypeAccept      Type = 5
+	TypeUnixConnect Type = 6
+	TypeFileOpen    Type = 7
 )
 
 // Types lists every event type the agent knows.
-var Types = []Type{TypeExec, TypeFork, TypeExit}
+var Types = []Type{TypeExec, TypeFork, TypeExit, TypeConnect, TypeAccept, TypeUnixConnect, TypeFileOpen}
+
+// ParseType is the inverse of Type.String.
+func ParseType(s string) (Type, bool) {
+	for _, t := range Types {
+		if t.String() == s {
+			return t, true
+		}
+	}
+	return 0, false
+}
 
 func (t Type) String() string {
 	switch t {
@@ -31,6 +47,14 @@ func (t Type) String() string {
 		return "fork"
 	case TypeExit:
 		return "exit"
+	case TypeConnect:
+		return "connect"
+	case TypeAccept:
+		return "accept"
+	case TypeUnixConnect:
+		return "unix_connect"
+	case TypeFileOpen:
+		return "file_open"
 	}
 	return fmt.Sprintf("unknown(%d)", uint32(t))
 }
@@ -42,6 +66,29 @@ const (
 	ExecUnlinked   = 1 << 2
 	ExecSetuid     = 1 << 3
 	ExecArgvTrunc  = 1 << 4
+	ExecEnvTrunc   = 1 << 5
+)
+
+// File flag bits in Header.Flags, FILE_F_* in bpf/common.h.
+const (
+	FileByInode = 1 << 0
+	FileByName  = 1 << 1
+	FileByPath  = 1 << 2
+	FileNoPath  = 1 << 3
+	// FileKernelCreds marks an open made under credentials the kernel
+	// substituted, such as overlayfs opening a backing file.
+	FileKernelCreds = 1 << 4
+)
+
+// Address families and open flags as the kernel numbers them.
+const (
+	AFInet  = 2
+	AFInet6 = 10
+
+	OAccMode = 0o3
+	OCreat   = 0o100
+	OTrunc   = 0o1000
+	OAppend  = 0o2000
 )
 
 // Header is struct event_hdr. Pids are in the node's pid namespace.
@@ -78,7 +125,40 @@ type Exec struct {
 	CapEffective uint64
 	Path         string
 	Argv         []string
+	// Env holds only the variables on the kernel's allowlist, as
+	// NAME=value.
+	Env []string
 }
+
+// Net is struct net_event, for connect and accept. Local is the socket's own
+// side, Remote the peer.
+type Net struct {
+	Header
+	Family uint16
+	Proto  uint16
+	Local  netip.AddrPort
+	Remote netip.AddrPort
+}
+
+// UnixConnect is struct unix_event. An abstract address is rendered with a
+// leading "@", as ss and netstat print it.
+type UnixConnect struct {
+	Header
+	Path string
+}
+
+// FileOpen is struct file_event.
+type FileOpen struct {
+	Header
+	Inode     uint64
+	Dev       uint32
+	OpenFlags uint32
+	WatchBits uint32
+	Path      string
+}
+
+// Write reports whether the open can change the file.
+func (f *FileOpen) Write() bool { return f.OpenFlags&(OAccMode|OTrunc) != 0 }
 
 // Fork is struct fork_event. The header describes the task that called fork.
 type Fork struct {
@@ -151,6 +231,33 @@ func Decode(raw []byte) (Event, error) {
 			return nil, fmt.Errorf("exit record of %d bytes, want %d", len(raw), exitSize)
 		}
 		return &Exit{Header: h, Status: le.Uint32(raw[exitCode:])}, nil
+	case TypeConnect, TypeAccept:
+		return decodeNet(h, raw)
+	case TypeUnixConnect:
+		if len(raw) < unixSize {
+			return nil, fmt.Errorf("unix_connect record of %d bytes, want %d", len(raw), unixSize)
+		}
+		n := int(le.Uint32(raw[unixPathLen:]))
+		if n > unixPathMax {
+			return nil, fmt.Errorf("unix_connect record claims a path of %d bytes", n)
+		}
+		return &UnixConnect{Header: h, Path: sunPath(raw[unixPath : unixPath+n])}, nil
+	case TypeFileOpen:
+		if len(raw) < filePath {
+			return nil, fmt.Errorf("file_open record of %d bytes, want at least %d", len(raw), filePath)
+		}
+		n := int(le.Uint32(raw[filePathLen:]))
+		if n > pathLen || filePath+n > len(raw) {
+			return nil, fmt.Errorf("file_open record of %d bytes cannot hold path_len %d", len(raw), n)
+		}
+		return &FileOpen{
+			Header:    h,
+			Inode:     le.Uint64(raw[fileInode:]),
+			Dev:       le.Uint32(raw[fileDev:]),
+			OpenFlags: le.Uint32(raw[fileOpenFlags:]),
+			WatchBits: le.Uint32(raw[fileWatchBits:]),
+			Path:      cstr(raw[filePath : filePath+n]),
+		}, nil
 	}
 	return nil, fmt.Errorf("unknown event type %d", uint32(h.Type))
 }
@@ -163,7 +270,19 @@ func decodeExec(h Header, raw []byte) (Event, error) {
 	if n > argvLen || execArgv+n > len(raw) {
 		return nil, fmt.Errorf("exec record of %d bytes cannot hold argv_len %d", len(raw), n)
 	}
+	// env is one fixed slot per allowlisted name, all sent or none.
+	envN := int(le.Uint32(raw[execEnvLen:]))
+	if envN != 0 && (envN != envLen || execEnv+envN > len(raw)) {
+		return nil, fmt.Errorf("exec record of %d bytes cannot hold env_len %d", len(raw), envN)
+	}
+	var env []string
+	for off := execEnv; off < execEnv+envN; off += envVarLen {
+		if v := cstr(raw[off : off+envVarLen]); v != "" {
+			env = append(env, v)
+		}
+	}
 	return &Exec{
+		Env:          env,
 		Header:       h,
 		Inode:        le.Uint64(raw[execInode:]),
 		Dev:          le.Uint32(raw[execDev:]),
@@ -171,6 +290,41 @@ func decodeExec(h Header, raw []byte) (Event, error) {
 		Path:         cstr(raw[execPath : execPath+pathLen]),
 		Argv:         splitArgv(raw[execArgv : execArgv+n]),
 	}, nil
+}
+
+func decodeNet(h Header, raw []byte) (Event, error) {
+	if len(raw) < netSize {
+		return nil, fmt.Errorf("%s record of %d bytes, want %d", h.Type, len(raw), netSize)
+	}
+	n := &Net{
+		Header: h,
+		Family: le.Uint16(raw[netFamily:]),
+		Proto:  le.Uint16(raw[netProto:]),
+	}
+	var local, remote netip.Addr
+	switch n.Family {
+	case AFInet:
+		local = netip.AddrFrom4([4]byte(raw[netLAddr : netLAddr+4]))
+		remote = netip.AddrFrom4([4]byte(raw[netRAddr : netRAddr+4]))
+	case AFInet6:
+		// An IPv4 peer on an IPv6 socket is reported as IPv4.
+		local = netip.AddrFrom16([16]byte(raw[netLAddr : netLAddr+16])).Unmap()
+		remote = netip.AddrFrom16([16]byte(raw[netRAddr : netRAddr+16])).Unmap()
+	default:
+		return nil, fmt.Errorf("%s record with address family %d", h.Type, n.Family)
+	}
+	n.Local = netip.AddrPortFrom(local, le.Uint16(raw[netLPort:]))
+	n.Remote = netip.AddrPortFrom(remote, le.Uint16(raw[netRPort:]))
+	return n, nil
+}
+
+// unixPath renders a sockaddr_un path. A filesystem path ends at its first
+// NUL; an abstract one starts with a NUL and uses every byte.
+func sunPath(b []byte) string {
+	if len(b) > 0 && b[0] == 0 {
+		return "@" + string(bytes.TrimRight(b[1:], "\x00"))
+	}
+	return cstr(b)
 }
 
 // cstr returns the bytes before the first NUL.

@@ -70,6 +70,34 @@ probe_up() {
 	kubectl -n "$TEST_NS" get pod probe -o jsonpath='{.spec.nodeName}'
 }
 
+# Runs a command in the probe pod as an ordinary user.
 probe_exec() {
-	kubectl -n "$TEST_NS" exec probe -- "$@"
+	kubectl -n "$TEST_NS" exec probe -c probe -- "$@"
+}
+
+# Runs a command in the probe pod as root.
+root_exec() {
+	kubectl -n "$TEST_NS" exec probe -c root -- "$@"
+}
+
+# Waits for one record matching a jq filter and prints it.
+wait_record() { # since, jq filter, timeout seconds
+	local since="$1" filter="$2" deadline=$((SECONDS + $3)) found=""
+	while [ "$SECONDS" -lt "$deadline" ]; do
+		found=$(events_since "$since" | jq -c "select(${filter})" | sed -n 1p)
+		[ -n "$found" ] && break
+		sleep 1
+	done
+	printf '%s' "$found"
+}
+
+# Fails unless a jq filter is true of a record.
+check_record() { # record, description, jq filter
+	jq -e "$3" <<<"$1" >/dev/null || fail "$2: $1"
+}
+
+# One of the agent's own gauges or unlabelled counters, from a scrape on
+# stdin.
+metric() { # name
+	awk -v k="$1" '$1 == k {print $2}'
 }

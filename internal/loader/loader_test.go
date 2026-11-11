@@ -18,7 +18,7 @@ import (
 
 // Runs unprivileged: it only inspects the embedded object.
 func TestEmbeddedSpec(t *testing.T) {
-	spec, err := loadExec()
+	spec, err := loadTephra()
 	if err != nil {
 		t.Fatalf("load embedded spec: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestEmbeddedSpec(t *testing.T) {
 	if stats.Type != ebpf.PerCPUArray {
 		t.Errorf("stats map type = %v, want PerCPUArray", stats.Type)
 	}
-	for _, name := range []string{"tephra_fork", "tephra_exit", "tephra_self"} {
+	for _, name := range []string{"tephra_fork", "tephra_exit", "tephra_self", "tephra_connect", "tephra_accept", "tephra_accept_v1", "tephra_accept_v2", "tephra_file_open"} {
 		if _, ok := spec.Programs[name]; !ok {
 			t.Errorf("program %s not in spec", name)
 		}
@@ -76,8 +76,14 @@ func TestLoadAndObserve(t *testing.T) {
 		}
 	})
 
-	if got := len(s.Attachments()); got != 3 {
-		t.Fatalf("attachments = %d, want 3", got)
+	// Three lifecycle hooks, connect, one accept hook and file_open.
+	if got := len(s.Attachments()); got != 6 {
+		t.Fatalf("attachments = %d, want 6: %+v, skipped %+v", got, s.Attachments(), s.Skipped())
+	}
+	for _, typ := range events.Types {
+		if !s.Available(typ) || !s.Enabled(typ) {
+			t.Errorf("%s: available %v, enabled %v", typ, s.Available(typ), s.Enabled(typ))
+		}
 	}
 	if s.Self().CgroupID == 0 || s.Self().PidNSInum == 0 {
 		t.Errorf("self not resolved: %+v", s.Self())
@@ -85,7 +91,7 @@ func TestLoadAndObserve(t *testing.T) {
 
 	// The test binary shares the agent's cgroup, which is ignored. Lift
 	// that so the child below is visible.
-	if err := s.objs.CgroupIgnore.Delete(s.Self().CgroupID); err != nil {
+	if err := s.coll.Maps["cgroup_ignore"].Delete(s.Self().CgroupID); err != nil {
 		t.Fatalf("clear cgroup_ignore: %v", err)
 	}
 
@@ -167,7 +173,8 @@ func TestLoadAndObserve(t *testing.T) {
 			}
 			ok = st.Seen == st.Filtered+st.Emitted+st.Dropped
 		}
-		if !ok || st.Seen == 0 {
+		lifecycle := typ == events.TypeExec || typ == events.TypeFork || typ == events.TypeExit
+		if !ok || (lifecycle && st.Seen == 0) {
 			t.Errorf("%s stats inconsistent: %+v", typ, st)
 		}
 	}
@@ -184,7 +191,7 @@ func TestScriptExecReportsInterpreter(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if err := s.objs.CgroupIgnore.Delete(s.Self().CgroupID); err != nil {
+	if err := s.coll.Maps["cgroup_ignore"].Delete(s.Self().CgroupID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,7 +238,7 @@ func TestArgvTruncation(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if err := s.objs.CgroupIgnore.Delete(s.Self().CgroupID); err != nil {
+	if err := s.coll.Maps["cgroup_ignore"].Delete(s.Self().CgroupID); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// The agent-to-collector API. Record carries the same fields as the JSON
+// line the agent writes on stdout (section 5 of the design); field comments
+// there apply here.
+syntax = "proto3";
+
+package tephra.v1;
+
+option go_package = "github.com/Naved124/tephra/api/tephra/v1;tephrav1";
+
+service Exporter {
+  // Export sends a batch of records as one stream. The collector answers
+  // once the whole batch is stored. An error means none of it may be
+  // assumed stored, and the agent sends the batch again.
+  rpc Export(stream Record) returns (Ack);
+}
+
+message Ack {
+  // Records stored.
+  uint64 accepted = 1;
+  // Records refused for good: malformed, or turned down by the store.
+  // Sending them again would not help.
+  uint64 rejected = 2;
+}
+
+// Record is one enriched event, or an alert when rule is set.
+message Record {
+  string ts = 1;
+  string type = 2;
+  string node = 3;
+  Rule rule = 4;
+  Process process = 5;
+  Parent parent = 6;
+  repeated string ancestors = 7;
+  Container container = 8;
+  K8s k8s = 9;
+  Exit exit = 10;
+  Network network = 11;
+  File file = 12;
+  // Set on records of type "health" only: the sender's own counters, sent
+  // on a timer so that the dashboard can show sensor health from the same
+  // store as the events.
+  map<string, uint64> health = 13;
+}
+
+message Rule {
+  string id = 1;
+  string title = 2;
+  string level = 3;
+  repeated string tags = 4;
+}
+
+message Process {
+  uint32 pid = 1;
+  uint64 start_time_ns = 2;
+  string image = 3;
+  string command_line = 4;
+  string user = 5;
+  uint32 uid = 6;
+  uint32 gid = 7;
+  uint64 cgroup_id = 8;
+  bool is_main_binary = 9;
+  // Set on exec events only.
+  Exec exec = 10;
+}
+
+message Exec {
+  bool stdin_is_socket = 1;
+  bool stdout_is_socket = 2;
+  bool unlinked = 3;
+  bool setuid = 4;
+  bool argv_truncated = 5;
+  uint64 inode = 6;
+  uint32 dev = 7;
+  uint64 cap_effective = 8;
+  map<string, string> env = 9;
+  bool env_truncated = 10;
+}
+
+message Parent {
+  uint32 pid = 1;
+  string image = 2;
+  string command_line = 3;
+}
+
+message Container {
+  string id = 1;
+  string name = 2;
+  string image = 3;
+}
+
+message K8s {
+  string namespace = 1;
+  string pod = 2;
+  map<string, string> labels = 3;
+}
+
+message Exit {
+  uint32 code = 1;
+  uint32 signal = 2;
+}
+
+message Network {
+  string direction = 1;
+  string family = 2;
+  string protocol = 3;
+  string source_ip = 4;
+  uint32 source_port = 5;
+  string destination_ip = 6;
+  uint32 destination_port = 7;
+  string unix_path = 8;
+  bool is_k8s_api = 9;
+}
+
+message File {
+  string path = 1;
+  string target = 2;
+  uint32 flags = 3;
+  bool write = 4;
+  bool truncate = 5;
+  uint64 inode = 6;
+  uint32 dev = 7;
+  string matched_by = 8;
+}

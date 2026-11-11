@@ -6,6 +6,8 @@
 package enrich
 
 import (
+	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,18 +30,89 @@ type Enricher struct {
 	users *userCache
 	// boot is the wall-clock time of boot, sampled once at start-up.
 	boot time.Time
+	// mains is each container's first binary, by container ID.
+	mains map[string]*mainBinary
+	// inodes, if set, is told about every exec in a container.
+	inodes RootObserver
+	// apiServers are the addresses of the Kubernetes API.
+	apiServers map[netip.AddrPort]bool
+	// lastOpen is the latest file_open reported for each thread.
+	lastOpen map[uint32]openMark
+	nested   uint64
+}
+
+// openMark identifies one reported open.
+type openMark struct {
+	inode uint64
+	ts    uint64
+}
+
+// On overlayfs one open reaches the kernel hook twice: for the file the
+// process asked for, and straight after, in the same thread, for the backing
+// file overlayfs opens under its own credentials. The second one says
+// nothing new, so it is dropped: a file_open marked as made under
+// substituted credentials, for the same inode number as the open the thread
+// was just reported for. Anything that does not fit all of that is kept.
+const (
+	nestedWindow = 10 * time.Millisecond
+	maxLastOpen  = 8192
+)
+
+func (e *Enricher) nestedOpen(ev *events.FileOpen) bool {
+	if ev.Flags&events.FileKernelCreds != 0 {
+		last, ok := e.lastOpen[ev.TID]
+		return ok && last.inode == ev.Inode && ev.TSBootNS-last.ts < uint64(nestedWindow)
+	}
+	if len(e.lastOpen) >= maxLastOpen {
+		e.lastOpen = map[uint32]openMark{}
+	}
+	e.lastOpen[ev.TID] = openMark{inode: ev.Inode, ts: ev.TSBootNS}
+	return false
+}
+
+// NestedOpens is the number of duplicate opens dropped.
+func (e *Enricher) NestedOpens() uint64 { return e.nested }
+
+// RootObserver learns of processes whose root filesystem may hold watched
+// files; inodewatch.Tracker implements it.
+type RootObserver interface {
+	Observe(pid uint32, owner string)
+	// WatchedPath names the watched file an identity belongs to.
+	WatchedPath(dev uint32, inode uint64) (string, bool)
+}
+
+// mainBinary is the first process of a container and the binary it runs.
+type mainBinary struct {
+	key   proctree.Key
+	image string
+}
+
+// maxMains bounds the main-binary cache; entries are cheap to recompute.
+const maxMains = 4096
+
+// ObserveRoots sets who is told about execs in containers.
+func (e *Enricher) ObserveRoots(o RootObserver) { e.inodes = o }
+
+// SetAPIServers sets the addresses that count as the Kubernetes API.
+func (e *Enricher) SetAPIServers(addrs []netip.AddrPort) {
+	e.apiServers = make(map[netip.AddrPort]bool, len(addrs))
+	for _, a := range addrs {
+		e.apiServers[a] = true
+	}
 }
 
 // New returns an Enricher. pods may be nil.
 func New(node string, tree *proctree.Tree, procfs proctree.ProcFS, cgroups *k8s.CgroupResolver, pods *k8s.PodIndex) *Enricher {
 	return &Enricher{
-		node:    node,
-		tree:    tree,
-		procfs:  procfs,
-		cgroups: cgroups,
-		pods:    pods,
-		users:   newUserCache(procfs.Root),
-		boot:    bootTime(),
+		node:     node,
+		tree:     tree,
+		procfs:   procfs,
+		cgroups:  cgroups,
+		pods:     pods,
+		users:    newUserCache(procfs.Root),
+		boot:     bootTime(),
+		mains:    map[string]*mainBinary{},
+		lastOpen: map[uint32]openMark{},
 	}
 }
 
@@ -51,9 +124,14 @@ func bootTime() time.Time {
 	return time.Now().Add(-time.Duration(ts.Nano()))
 }
 
-// Handle applies the event to the process tree and returns its record.
+// Handle applies the event to the process tree and returns its record, or
+// nil for an event that repeats one already reported.
 func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 	h := ev.Hdr()
+	if f, ok := ev.(*events.FileOpen); ok && e.nestedOpen(f) {
+		e.nested++
+		return nil
+	}
 	rec := &export.Record{
 		TS:   e.boot.Add(time.Duration(h.TSBootNS)).UTC().Format("2006-01-02T15:04:05.000000Z"),
 		Type: h.Type.String(),
@@ -73,6 +151,15 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 			Inode:          ev.Inode,
 			Dev:            ev.Dev,
 			CapEffective:   ev.CapEffective,
+			EnvTruncated:   ev.Flags&events.ExecEnvTrunc != 0,
+		}
+		for _, kv := range ev.Env {
+			if name, value, ok := strings.Cut(kv, "="); ok {
+				if rec.Process.Env == nil {
+					rec.Process.Env = map[string]string{}
+				}
+				rec.Process.Env[name] = value
+			}
 		}
 	case *events.Fork:
 		// The forking process may predate the agent; make sure the
@@ -85,6 +172,31 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		p, _ = e.known(k)
 		e.tree.Exit(ev, now)
 		rec.Exit = &export.Exit{Code: ev.Code(), Signal: ev.Signal()}
+	case *events.Net:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.Network = e.network(ev)
+	case *events.UnixConnect:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		// On the wire a Unix connect is a connect with another family,
+		// so one rule event type covers both.
+		rec.Type = events.TypeConnect.String()
+		rec.Network = &export.Network{Direction: "outbound", Family: "unix", UnixPath: ev.Path}
+	case *events.FileOpen:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.File = &export.File{
+			Path:      ev.Path,
+			Flags:     ev.OpenFlags,
+			Write:     ev.Write(),
+			Truncate:  ev.OpenFlags&events.OTrunc != 0,
+			Inode:     ev.Inode,
+			Dev:       ev.Dev,
+			MatchedBy: matchedBy(ev.Flags),
+		}
+		if e.inodes != nil && ev.Flags&events.FileByInode != 0 {
+			if target, ok := e.inodes.WatchedPath(ev.Dev, ev.Inode); ok && target != ev.Path {
+				rec.File.Target = target
+			}
+		}
 	}
 	if p.Key.PID == 0 {
 		// Not in the tree and already gone from /proc: report what the
@@ -116,7 +228,85 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 
 	e.ancestry(rec, p)
 	e.attribute(rec, p, h.CgroupID)
+	if rec.Container != nil {
+		_, isExec := ev.(*events.Exec)
+		rec.Process.IsMainBinary = e.isMainBinary(rec.Container.ID, p, isExec)
+		if isExec && e.inodes != nil {
+			// A new root filesystem shows up with its first exec.
+			e.inodes.Observe(p.Key.PID, rec.Container.ID)
+		}
+	}
 	return rec
+}
+
+// isMainBinary reports whether p runs the binary its container started
+// with. The first process of a container is the oldest one the tree knows in
+// it; if that process execs again, the main binary follows.
+func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool) bool {
+	m := e.mains[containerID]
+	switch {
+	case m == nil:
+		first, ok := e.tree.OldestInContainer(containerID)
+		if !ok {
+			first = p
+		}
+		if len(e.mains) >= maxMains {
+			e.mains = map[string]*mainBinary{}
+		}
+		m = &mainBinary{key: first.Key, image: first.Image}
+		e.mains[containerID] = m
+	case isExec && p.Key == m.key:
+		m.image = p.Image
+	}
+	return p.Image != "" && p.Image == m.image
+}
+
+func (e *Enricher) network(ev *events.Net) *export.Network {
+	n := &export.Network{Family: "ipv4", Protocol: protocol(ev.Proto)}
+	if ev.Remote.Addr().Is6() {
+		n.Family = "ipv6"
+	}
+	src, dst := ev.Local, ev.Remote
+	n.Direction = "outbound"
+	if ev.Type == events.TypeAccept {
+		n.Direction = "inbound"
+		src, dst = ev.Remote, ev.Local
+	}
+	// An unbound local side reads as the zero address; leave it out.
+	if !src.Addr().IsUnspecified() {
+		n.SourceIP = src.Addr().String()
+	}
+	n.SourcePort = src.Port()
+	n.DestinationIP = dst.Addr().String()
+	n.DestinationPort = dst.Port()
+	n.IsK8sAPI = ev.Type == events.TypeConnect && e.apiServers[dst]
+	return n
+}
+
+func protocol(p uint16) string {
+	switch p {
+	case unix.IPPROTO_TCP:
+		return "tcp"
+	case unix.IPPROTO_UDP:
+		return "udp"
+	case unix.IPPROTO_ICMP:
+		return "icmp"
+	case unix.IPPROTO_ICMPV6:
+		return "icmpv6"
+	case unix.IPPROTO_SCTP:
+		return "sctp"
+	}
+	return strconv.Itoa(int(p))
+}
+
+func matchedBy(flags uint32) string {
+	switch {
+	case flags&events.FileByInode != 0:
+		return "inode"
+	case flags&events.FileByName != 0:
+		return "name"
+	}
+	return "path"
 }
 
 // known returns the process, reading it from /proc if the tree has never
@@ -222,6 +412,9 @@ func (e *Enricher) attribute(rec *export.Record, p proctree.Proc, cgroupID uint6
 		}
 	}
 
+	if a != nil && a.ContainerID != p.ContainerID {
+		e.tree.SetContainerID(p.Key, a.ContainerID)
+	}
 	if a == nil {
 		if resolved {
 			rec.K8s.Namespace = export.NamespaceHost

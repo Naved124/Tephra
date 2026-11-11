@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -86,6 +87,15 @@ func (f *fixture) procEntry(pid, ppid uint32, ticks uint64, exe string, argv ...
 	}
 }
 
+// inContainer puts an existing /proc entry into the web container's cgroup.
+func (f *fixture) inContainer(pid uint32) {
+	f.t.Helper()
+	path := filepath.Join(f.proc, fmt.Sprint(pid), "cgroup")
+	if err := os.WriteFile(path, []byte("0::/"+scope+"\n"), 0o644); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
 func (f *fixture) webPod() {
 	f.pods.Update(&corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "web-7c9d8-xk2lp", Namespace: "shop", UID: podUID, Labels: map[string]string{"app": "web"}},
@@ -106,6 +116,7 @@ func TestExecInPod(t *testing.T) {
 	// The shim and nginx predate the agent and are known only to /proc.
 	f.procEntry(100, 1, 1000, "/usr/bin/containerd-shim-runc-v2", "containerd-shim-runc-v2", "-namespace", "k8s.io")
 	f.procEntry(48190, 100, 2000, "/usr/sbin/nginx", "nginx: worker process")
+	f.inContainer(48190)
 	// The shell itself, for the passwd lookup through its root.
 	f.procEntry(48211, 48190, 9182, "/bin/sh", "sh", "-i")
 	if _, err := f.tree.Seed(proctree.ProcFS{Root: f.proc}); err != nil {
@@ -359,4 +370,190 @@ func toJSON(t *testing.T, r *export.Record) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+type observed struct {
+	pid   uint32
+	owner string
+}
+
+type fakeObserver struct{ seen []observed }
+
+func (o *fakeObserver) Observe(pid uint32, owner string) {
+	o.seen = append(o.seen, observed{pid, owner})
+}
+
+func (o *fakeObserver) WatchedPath(dev uint32, inode uint64) (string, bool) {
+	if dev == 0x100002 && inode == 9 {
+		return "/etc/shadow", true
+	}
+	return "", false
+}
+
+// webShell sets up nginx as the container's first process and returns the
+// header of a process it then starts.
+func (f *fixture) webShell(image string, argv ...string) events.Header {
+	f.t.Helper()
+	f.webPod()
+	cg := f.cgroup(scope)
+	f.procEntry(100, 1, 1000, "/usr/bin/containerd-shim-runc-v2", "containerd-shim-runc-v2")
+	f.procEntry(48190, 100, 2000, "/usr/sbin/nginx", "nginx: master process")
+	f.inContainer(48190)
+	if _, err := f.tree.Seed(proctree.ProcFS{Root: f.proc}); err != nil {
+		f.t.Fatal(err)
+	}
+	h := events.Header{PID: 48300, StartTimeNS: 99_000_000_000, PPID: 48190, CgroupID: cg, UID: 33, GID: 33}
+	h.Type = events.TypeExec
+	f.e.Handle(&events.Exec{Header: h, Path: image, Argv: argv}, time.Now())
+	return h
+}
+
+func TestNetworkRecords(t *testing.T) {
+	f := newFixture(t)
+	h := f.webShell("/usr/bin/curl", "curl", "https://kubernetes.default")
+	f.e.SetAPIServers([]netip.AddrPort{netip.MustParseAddrPort("10.96.0.1:443")})
+
+	h.Type = events.TypeConnect
+	rec := f.e.Handle(&events.Net{
+		Header: h, Family: events.AFInet, Proto: 6,
+		Local:  netip.MustParseAddrPort("0.0.0.0:0"),
+		Remote: netip.MustParseAddrPort("10.96.0.1:443"),
+	}, time.Now())
+	want := &export.Network{Direction: "outbound", Family: "ipv4", Protocol: "tcp", DestinationIP: "10.96.0.1", DestinationPort: 443, IsK8sAPI: true}
+	if !reflect.DeepEqual(rec.Network, want) {
+		t.Errorf("connect: got %+v, want %+v", rec.Network, want)
+	}
+	// The event is tied to the process the tree already knows.
+	if rec.Type != "connect" || rec.Process.Image != "/usr/bin/curl" || rec.Process.CommandLine != "curl https://kubernetes.default" ||
+		rec.Parent == nil || rec.Parent.Image != "/usr/sbin/nginx" || rec.K8s.Pod != "web-7c9d8-xk2lp" || rec.Process.Exec != nil {
+		t.Errorf("connect record: %s", toJSON(t, rec))
+	}
+	if rec.Process.IsMainBinary {
+		t.Error("curl reported as the container's main binary")
+	}
+
+	h.Type = events.TypeAccept
+	rec = f.e.Handle(&events.Net{
+		Header: h, Family: events.AFInet6, Proto: 6,
+		Local:  netip.MustParseAddrPort("[fd00:10:244::5]:8080"),
+		Remote: netip.MustParseAddrPort("[fd00:10:244::9]:51000"),
+	}, time.Now())
+	want = &export.Network{Direction: "inbound", Family: "ipv6", Protocol: "tcp",
+		SourceIP: "fd00:10:244::9", SourcePort: 51000, DestinationIP: "fd00:10:244::5", DestinationPort: 8080}
+	if !reflect.DeepEqual(rec.Network, want) {
+		t.Errorf("accept: got %+v, want %+v", rec.Network, want)
+	}
+
+	h.Type = events.TypeUnixConnect
+	rec = f.e.Handle(&events.UnixConnect{Header: h, Path: "/run/containerd/containerd.sock"}, time.Now())
+	if rec.Type != "connect" || rec.Network.Family != "unix" || rec.Network.UnixPath != "/run/containerd/containerd.sock" {
+		t.Errorf("unix connect record: %s", toJSON(t, rec))
+	}
+}
+
+func TestFileRecord(t *testing.T) {
+	f := newFixture(t)
+	f.e.ObserveRoots(&fakeObserver{})
+	h := f.webShell("/bin/cat", "cat", "/tmp/link")
+	h.Type = events.TypeFileOpen
+	h.Flags = events.FileByInode
+	rec := f.e.Handle(&events.FileOpen{Header: h, Inode: 9, Dev: 0x100002, OpenFlags: 0o1 | events.OTrunc, WatchBits: 3, Path: "/tmp/link"}, time.Now())
+	want := &export.File{Path: "/tmp/link", Target: "/etc/shadow", Flags: 0o1001, Write: true, Truncate: true, Inode: 9, Dev: 0x100002, MatchedBy: "inode"}
+	if !reflect.DeepEqual(rec.File, want) {
+		t.Errorf("got %+v, want %+v", rec.File, want)
+	}
+	if rec.Type != "file_open" || rec.Process.Image != "/bin/cat" || rec.Container == nil {
+		t.Errorf("file record: %s", toJSON(t, rec))
+	}
+}
+
+// The main binary is the one the container's first process runs, and it
+// follows that process through a later exec.
+func TestMainBinary(t *testing.T) {
+	f := newFixture(t)
+	obs := &fakeObserver{}
+	f.e.ObserveRoots(obs)
+	h := f.webShell("/bin/sh", "sh")
+
+	rec := f.e.Handle(&events.Exec{Header: h, Path: "/usr/sbin/nginx", Argv: []string{"nginx", "-t"}}, time.Now())
+	if !rec.Process.IsMainBinary {
+		t.Error("a second nginx is not reported as the main binary")
+	}
+	// Every exec in a container is shown to the root observer.
+	if want := []observed{{48300, cid}, {48300, cid}}; !reflect.DeepEqual(obs.seen, want) {
+		t.Errorf("observed %v, want %v", obs.seen, want)
+	}
+
+	// The first process execs something else, as "sh -c 'exec app'" does.
+	first, _ := f.tree.ByPID(48190)
+	init := events.Header{Type: events.TypeExec, PID: first.Key.PID, StartTimeNS: first.Key.StartNS, PPID: 100, CgroupID: h.CgroupID}
+	rec = f.e.Handle(&events.Exec{Header: init, Path: "/app/server", Argv: []string{"server"}}, time.Now())
+	if !rec.Process.IsMainBinary {
+		t.Error("the first process is not the main binary after its own exec")
+	}
+	rec = f.e.Handle(&events.Exec{Header: h, Path: "/usr/sbin/nginx", Argv: []string{"nginx"}}, time.Now())
+	if rec.Process.IsMainBinary {
+		t.Error("nginx still the main binary after the first process moved on")
+	}
+
+	// A host process never is.
+	host := f.cgroup("system.slice/ssh.service")
+	rec = f.e.Handle(&events.Exec{Header: events.Header{Type: events.TypeExec, PID: 700, StartTimeNS: 5, CgroupID: host}, Path: "/usr/sbin/sshd"}, time.Now())
+	if rec.Process.IsMainBinary || rec.Container != nil {
+		t.Errorf("host process: %s", toJSON(t, rec))
+	}
+}
+
+func TestExecEnv(t *testing.T) {
+	f := newFixture(t)
+	cg := f.cgroup("system.slice/x.service")
+	rec := f.e.Handle(&events.Exec{
+		Header: events.Header{Type: events.TypeExec, PID: 9, StartTimeNS: 1, CgroupID: cg, Flags: events.ExecEnvTrunc},
+		Path:   "/bin/true", Env: []string{"LD_PRELOAD=/tmp/x.so", "LD_LIBRARY_PATH="},
+	}, time.Now())
+	want := map[string]string{"LD_PRELOAD": "/tmp/x.so", "LD_LIBRARY_PATH": ""}
+	if !reflect.DeepEqual(rec.Process.Env, want) || !rec.Process.EnvTruncated {
+		t.Errorf("env %v truncated %v", rec.Process.Env, rec.Process.EnvTruncated)
+	}
+	if got := rec.Process.EnvNames(); !reflect.DeepEqual(got, []string{"LD_LIBRARY_PATH", "LD_PRELOAD"}) {
+		t.Errorf("env names %v", got)
+	}
+}
+
+// One open on overlayfs is reported once.
+func TestNestedOverlayOpenDropped(t *testing.T) {
+	f := newFixture(t)
+	h := f.webShell("/bin/cat", "cat", "/etc/shadow")
+	h.Type = events.TypeFileOpen
+	h.TID = 48300
+	h.TSBootNS = 1_000_000_000
+	open := func(flags uint32, inode uint64, at uint64) *export.Record {
+		h := h
+		h.Flags = flags
+		h.TSBootNS = at
+		return f.e.Handle(&events.FileOpen{Header: h, Inode: inode, Path: "/etc/shadow"}, time.Now())
+	}
+	kernel := uint32(events.FileByPath | events.FileKernelCreds)
+
+	if open(events.FileByInode, 9, 1_000_000_000) == nil {
+		t.Fatal("the process's own open was dropped")
+	}
+	if open(kernel, 9, 1_000_009_000) != nil {
+		t.Error("the backing-file open that followed it was reported again")
+	}
+	// Everything else under substituted credentials is kept: another
+	// file, a later time, a thread with no open reported.
+	if open(kernel, 10, 1_000_010_000) == nil {
+		t.Error("an open of another inode was dropped")
+	}
+	if open(kernel, 9, 1_500_000_000) == nil {
+		t.Error("an open long after the first was dropped")
+	}
+	h.TID = 48301
+	if open(kernel, 9, 1_000_009_000) == nil {
+		t.Error("an open in another thread was dropped")
+	}
+	if f.e.NestedOpens() != 1 {
+		t.Errorf("nested opens = %d, want 1", f.e.NestedOpens())
+	}
 }

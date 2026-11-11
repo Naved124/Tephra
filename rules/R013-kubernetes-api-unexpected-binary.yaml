@@ -1,0 +1,20 @@
+id: R013
+title: Connection to the Kubernetes API from an unexpected binary
+level: medium
+tags: [attack.discovery, attack.t1613]
+event: connect
+detection:
+  selection:
+    network.is_k8s_api: true
+  main:
+    process.is_main_binary: true
+  host:
+    k8s.namespace: host
+  condition: selection and not (main or host)
+action: alert
+description: >-
+  A pod's own program may use the API. A different binary in the same
+  container doing so, such as curl or kubectl, is someone exploring the
+  cluster with the pod's credentials.
+falsepositives:
+  - Helper processes of operators and controllers that call the API themselves

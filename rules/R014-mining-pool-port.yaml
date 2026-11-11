@@ -1,0 +1,14 @@
+id: R014
+title: Outbound connection to a common mining-pool port
+level: low
+tags: [attack.impact, attack.t1496]
+event: connect
+detection:
+  selection:
+    network.protocol: tcp
+    network.DestinationPort: [3333, 4444, 5555, 6666, 7777, 14433, 14444, 45560, 45700]
+  condition: selection
+action: alert
+description: Stratum mining pools listen on a small set of well-known ports.
+falsepositives:
+  - Any other service that happens to use one of these ports

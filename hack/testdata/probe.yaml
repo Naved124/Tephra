@@ -1,6 +1,12 @@
-# Workload the acceptance tests run commands in. Its main process is a
-# long-running shell that starts a new process every few seconds, which is
-# what the agent-restart check in M2 relies on.
+# Workload the acceptance tests run commands in.
+#
+# "probe" runs as an ordinary user. Its main process is a long-running shell
+# that starts a new process every few seconds, which is what the agent-restart
+# check in M2 relies on.
+#
+# "root" runs as root in the same pod, for the checks that need to read
+# /etc/shadow or write under /etc. Its main process is a small web server,
+# the connection target of the network checks.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -15,13 +21,22 @@ metadata:
     app: probe
 spec:
   terminationGracePeriodSeconds: 1
-  securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
   containers:
     - name: probe
       image: busybox:1.37
       command: ["/bin/sh", "-c", "while true; do sleep 5; done"]
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+    - name: root
+      image: busybox:1.37
+      command: ["/bin/httpd", "-f", "-p", "8080", "-h", "/tmp"]
+      securityContext:
+        runAsUser: 0
       resources:
         requests:
           cpu: 10m

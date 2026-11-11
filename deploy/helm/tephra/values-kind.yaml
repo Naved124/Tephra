@@ -1,5 +1,11 @@
-# Local kind cluster: the image is side-loaded with `kind load docker-image`.
+# Local kind cluster: the images are side-loaded with `kind load docker-image`.
+cluster: kind
 image:
   repository: tephra/tephrad
   tag: dev
   pullPolicy: Never
+collector:
+  image:
+    repository: tephra/collector
+    tag: dev
+    pullPolicy: Never

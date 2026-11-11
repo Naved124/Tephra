@@ -8,6 +8,7 @@ RUN apt-get update \
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
+COPY api/ api/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
 COPY internal/ internal/
