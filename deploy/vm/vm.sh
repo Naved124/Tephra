@@ -101,6 +101,11 @@ cmd_up() {
 		"${VIRSH[@]}" start "$VM_NAME"
 	fi
 	wait_ssh
+	# passt hands the VM the laptop's DNS servers when the VM starts. If the
+	# laptop has changed network since, they are stale.
+	if ! vm_ssh 'timeout 10 getent hosts github.com >/dev/null'; then
+		die "the VM cannot resolve names; if the laptop changed network, restart the VM: vm.sh down, then vm.sh up"
+	fi
 	echo "waiting for cloud-init"
 	vm_ssh 'cloud-init status --wait' || die "cloud-init failed; see /var/log/cloud-init-output.log in the VM"
 	vm_ssh 'sudo bash -s' <"$HERE/provision.sh"

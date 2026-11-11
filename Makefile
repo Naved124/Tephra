@@ -44,7 +44,7 @@ lint: generate ## Go, C and shell lint
 	go vet ./...
 	golangci-lint run
 	clang-format --dry-run --Werror $(BPF_SRCS)
-	shellcheck $(SCRIPTS)
+	shellcheck -x $(SCRIPTS)
 
 .PHONY: fmt
 fmt: ## Format Go and C sources
@@ -72,14 +72,23 @@ kind-down: ## Delete the kind lab cluster
 # The image ID goes into a pod annotation so that a rebuilt image under the
 # same tag still rolls the DaemonSet.
 .PHONY: dev
-dev: kind-up image ## Build, load into kind, install the chart, run the acceptance check
+dev: kind-up image ## Build, load into kind, install the chart, run the acceptance tests
 	kind load docker-image $(IMAGE) --name $(CLUSTER)
 	helm upgrade --install $(RELEASE) $(CHART) \
 		--kube-context kind-$(CLUSTER) \
 		--namespace $(NAMESPACE) --create-namespace \
 		-f $(CHART)/values-kind.yaml \
 		--set-string 'agent.podAnnotations.tephra\.dev/image-id='"$$(docker image inspect -f '{{.Id}}' $(IMAGE))"
+	$(MAKE) accept
+
+.PHONY: accept
+accept: ## Run the acceptance tests of every finished milestone against the cluster
+	@# Fresh agents: the checks read start-up log lines and counters, and a
+	@# busy agent's log rotates.
+	kubectl -n $(NAMESPACE) rollout restart daemonset/$(RELEASE)-agent
 	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m0.sh
+	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m1.sh
+	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m2.sh
 
 # --- dev VM (run on the laptop) ---------------------------------------------
 

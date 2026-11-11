@@ -18,11 +18,39 @@ Milestones follow section 10 of the design.
 | Milestone | State |
 |---|---|
 | M0 Skeleton and dev environment | Done |
-| M1 Process events | Not started |
+| M1 Process events | Done |
+| M2 Process tree and pod attribution | Done |
+| M3 Network and file events | Not started |
 
-What M0 gives you: the agent loads one eBPF program on the
-`sched_process_exec` tracepoint, counts execs in a per-CPU map and logs the
-counter every 10 seconds. It emits no events and evaluates no rules yet.
+What works today: the agent captures every exec, fork and exit on its node,
+keeps a process tree, and writes each event as one JSON line on stdout with
+its parent, ancestor chain, container and pod. There are no network or file
+events and no detection rules yet.
+
+An exec event, as `kubectl logs` shows it:
+
+```json
+{
+  "ts": "2026-11-11T08:32:33.501046Z", "type": "exec", "node": "tephra-worker2",
+  "process": {
+    "pid": 11337, "start_time_ns": 100207744246,
+    "Image": "/bin/ls", "CommandLine": "ls -la /var", "uid": 1000, "gid": 1000, "cgroup_id": 22269,
+    "stdin_is_socket": false, "stdout_is_socket": false, "unlinked": false, "setuid": false, "argv_truncated": false,
+    "inode": 810234, "dev": 321, "cap_effective": 0
+  },
+  "parent": {"pid": 11324, "Image": "/usr/local/sbin/runc", "CommandLine": "runc --root /run/containerd/runc/k8s.io --log /run/containerd/io.containerd.runtime.v2.task/k8s.io/f603c429b8b70c31a9599e038437c0041dd4cf99bad3e9313b0653c8fcd984fb/log.json --log-format json --systemd-cgroup exec --process /tmp/runc-process3135238854 --detach --pid-file /run/containerd/io.containerd.runtime.v2.task/k8s.io/f603c429b8b70c31a9599e038437c0041dd4cf99bad3e9313b0653c8fcd984fb/89a2ba462eefd7bbb5b44884761f0842b7fdcc5d8f1c9129b406dcfd2fac65f7.pid f603c429b8b70c31a9599e038437c0041dd4cf99bad3e9313b0653c8fcd984fb"},
+  "ancestors": ["/usr/local/sbin/runc", "/usr/local/bin/containerd-shim-runc-v2", "/usr/lib/systemd/systemd"],
+  "container": {"id": "f603c429b8b70c31a9599e038437c0041dd4cf99bad3e9313b0653c8fcd984fb", "name": "probe", "image": "docker.io/library/busybox:1.37"},
+  "k8s": {"namespace": "tephra-test", "pod": "probe", "labels": {"app": "probe"}}
+}
+```
+
+A process outside every pod has `"k8s": {"namespace": "host"}` and no
+`container`. The agent's own log goes to stderr; its lines have `level` and
+`msg` instead of `type`.
+
+Per-hook counters (seen, filtered, emitted, dropped) are on `/metrics`, port
+9090 of each agent pod.
 
 ## Requirements
 
@@ -47,26 +75,39 @@ make vm-sync    # copy the working tree into the VM
 make vm-ssh     # shell in the VM, in ~/tephra
 
 # inside the VM
-make dev        # kind cluster, image build, helm install, acceptance check
+make dev        # kind cluster, image build, helm install, acceptance tests
 ```
 
-`make dev` ends with one line per node and a verdict:
+`make dev` ends by running the acceptance test of every finished milestone
+(`hack/accept-m*.sh`), each printing what it checked and a verdict:
 
 ```
-pod/tephra-agent-xxxxx: {"level":"INFO","msg":"program attached","program":"tephra_exec","hook":"tp_btf/sched_process_exec"}
 PASS: program attached on 3/3 nodes
+ok: one exec event within 1s: {"node":"tephra-worker","Image":"/bin/ls","CommandLine":"ls -la /tmp","uid":1000}
+ok: after 10,000 execs (+10068 seen on tephra-worker), emitted + dropped + filtered == seen on every agent
+PASS: M1
+ok: pod event attributed: ...
+ok: host process labelled host, reported once: ...
+ok: after agent restart, a child of a pre-existing process resolves: ...
+PASS: M2
 ```
+
+`make accept` reruns only the tests against the cluster that is already up.
 
 The VM runs in the unprivileged libvirt session and is reachable only through
 `127.0.0.1:2222`. `make vm-down` stops it and `make vm-destroy` deletes it with
 its disk.
+
+The VM takes its DNS servers from the laptop when it starts. If the laptop
+moves to another network while the VM is running, image pulls inside it fail;
+`make vm-down && make vm-up` fixes that.
 
 ## Other targets
 
 ```sh
 make build      # compile the BPF programs and build bin/tephrad
 make test       # unit tests, unprivileged
-make test-root  # load the programs into the running kernel (use the VM)
+make test-root  # load the programs into the running kernel and check real events (use the VM)
 make lint       # go vet, golangci-lint, clang-format, shellcheck
 make vmlinux    # regenerate bpf/vmlinux.h from the running kernel
 make help
@@ -78,11 +119,16 @@ make help
 bpf/                 eBPF programs (C, CO-RE)
 cmd/tephrad/         agent entrypoint
 internal/loader/     bpf2go bindings, attach, kernel feature probes
+internal/events/     Go mirrors of the kernel structs, decoder
+internal/proctree/   process cache and /proc seeding
+internal/k8s/        cgroup ID -> container -> pod
+internal/enrich/     ancestry, user and pod attribution per event
+internal/export/     wire format, JSON lines on stdout
 deploy/docker/       image build
 deploy/helm/tephra/  Helm chart
 deploy/kind/         lab cluster definition
 deploy/vm/           dev VM definition
-hack/                acceptance-test scripts
+hack/                acceptance tests, one script per milestone
 docs/                design
 ```
 

@@ -8,7 +8,10 @@ agent:
   # Privileged until the narrowed capability list (BPF, PERFMON, SYS_RESOURCE,
   # SYS_PTRACE) has been proven to work in M6.
   privileged: true
-  statsInterval: 10s
+  # Events ring buffer in bytes; a power of two.
+  ringBufSize: 16777216
+  # Prometheus endpoint, /metrics on the pod IP.
+  metricsPort: 9090
   resources:
     requests:
       cpu: 100m

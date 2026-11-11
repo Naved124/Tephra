@@ -5,16 +5,17 @@
 # that its program attached.
 set -euo pipefail
 
-NAMESPACE="${NAMESPACE:-tephra}"
-RELEASE="${RELEASE:-tephra}"
+# shellcheck source=hack/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 TIMEOUT="${TIMEOUT:-60}"
-SELECTOR="app.kubernetes.io/instance=${RELEASE},app.kubernetes.io/component=agent"
 
 dump() {
 	echo "--- pods ---" >&2
 	kubectl -n "$NAMESPACE" get pods -l "$SELECTOR" -o wide >&2 || true
 	echo "--- logs ---" >&2
-	kubectl -n "$NAMESPACE" logs -l "$SELECTOR" --prefix --tail=40 >&2 || true
+	# The agent's own log lines carry "level"; events share the stream.
+	kubectl -n "$NAMESPACE" logs -l "$SELECTOR" --prefix --tail=2000 | grep '"level":' | tail -n 60 >&2 || true
 }
 
 if ! kubectl -n "$NAMESPACE" rollout status "daemonset/${RELEASE}-agent" --timeout=180s; then
@@ -24,8 +25,7 @@ if ! kubectl -n "$NAMESPACE" rollout status "daemonset/${RELEASE}-agent" --timeo
 fi
 
 nodes=$(kubectl get nodes -o name | wc -l)
-mapfile -t pods < <(kubectl -n "$NAMESPACE" get pods -l "$SELECTOR" \
-	--field-selector=status.phase=Running -o name)
+mapfile -t pods < <(agent_pods)
 if [ "${#pods[@]}" -ne "$nodes" ]; then
 	dump
 	echo "FAIL: ${#pods[@]} running agent pods for ${nodes} nodes" >&2

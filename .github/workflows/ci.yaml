@@ -31,7 +31,7 @@ jobs:
       - name: clang-format
         run: clang-format --dry-run --Werror bpf/*.bpf.c bpf/common.h
       - name: shellcheck
-        run: shellcheck hack/*.sh deploy/vm/*.sh
+        run: shellcheck -x hack/*.sh deploy/vm/*.sh
 
   build-test:
     runs-on: ubuntu-24.04
@@ -67,8 +67,9 @@ jobs:
           sudo install -m 0755 linux-amd64/helm /usr/local/bin/helm
       - name: Chart lint
         run: helm lint deploy/helm/tephra -f deploy/helm/tephra/values-kind.yaml
-      - name: make dev (M0 acceptance)
+      - name: make dev (acceptance tests M0 to M2)
         run: make dev
       - name: Agent logs
         if: always()
-        run: kubectl -n tephra logs -l app.kubernetes.io/component=agent --prefix --tail=100 || true
+        # The agent's own log lines carry "level"; events share the stream.
+        run: kubectl -n tephra logs -l app.kubernetes.io/component=agent --prefix --tail=5000 | grep '"level":' | tail -n 100 || true

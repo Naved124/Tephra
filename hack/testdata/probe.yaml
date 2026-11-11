@@ -1,0 +1,28 @@
+# Workload the acceptance tests run commands in. Its main process is a
+# long-running shell that starts a new process every few seconds, which is
+# what the agent-restart check in M2 relies on.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tephra-test
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: probe
+  namespace: tephra-test
+  labels:
+    app: probe
+spec:
+  terminationGracePeriodSeconds: 1
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+  containers:
+    - name: probe
+      image: busybox:1.37
+      command: ["/bin/sh", "-c", "while true; do sleep 5; done"]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi

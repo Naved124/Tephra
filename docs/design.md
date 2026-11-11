@@ -108,6 +108,7 @@ tephra/
     events/               # Go mirrors of C structs, decoder
     proctree/             # process cache
     k8s/                  # cgroup -> container -> pod
+    enrich/               # ancestry, user and pod attribution per event
     rules/                # YAML parser, compiler, evaluator
     export/               # stdout, gRPC client
   api/                    # protobuf definitions
@@ -170,7 +171,7 @@ struct event_hdr {
     __u64 cgroup_id;       // bpf_get_current_cgroup_id(), cgroup v2
     __u32 type;            // enum event_type
     __u32 size;            // total record size in bytes
-    __u32 pid;             // tgid in the root pid namespace
+    __u32 pid;             // tgid in the node's pid namespace (the root one on a real node)
     __u32 tid;
     __u32 ppid;
     __u32 uid;
@@ -191,7 +192,7 @@ struct exec_event {
     __u32 dev;
     __u32 argv_len;        // bytes used in argv, NUL-separated
     __u64 cap_effective;
-    char  path[256];       // from bprm->file via bpf_d_path
+    char  path[256];       // bprm->interp; bpf_d_path is not callable from this hook
     char  argv[1024];      // truncated; EXEC_F_ARGV_TRUNC set in h.flags
 };
 // h.flags: EXEC_F_STDIN_SOCK, EXEC_F_STDOUT_SOCK, EXEC_F_UNLINKED (i_nlink == 0),
@@ -287,7 +288,7 @@ The agent is one Go binary structured as a pipeline of four stages connected by 
 
 - One goroutine blocks on ringbuf.Reader.Read(), decodes the header, and dispatches on type to a typed decoder. Decoding uses fixed offsets generated from the C structs, with a test that fails the build if a Go struct size differs from the C one.
 - Boot-time timestamps are converted to wall-clock once at start-up by sampling both clocks.
-- Every 10 seconds the agent reads stats and exposes per-type seen, filtered, emitted and dropped on a Prometheus /metrics endpoint.
+- The agent exposes per-type seen, filtered, emitted and dropped on a Prometheus /metrics endpoint, reading the stats map on each scrape.
 
 ### Process tree
 
@@ -297,7 +298,8 @@ Rules need ancestry ("a shell whose parent is nginx"), which a single event does
 - Entry: binary path, argv, uid, cgroup ID, parent key, container metadata once resolved, exit time.
 - Populated from fork, exec and exit events. At start-up the agent walks /proc once to seed processes that were already running.
 - Entries are removed 60 seconds after exit so that late events from other hooks still resolve. The cache is capped (default 65,536 entries) with oldest-exited eviction.
-- Ordering: events from different CPUs can arrive slightly out of order. An event whose process is unknown is held for up to 100 ms before being enriched with what is available.
+- Ordering: all hooks write to one ring buffer, which hands records to the agent in the order they were produced, so a fork always precedes its exec. An event whose process or parent is unknown therefore predates the agent, and is read from /proc on the spot instead of being held.
+- Re-parenting: when a process's recorded parent has exited, its current parent is read from /proc and the link is updated. Container runtimes rely on this on every start (runc forks the first process and exits, leaving it to the shim).
 
 ### Pod attribution
 
@@ -307,9 +309,13 @@ The kernel knows cgroups; Kubernetes knows pods. The agent joins them in three s
 - cgroup path to container ID. The last path segment contains the runtime's container ID, for containerd in the form cri-containerd-<64 hex>.scope. Extract it with a pattern per runtime; containerd is the only one supported in v1.
 - Container ID to pod. A pod informer scoped to this node keeps an index from status.containerStatuses[].containerID to pod name, namespace, labels, container name and image.
 
-Events from cgroups with no container ID are labelled as host processes. cgroup v2 is required; nodes on cgroup v1 are rejected at start-up with a clear message.
+Events from cgroups with no container ID are labelled as host processes (`k8s.namespace: host`). An event whose cgroup cannot be resolved at all, or whose container is not known to Kubernetes, is labelled `unknown` so that it is never mistaken for a host process. cgroup v2 is required; nodes on cgroup v1 are rejected at start-up with a clear message.
+
+A container's first processes run before its status reaches the API server. Until it does, the pod is resolved through the pod UID in the cgroup path, and the event carries namespace, pod and labels but no container name or image.
 
 In kind, each node is itself a container, so pod cgroups are nested under the node container's cgroup on the VM. The path-matching step must handle that extra prefix, and the M2 acceptance test runs on kind for exactly this reason.
+
+kind has a second consequence. All its nodes share one kernel, so every agent's programs see every node's processes, and the pids the kernel reports in the root namespace are not the pids the node's /proc shows. At start-up the agent runs a small program in its own context to learn its pid namespace (depth and inode) and its cgroup. The kernel programs then report pids as numbered in that namespace and drop tasks outside it. On a real node the namespace is the root one and nothing is dropped.
 
 ### Enriched event (wire format)
 
@@ -725,3 +731,24 @@ Where the build diverged from the text above, by milestone. The sections above a
 - **Kernel version table.** Section 4 verified against kernel sources; no corrections were needed (section 11, risks).
 - **bpf_d_path.** Not callable from `sched_process_exec`; recorded in the risk table for M1.
 - **Compilation table, section 6.** The Effect cell of the `file.path|startswith` row was lost in the original document and is left blank.
+
+### M1
+
+- **Pids are node-relative.** `event_hdr.pid`, `tid` and `ppid` are numbered in the agent's pid namespace, and tasks outside it are filtered in the kernel (sections 4 and 5). Without this, kind reports each event three times and no pid matches /proc. Adds `tephra_cfg.pidns_level` and `pidns_inum`, a `self` map, and the `tephra_self` program (type `syscall`, needs kernel 5.14).
+- **Exec path.** `exec_event.path` is `bprm->interp`, not the `bprm->filename` fallback the risk table names. The two are the same for an ordinary exec. For a `#!` script, `filename` is the script and `interp` is the interpreter that actually runs, so with `interp` a shell started through a script still has a shell as its `Image` and R001 and R002 cannot be sidestepped by wrapping the shell in a script. The script's path remains in argv. `inode`, `dev` and the unlinked and setuid flags come from `mm->exe_file`, also the interpreter, so path and identity now describe the same file. The path is still the name as executed: relative if the caller used a relative path.
+- **Fork and exit payloads** (left open in section 4). `fork_event`: header of the forking task, then `child_pid`, `parent_pid`, `child_start_time_ns`, `parent_start_time_ns`. `exit_event`: `exit_code` as a wait status. Thread creation and non-final thread exits are counted as filtered.
+- **Wire format additions.** `process` also carries `gid`, `cgroup_id`, and on exec `unlinked`, `setuid`, `argv_truncated`, `inode`, `dev`, `cap_effective`. Exit events carry `exit: {code, signal}`. For a fork, `process` is the child.
+- **Logs.** Events go to stdout and the agent's own log to stderr, so the event stream stays one JSON event per line.
+- **Metrics** are read from the stats map per scrape instead of every 10 seconds.
+- **Not built yet:** the YAML config file and SIGHUP reload from section 5; the agent takes flags. They are needed first by M4.
+- **Not tested:** the 5.15 kernel floor. Everything ran on 6.8 (dev VM); CI runs on the GitHub runner kernel.
+
+### M2
+
+- **No 100 ms hold** for unknown processes; they are read from /proc immediately (section 5, process tree).
+- **Re-parenting** is followed through /proc (section 5, process tree).
+- **/proc start times are tick-precise.** A seeded process is keyed by its start time rounded to 10 ms and matched to kernel events by pid and tick.
+- **`unknown` namespace label** and the pod-UID fallback (section 5, pod attribution).
+- **`User`** is resolved from the passwd file in the process's own mount namespace, through /proc/<pid>/root, and omitted when the uid has no entry.
+- **New package** `internal/enrich` (section 3).
+- **RBAC:** the chart now grants get, list and watch on pods, cluster-wide; the informer itself is filtered to the agent's node.

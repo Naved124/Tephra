@@ -47,9 +47,13 @@ if ! helm version --short 2>/dev/null | grep -q "^${HELM_VERSION}+"; then
 	install -m 0755 "$tmp/linux-amd64/helm" /usr/local/bin/helm
 fi
 
+export DEBIAN_FRONTEND=noninteractive
+
+# jq: the acceptance tests read the agent's JSON events with it.
+command -v jq >/dev/null || apt-get install -y -q jq
+
 # bpftool: used to regenerate vmlinux.h and to inspect loaded programs.
 if ! command -v bpftool >/dev/null || ! bpftool version >/dev/null 2>&1; then
-	export DEBIAN_FRONTEND=noninteractive
 	apt-get install -y -q bpftool || apt-get install -y -q "linux-tools-$(uname -r)"
 fi
 
