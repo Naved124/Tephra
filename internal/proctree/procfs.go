@@ -3,6 +3,8 @@
 package proctree
 
 import (
+	"golang.org/x/sys/unix"
+
 	"bytes"
 	"errors"
 	"fmt"
@@ -114,6 +116,11 @@ func (fs ProcFS) Read(pid uint32) (Proc, uint32, error) {
 	// an error.
 	if exe, err := os.Readlink(filepath.Join(dir, "exe")); err == nil {
 		p.Image = strings.TrimSuffix(exe, " (deleted)")
+		var st unix.Stat_t
+		if unix.Stat(filepath.Join(dir, "exe"), &st) == nil {
+			p.ExeDev = unix.Major(st.Dev)<<20 | unix.Minor(st.Dev)
+			p.ExeInode = st.Ino
+		}
 	}
 	if cmdline, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil && len(cmdline) > 0 {
 		p.Argv = strings.Split(strings.TrimSuffix(string(cmdline), "\x00"), "\x00")

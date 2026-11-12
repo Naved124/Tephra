@@ -76,11 +76,11 @@ func TestLoadAndObserve(t *testing.T) {
 		}
 	})
 
-	// Three lifecycle hooks, connect, one accept hook and file_open.
-	// Three lifecycle hooks, connect, accept, file_open and the seven
-	// privilege and tamper hooks.
-	if got := len(s.Attachments()); got != 13 {
-		t.Fatalf("attachments = %d, want 13: %+v, skipped %+v", got, s.Attachments(), s.Skipped())
+	// Three lifecycle hooks, connect, accept, file_open, the five
+	// file_change hooks, refused opens and the seven privilege and tamper
+	// hooks.
+	if got := len(s.Attachments()); got != 19 {
+		t.Fatalf("attachments = %d, want 19: %+v, skipped %+v", got, s.Attachments(), s.Skipped())
 	}
 	for _, typ := range events.Types {
 		if !s.Available(typ) || !s.Enabled(typ) {

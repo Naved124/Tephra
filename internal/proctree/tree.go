@@ -42,6 +42,13 @@ type Proc struct {
 	Argv   []string
 	Comm   string
 	UID    uint32
+	// ExeDev and ExeInode identify the file of the running binary; zero
+	// if unknown. ExeDev is in the kernel's encoding.
+	ExeDev   uint32
+	ExeInode uint64
+	// RuntimeChild marks an image with no file of its own that a node
+	// runtime binary executed: runc re-executing itself from memory.
+	RuntimeChild bool
 	// CgroupID is 0 for a process seeded from /proc that has not produced
 	// an event yet.
 	CgroupID uint64
@@ -177,6 +184,9 @@ func (t *Tree) Fork(ev *events.Fork) {
 	if src := t.get(Key{ev.PID, ev.StartTimeNS}); src != nil {
 		child.Image = src.Image
 		child.Argv = src.Argv
+		child.ExeDev = src.ExeDev
+		child.ExeInode = src.ExeInode
+		child.RuntimeChild = src.RuntimeChild
 		child.ContainerID = src.ContainerID
 		child.Attr = src.Attr
 	}
@@ -201,6 +211,9 @@ func (t *Tree) Exec(ev *events.Exec) Proc {
 	}
 	p.Image = ev.Path
 	p.Argv = ev.Argv
+	p.ExeDev = ev.Dev
+	p.ExeInode = ev.Inode
+	p.RuntimeChild = false
 	p.Comm = ev.Comm
 	p.UID = ev.UID
 	if p.CgroupID != ev.CgroupID {
@@ -270,6 +283,15 @@ func (t *Tree) Live() []Proc {
 		}
 	}
 	return out
+}
+
+// SetRuntimeChild marks the current image of a process as the runtime's own.
+func (t *Tree) SetRuntimeChild(k Key) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if p := t.get(k); p != nil {
+		p.RuntimeChild = true
+	}
 }
 
 // SetParent records a new parent, after the kernel re-parented a process

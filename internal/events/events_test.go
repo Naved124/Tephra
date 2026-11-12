@@ -309,3 +309,57 @@ func TestDecodeUnixAndFile(t *testing.T) {
 		t.Errorf("file_open decoded as %+v", f)
 	}
 }
+
+func TestDecodeFileChangeAndDenied(t *testing.T) {
+	le := binary.LittleEndian
+	path := "/etc/ld.so.preload\x00"
+	raw := header(events.TypeFileChange, 104+len(path))
+	le.PutUint32(raw[60:], events.FileByPath)
+	le.PutUint32(raw[92:], 3) // FILE_OP_RENAME_TO
+	le.PutUint32(raw[100:], uint32(len(path)))
+	copy(raw[104:], path)
+	ev, err := events.Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := ev.(*events.FileChange); c.Path != "/etc/ld.so.preload" || c.Op != "rename_to" || c.Inode != 0 {
+		t.Errorf("file_change decoded as %+v", c)
+	}
+	for _, op := range []uint32{0, 7} {
+		le.PutUint32(raw[92:], op)
+		if _, err := events.Decode(raw); err == nil {
+			t.Errorf("file_change with operation %d accepted", op)
+		}
+	}
+
+	// Without a working directory the record ends after the name.
+	raw = header(events.TypeFileDenied, 96+256)
+	le.PutUint32(raw[80:], 13)
+	le.PutUint32(raw[84:], 0o101) // O_WRONLY|O_CREAT
+	copy(raw[96:], "/etc/shadow\x00")
+	ev, err = events.Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := ev.(*events.FileDenied); d.Name != "/etc/shadow" || d.Errno != 13 || !d.Write() || d.Cwd != "" {
+		t.Errorf("file_denied decoded as %+v", d)
+	}
+
+	raw = header(events.TypeFileDenied, 96+512)
+	le.PutUint32(raw[80:], 30)
+	le.PutUint32(raw[92:], 5)
+	copy(raw[96:], "shadow\x00")
+	copy(raw[96+256:], "/etc\x00")
+	ev, err = events.Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := ev.(*events.FileDenied); d.Name != "shadow" || d.Cwd != "/etc" || d.Write() {
+		t.Errorf("file_denied with cwd decoded as %+v", d)
+	}
+	// A cwd_len the record cannot hold.
+	short := raw[:96+256+2]
+	if _, err := events.Decode(short); err == nil {
+		t.Error("file_denied with a cwd past the end of the record accepted")
+	}
+}

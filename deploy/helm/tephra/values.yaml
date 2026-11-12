@@ -5,6 +5,10 @@ image:
   repository: ghcr.io/naved124/tephrad
   # Defaults to the chart appVersion.
   tag: ""
+  # sha256:... of the image. When set it is used instead of the tag, so the
+  # node runs exactly the image that was signed. The released chart has it
+  # filled in.
+  digest: ""
   pullPolicy: IfNotPresent
 
 agent:
@@ -54,6 +58,7 @@ collector:
   image:
     repository: ghcr.io/naved124/tephra-collector
     tag: ""
+    digest: ""
     pullPolicy: IfNotPresent
   # Loki to push to. Empty means the Loki installed by this chart.
   lokiUrl: ""

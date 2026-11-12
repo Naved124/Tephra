@@ -80,6 +80,8 @@ var (
 		"connect":     {events.TypeConnect, events.TypeUnixConnect},
 		"accept":      {events.TypeAccept},
 		"file_open":   {events.TypeFileOpen},
+		"file_change": {events.TypeFileChange},
+		"file_denied": {events.TypeFileDenied},
 		"ptrace":      {events.TypePtrace},
 		"memfd":       {events.TypeMemfd},
 		"module_load": {events.TypeModuleLoad},
@@ -191,7 +193,7 @@ func parseRule(file string, n *yaml.Node) (*Rule, error) {
 	case !levels[r.Level]:
 		return nil, fail(n, "rule %s: level %q is not one of info, low, medium, high, critical", r.ID, r.Level)
 	case ruleEvents[r.Event] == nil:
-		return nil, fail(n, "rule %s: event %q is not a known event type (exec, fork, exit, connect, accept, file_open, ptrace, memfd, module_load, bpf_load, cred_change, mount, setns)", r.ID, r.Event)
+		return nil, fail(n, "rule %s: event %q is not a known event type (exec, fork, exit, connect, accept, file_open, file_change, file_denied, ptrace, memfd, module_load, bpf_load, cred_change, mount, setns)", r.ID, r.Event)
 	case r.Action == "block":
 		return nil, fail(n, "rule %s: action block needs the enforcement programs, which are not part of this version", r.ID)
 	case r.Action != "alert":

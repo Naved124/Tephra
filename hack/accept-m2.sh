@@ -51,12 +51,29 @@ pass "pod event attributed: $(jq -c '{k8s, container: {name: .container.name, im
 # A process started directly on the node, outside every pod.
 t0=$(now)
 docker exec "$node" ls -la /etc/kubernetes >/dev/null
-ev=$(wait_event "$t0" '.process.CommandLine == "ls -la /etc/kubernetes"' 5)
+# Every report of that exec, from all agents, taken from one read of the logs
+# and counted from that same read. The kubelet rotates an agent's log once it
+# reaches its size limit, which the 10,000 execs of the M1 test bring close; a
+# second read can come back without an event the first one had.
+host_execs() {
+	events_since "$t0" | jq -c 'select(.type == "exec" and .process.CommandLine == "ls -la /etc/kubernetes")'
+}
+found=""
+for _ in 1 2 3 4 5; do
+	found=$(host_execs)
+	[ -n "$found" ] && break
+	sleep 1
+done
+ev=$(sed -n 1p <<<"$found")
 [ -n "$ev" ] || fail "no exec event for the host process on ${node}"
 check "$ev" "host process not labelled host" '.k8s.namespace == "host" and .k8s.pod == null'
 check "$ev" "host process has a container" '.container == null'
 check "$ev" "wrong node" ".node == \"${node}\""
-n=$(events_since "$t0" | jq -c 'select(.type == "exec" and .process.CommandLine == "ls -la /etc/kubernetes")' | grep -c . || true)
+n=$(grep -c . <<<"$found")
+# A neighbour's duplicate could arrive a moment later.
+sleep 1
+later=$(host_execs | grep -c . || true)
+[ "$later" -gt "$n" ] && n=$later
 [ "$n" -eq 1 ] || fail "host exec reported ${n} times; each node's agent must report only its own node"
 pass "host process labelled host, reported once: $(jq -c '{node, k8s, Image: .process.Image}' <<<"$ev")"
 

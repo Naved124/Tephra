@@ -62,7 +62,7 @@ type field struct {
 var (
 	onExec = []string{"exec"}
 	onNet  = []string{"connect", "accept"}
-	onFile = []string{"file_open"}
+	onFile = []string{"file_open", "file_change", "file_denied"}
 	onExit = []string{"exit"}
 )
 
@@ -172,6 +172,7 @@ var fields = map[string]field{
 	"process.uid":            {kind: kInt, get: func(r *export.Record) value { return integer(int64(r.Process.UID)) }},
 	"process.gid":            {kind: kInt, get: func(r *export.Record) value { return integer(int64(r.Process.GID)) }},
 	"process.is_main_binary": {kind: kBool, get: func(r *export.Record) value { return boolean(r.Process.IsMainBinary) }},
+	"process.runtime":        {kind: kBool, get: func(r *export.Record) value { return boolean(r.Process.Runtime) }},
 
 	"process.stdin_is_socket":  execField(kBool, func(e *export.Exec) value { return boolean(e.StdinIsSocket) }),
 	"process.stdout_is_socket": execField(kBool, func(e *export.Exec) value { return boolean(e.StdoutIsSocket) }),
@@ -185,6 +186,7 @@ var fields = map[string]field{
 	"parent.pid":         parentField(kInt, func(p *export.Parent) value { return integer(int64(p.PID)) }),
 	"parent.Image":       parentField(kString, func(p *export.Parent) value { return str(p.Image) }),
 	"parent.CommandLine": parentField(kString, func(p *export.Parent) value { return str(p.CommandLine) }),
+	"parent.runtime":     parentField(kBool, func(p *export.Parent) value { return boolean(p.Runtime) }),
 	"ancestors":          {kind: kStrings, get: func(r *export.Record) value { return value{ss: r.Ancestors, ok: true} }},
 
 	"container.id":    containerField(func(c *export.Container) string { return c.ID }),
@@ -217,6 +219,18 @@ var fields = map[string]field{
 	"file.write":      fileField(kBool, func(f *export.File) value { return boolean(f.Write) }),
 	"file.truncate":   fileField(kBool, func(f *export.File) value { return boolean(f.Truncate) }),
 	"file.matched_by": fileField(kString, func(f *export.File) value { return str(f.MatchedBy) }),
+	"file.op": {kind: kString, events: []string{"file_change"}, get: func(r *export.Record) value {
+		if r.File == nil {
+			return value{}
+		}
+		return present(r.File.Op)
+	}},
+	"file.error": {kind: kString, events: []string{"file_denied"}, get: func(r *export.Record) value {
+		if r.File == nil {
+			return value{}
+		}
+		return present(r.File.Error)
+	}},
 
 	"exit.code": {kind: kInt, events: onExit, get: func(r *export.Record) value {
 		if r.Exit == nil {

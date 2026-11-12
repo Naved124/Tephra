@@ -54,8 +54,8 @@ func TestShippedRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set.Rules) != 21 {
-		t.Errorf("loaded %d rules, want R001 to R021", len(set.Rules))
+	if len(set.Rules) != 24 {
+		t.Errorf("loaded %d rules, want R001 to R024", len(set.Rules))
 	}
 	for _, r := range set.Rules {
 		if r.Description == "" || len(r.Tags) < 2 {
@@ -130,6 +130,18 @@ func TestShippedWatches(t *testing.T) {
 		{Kind: filter.Name, Path: ".zsh_history", Bits: filter.Write},
 		{Kind: filter.Name, Path: ".ash_history", Bits: filter.Write},
 		{Kind: filter.Name, Path: ".sh_history", Bits: filter.Write},
+		// R024, refused opens only.
+		{Kind: filter.Exact, Path: "/etc/shadow", Bits: filter.Denied},
+		{Kind: filter.Exact, Path: "/etc/gshadow", Bits: filter.Denied},
+		{Kind: filter.Exact, Path: "/etc/sudoers", Bits: filter.Denied},
+		{Kind: filter.Exact, Path: "/etc/ld.so.preload", Bits: filter.Denied},
+		{Kind: filter.Prefix, Path: "/etc/cron.d/", Bits: filter.Denied},
+		{Kind: filter.Prefix, Path: "/var/spool/cron/", Bits: filter.Denied},
+		{Kind: filter.Exact, Path: "/etc/crontab", Bits: filter.Denied},
+		{Kind: filter.Name, Path: "authorized_keys", Bits: filter.Denied},
+		{Kind: filter.Name, Path: "authorized_keys2", Bits: filter.Denied},
+		{Kind: filter.Name, Path: "release_agent", Bits: filter.Denied},
+		{Kind: filter.Name, Path: "core_pattern", Bits: filter.Denied},
 	}
 	for _, w := range want {
 		if !got[w] {
@@ -145,7 +157,7 @@ func TestShippedWatches(t *testing.T) {
 	for _, typ := range set.EventTypes() {
 		types[typ.String()] = true
 	}
-	for _, name := range []string{"exec", "connect", "unix_connect", "file_open", "ptrace", "module_load", "bpf_load", "cred_change", "mount", "setns"} {
+	for _, name := range []string{"exec", "connect", "unix_connect", "file_open", "file_change", "file_denied", "ptrace", "module_load", "bpf_load", "cred_change", "mount", "setns"} {
 		if !types[name] {
 			t.Errorf("event type %s not enabled by the shipped rules", name)
 		}

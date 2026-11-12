@@ -58,6 +58,7 @@ func metricsHandler(a *agent, pods *k8s.PodIndex) http.Handler {
 
 		counter(&b, "tephra_agent_decode_errors_total", "Ring buffer records the agent could not decode.", c.decodeErrors.Load())
 		counter(&b, "tephra_agent_nested_opens_total", "File opens dropped as the second report of one overlayfs open.", c.nestedOpens.Load())
+		counter(&b, "tephra_agent_denied_unwatched_total", "Refused opens dropped because no watch covers the file.", c.deniedUnwatched.Load())
 		counter(&b, "tephra_agent_records_exported_total", "Records written to stdout.", c.exported.Load())
 		counter(&b, "tephra_agent_export_errors_total", "Records that failed to write.", c.exportErrors.Load())
 		counter(&b, "tephra_agent_reloads_total", "Configuration reloads that took effect.", c.reloads.Load())

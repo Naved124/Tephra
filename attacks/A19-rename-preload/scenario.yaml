@@ -1,0 +1,6 @@
+id: A19
+title: Move a file onto /etc/ld.so.preload
+tags: [attack.persistence, attack.t1574.006]
+expect: [R023]
+run:
+  pod: victim

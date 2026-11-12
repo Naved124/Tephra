@@ -798,7 +798,9 @@ type Process struct {
 	CgroupId     uint64                 `protobuf:"varint,8,opt,name=cgroup_id,json=cgroupId,proto3" json:"cgroup_id,omitempty"`
 	IsMainBinary bool                   `protobuf:"varint,9,opt,name=is_main_binary,json=isMainBinary,proto3" json:"is_main_binary,omitempty"`
 	// Set on exec events only.
-	Exec          *Exec `protobuf:"bytes,10,opt,name=exec,proto3" json:"exec,omitempty"`
+	Exec *Exec `protobuf:"bytes,10,opt,name=exec,proto3" json:"exec,omitempty"`
+	// The process runs one of the node's container runtime binaries.
+	Runtime       bool `protobuf:"varint,11,opt,name=runtime,proto3" json:"runtime,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -901,6 +903,13 @@ func (x *Process) GetExec() *Exec {
 		return x.Exec
 	}
 	return nil
+}
+
+func (x *Process) GetRuntime() bool {
+	if x != nil {
+		return x.Runtime
+	}
+	return false
 }
 
 type Exec struct {
@@ -1024,6 +1033,7 @@ type Parent struct {
 	Pid           uint32                 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
 	Image         string                 `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
 	CommandLine   string                 `protobuf:"bytes,3,opt,name=command_line,json=commandLine,proto3" json:"command_line,omitempty"`
+	Runtime       bool                   `protobuf:"varint,4,opt,name=runtime,proto3" json:"runtime,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1077,6 +1087,13 @@ func (x *Parent) GetCommandLine() string {
 		return x.CommandLine
 	}
 	return ""
+}
+
+func (x *Parent) GetRuntime() bool {
+	if x != nil {
+		return x.Runtime
+	}
+	return false
 }
 
 type Container struct {
@@ -1360,15 +1377,20 @@ func (x *Network) GetIsK8SApi() bool {
 }
 
 type File struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
-	Target        string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
-	Flags         uint32                 `protobuf:"varint,3,opt,name=flags,proto3" json:"flags,omitempty"`
-	Write         bool                   `protobuf:"varint,4,opt,name=write,proto3" json:"write,omitempty"`
-	Truncate      bool                   `protobuf:"varint,5,opt,name=truncate,proto3" json:"truncate,omitempty"`
-	Inode         uint64                 `protobuf:"varint,6,opt,name=inode,proto3" json:"inode,omitempty"`
-	Dev           uint32                 `protobuf:"varint,7,opt,name=dev,proto3" json:"dev,omitempty"`
-	MatchedBy     string                 `protobuf:"bytes,8,opt,name=matched_by,json=matchedBy,proto3" json:"matched_by,omitempty"`
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	Path      string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Target    string                 `protobuf:"bytes,2,opt,name=target,proto3" json:"target,omitempty"`
+	Flags     uint32                 `protobuf:"varint,3,opt,name=flags,proto3" json:"flags,omitempty"`
+	Write     bool                   `protobuf:"varint,4,opt,name=write,proto3" json:"write,omitempty"`
+	Truncate  bool                   `protobuf:"varint,5,opt,name=truncate,proto3" json:"truncate,omitempty"`
+	Inode     uint64                 `protobuf:"varint,6,opt,name=inode,proto3" json:"inode,omitempty"`
+	Dev       uint32                 `protobuf:"varint,7,opt,name=dev,proto3" json:"dev,omitempty"`
+	MatchedBy string                 `protobuf:"bytes,8,opt,name=matched_by,json=matchedBy,proto3" json:"matched_by,omitempty"`
+	// Set on file_change: unlink, rename_from, rename_to, link, symlink,
+	// truncate.
+	Op string `protobuf:"bytes,9,opt,name=op,proto3" json:"op,omitempty"`
+	// Set on file_denied: EACCES, EPERM or EROFS.
+	Error         string `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1459,6 +1481,20 @@ func (x *File) GetMatchedBy() string {
 	return ""
 }
 
+func (x *File) GetOp() string {
+	if x != nil {
+		return x.Op
+	}
+	return ""
+}
+
+func (x *File) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_api_tephra_v1_tephra_proto protoreflect.FileDescriptor
 
 const file_api_tephra_v1_tephra_proto_rawDesc = "" +
@@ -1532,7 +1568,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\tR\x05level\x12\x12\n" +
-	"\x04tags\x18\x04 \x03(\tR\x04tags\"\x98\x02\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\"\xb2\x02\n" +
 	"\aProcess\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\rR\x03pid\x12\"\n" +
 	"\rstart_time_ns\x18\x02 \x01(\x04R\vstartTimeNs\x12\x14\n" +
@@ -1544,7 +1580,8 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\tcgroup_id\x18\b \x01(\x04R\bcgroupId\x12$\n" +
 	"\x0eis_main_binary\x18\t \x01(\bR\fisMainBinary\x12#\n" +
 	"\x04exec\x18\n" +
-	" \x01(\v2\x0f.tephra.v1.ExecR\x04exec\"\x89\x03\n" +
+	" \x01(\v2\x0f.tephra.v1.ExecR\x04exec\x12\x18\n" +
+	"\aruntime\x18\v \x01(\bR\aruntime\"\x89\x03\n" +
 	"\x04Exec\x12&\n" +
 	"\x0fstdin_is_socket\x18\x01 \x01(\bR\rstdinIsSocket\x12(\n" +
 	"\x10stdout_is_socket\x18\x02 \x01(\bR\x0estdoutIsSocket\x12\x1a\n" +
@@ -1559,11 +1596,12 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	" \x01(\bR\fenvTruncated\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"S\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"m\n" +
 	"\x06Parent\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\rR\x03pid\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12!\n" +
-	"\fcommand_line\x18\x03 \x01(\tR\vcommandLine\"E\n" +
+	"\fcommand_line\x18\x03 \x01(\tR\vcommandLine\x12\x18\n" +
+	"\aruntime\x18\x04 \x01(\bR\aruntime\"E\n" +
 	"\tContainer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
@@ -1589,7 +1627,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x10destination_port\x18\a \x01(\rR\x0fdestinationPort\x12\x1b\n" +
 	"\tunix_path\x18\b \x01(\tR\bunixPath\x12\x1c\n" +
 	"\n" +
-	"is_k8s_api\x18\t \x01(\bR\bisK8sApi\"\xc1\x01\n" +
+	"is_k8s_api\x18\t \x01(\bR\bisK8sApi\"\xe7\x01\n" +
 	"\x04File\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x14\n" +
@@ -1599,7 +1637,10 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x05inode\x18\x06 \x01(\x04R\x05inode\x12\x10\n" +
 	"\x03dev\x18\a \x01(\rR\x03dev\x12\x1d\n" +
 	"\n" +
-	"matched_by\x18\b \x01(\tR\tmatchedBy29\n" +
+	"matched_by\x18\b \x01(\tR\tmatchedBy\x12\x0e\n" +
+	"\x02op\x18\t \x01(\tR\x02op\x12\x14\n" +
+	"\x05error\x18\n" +
+	" \x01(\tR\x05error29\n" +
 	"\bExporter\x12-\n" +
 	"\x06Export\x12\x11.tephra.v1.Record\x1a\x0e.tephra.v1.Ack(\x01B3Z1github.com/Naved124/tephra/api/tephra/v1;tephrav1b\x06proto3"
 

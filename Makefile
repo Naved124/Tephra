@@ -28,6 +28,9 @@ generate: ## Compile the BPF programs and generate their Go bindings (bpf2go)
 	go generate ./...
 
 # protoc is fetched at a pinned version and checked against a pinned digest.
+# The digest is the one the release itself publishes (the "digest" field of
+# the asset in the GitHub releases API), not one taken from a first download.
+# The two Go plugins are pinned by go.mod (tool directives) and go.sum.
 # The generated Go code is committed, so only changing the .proto needs this.
 PROTOC_VERSION := 36.2
 PROTOC_SHA256  := 121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278

@@ -9,12 +9,7 @@ detection:
   memfd:
     process.Image|startswith: ["/memfd:", /proc/self/fd/, /dev/fd/]
   runtime:
-    process.CommandLine: runc init
-    parent.Image:
-      - /usr/bin/runc
-      - /usr/sbin/runc
-      - /usr/local/bin/runc
-      - /usr/local/sbin/runc
+    process.runtime: true
   condition: (unlinked or memfd) and not runtime
 action: alert
 description: >-
@@ -22,5 +17,5 @@ description: >-
   deleted before it was executed. Both leave nothing for a file scanner to
   find.
 falsepositives:
-  - Container runtimes that re-execute themselves through a file descriptor. runc does so for every container start and every exec into a container; the filter covers it by its exact command line and its parent's path. A process that imitates both is not reported by this rule
+  - Container runtimes that re-execute themselves through a file descriptor. runc does so for every container start and every exec into a container. It is recognised by the identity of the node's runc binary (runtime_binaries in the agent configuration), not by a name or a command line, so a process in a container cannot pass for it
   - Self-updating programs that replace and delete their own binary

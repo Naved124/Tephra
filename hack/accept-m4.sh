@@ -167,7 +167,7 @@ t0=$(now)
 probe_exec /bin/true tephra-reload-marker
 alert=$(wait_record "$t0" '.rule.id == "R900"' 10)
 [ -n "$alert" ] || fail "the running rules stopped working after a refused reload"
-pass "an invalid rule is refused on reload and the running rules stay in force: $(kubectl -n "$NAMESPACE" logs "$agent" | jq -r 'select(.msg | startswith("reload failed")) | .error' | tail -n1)"
+pass "an invalid rule is refused on reload and the running rules stay in force: $(kubectl -n "$NAMESPACE" logs "$agent" | jq -r 'select((.msg // "") | startswith("reload failed")) | .error' | tail -n1)"
 
 # Restore the shipped set and confirm it.
 cleanup

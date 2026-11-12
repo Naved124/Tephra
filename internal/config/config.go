@@ -36,6 +36,10 @@ type Config struct {
 	// K8sAPI lists extra host:port addresses of the Kubernetes API, next
 	// to the one in KUBERNETES_SERVICE_HOST.
 	K8sAPI []string `yaml:"k8s_api"`
+	// RuntimeBinaries lists the node's container runtime binaries, as
+	// absolute paths in the node's root filesystem. Rules recognise the
+	// runtime by the identity of these files.
+	RuntimeBinaries []string `yaml:"runtime_binaries"`
 	// MetricsAddr is the listen address of /metrics; empty disables it.
 	// Read at start-up only.
 	MetricsAddr string `yaml:"metrics_addr"`
@@ -69,7 +73,19 @@ func Default() *Config {
 		RingBufferSize: 16 << 20,
 		// Loopback traffic never leaves the node and is most of the
 		// connect volume on one.
-		NetIgnore:   []string{"127.0.0.0/8", "::1/128"},
+		NetIgnore: []string{"127.0.0.0/8", "::1/128"},
+		RuntimeBinaries: []string{
+			"/usr/bin/runc", "/usr/sbin/runc", "/usr/local/bin/runc", "/usr/local/sbin/runc",
+			"/usr/bin/crun", "/usr/local/bin/crun",
+			"/usr/bin/containerd", "/usr/local/bin/containerd",
+			"/usr/bin/containerd-shim-runc-v2", "/usr/local/bin/containerd-shim-runc-v2",
+			"/usr/bin/dockerd", "/usr/bin/crio", "/usr/bin/conmon", "/usr/libexec/crio/conmon",
+			"/usr/bin/kubelet", "/usr/local/bin/kubelet",
+			"/usr/lib/systemd/systemd", "/lib/systemd/systemd",
+			// systemd 255 and later start every service through this
+			// helper, which they execute by file descriptor.
+			"/usr/lib/systemd/systemd-executor", "/lib/systemd/systemd-executor",
+		},
 		MetricsAddr: ":9090",
 		Export:      Export{RawEvents: true, Queue: 8192},
 	}
@@ -114,6 +130,11 @@ func (c *Config) Validate() error {
 	}
 	if _, err := c.Watches(); err != nil {
 		return err
+	}
+	for _, p := range c.RuntimeBinaries {
+		if len(p) < 2 || p[0] != '/' {
+			return fmt.Errorf("runtime_binaries: %q is not an absolute path", p)
+		}
 	}
 	_, err := c.APIServers()
 	return err

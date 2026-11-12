@@ -30,7 +30,7 @@ spec:
         runAsGroup: 65532
       containers:
         - name: collector
-          image: "{{ .Values.collector.image.repository }}:{{ .Values.collector.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.collector.image.repository }}{{ if .Values.collector.image.digest }}@{{ .Values.collector.image.digest }}{{ else }}:{{ .Values.collector.image.tag | default .Chart.AppVersion }}{{ end }}"
           imagePullPolicy: {{ .Values.collector.image.pullPolicy }}
           args:
             - --listen=:4317

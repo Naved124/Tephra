@@ -114,6 +114,8 @@ message Process {
   bool is_main_binary = 9;
   // Set on exec events only.
   Exec exec = 10;
+  // The process runs one of the node's container runtime binaries.
+  bool runtime = 11;
 }
 
 message Exec {
@@ -133,6 +135,7 @@ message Parent {
   uint32 pid = 1;
   string image = 2;
   string command_line = 3;
+  bool runtime = 4;
 }
 
 message Container {
@@ -173,4 +176,9 @@ message File {
   uint64 inode = 6;
   uint32 dev = 7;
   string matched_by = 8;
+  // Set on file_change: unlink, rename_from, rename_to, link, symlink,
+  // truncate.
+  string op = 9;
+  // Set on file_denied: EACCES, EPERM or EROFS.
+  string error = 10;
 }

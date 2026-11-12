@@ -568,3 +568,169 @@ func TestNestedOverlayOpenDropped(t *testing.T) {
 		t.Errorf("nested opens = %d, want 2", f.e.NestedOpens())
 	}
 }
+
+func TestDeniedPath(t *testing.T) {
+	for _, c := range []struct {
+		name, cwd string
+		flags     uint32
+		want      string
+	}{
+		{"/etc/shadow", "", 0, "/etc/shadow"},
+		{"/etc/../etc/./shadow", "", 0, "/etc/shadow"},
+		{"shadow", "/etc", 0, "/etc/shadow"},
+		{"../etc/shadow", "/tmp", 0, "/etc/shadow"},
+		{"/proc/self/root/etc/shadow", "", 0, "/etc/shadow"},
+		{"/proc/1234/root/proc/thread-self/root/etc/shadow", "", 0, "/etc/shadow"},
+		{"/proc/self/task/7/root", "", 0, "/"},
+		// No working directory to join: left as it was passed.
+		{"shadow", "", events.DeniedNoCwd, "shadow"},
+		{"shadow", "/a/b", events.DeniedCwdCut, "shadow"},
+	} {
+		ev := &events.FileDenied{Header: events.Header{Flags: c.flags}, Name: c.name, Cwd: c.cwd}
+		if got := deniedPath(ev); got != c.want {
+			t.Errorf("deniedPath(%q in %q) = %q, want %q", c.name, c.cwd, got, c.want)
+		}
+	}
+}
+
+func TestDeniedOpenKeptOnlyWhenWatched(t *testing.T) {
+	f := newFixture(t)
+	f.webPod()
+	h := f.webShell("/bin/cat", "cat", "shadow")
+	h.Type = events.TypeFileDenied
+	ev := &events.FileDenied{Header: h, Errno: uint32(syscall.EACCES), Name: "shadow", Cwd: "/etc"}
+
+	if rec := f.e.Handle(ev, time.Now()); rec != nil {
+		t.Fatalf("a refused open is reported with no matcher set: %+v", rec.File)
+	}
+	f.e.SetWatched(func(p string) uint32 {
+		if p == "/etc/shadow" {
+			return 4
+		}
+		return 0
+	})
+	rec := f.e.Handle(ev, time.Now())
+	if rec == nil {
+		t.Fatal("a refused open of a watched file is dropped")
+	}
+	if rec.Type != "file_denied" || rec.File.Path != "/etc/shadow" || rec.File.Error != "EACCES" || rec.File.Write {
+		t.Errorf("record %s %+v", rec.Type, rec.File)
+	}
+	if rec.K8s.Pod == "" {
+		t.Error("refused open not attributed to its pod")
+	}
+
+	ev.Name = "/etc/hostname"
+	if rec := f.e.Handle(ev, time.Now()); rec != nil {
+		t.Errorf("a refused open of an unwatched file is reported: %+v", rec.File)
+	}
+	if f.e.DeniedUnwatched() != 2 {
+		t.Errorf("DeniedUnwatched() = %d, want 2", f.e.DeniedUnwatched())
+	}
+}
+
+func TestFileChangeRecord(t *testing.T) {
+	f := newFixture(t)
+	f.webPod()
+	h := f.webShell("/bin/mv", "mv", "/tmp/p", "/etc/ld.so.preload")
+	h.Type = events.TypeFileChange
+	h.Flags = events.FileByPath
+	rec := f.e.Handle(&events.FileChange{Header: h, Op: "rename_to", Path: "/etc/ld.so.preload"}, time.Now())
+	if rec.Type != "file_change" || rec.File.Op != "rename_to" || !rec.File.Write || rec.File.MatchedBy != "path" {
+		t.Errorf("record %s %+v", rec.Type, rec.File)
+	}
+}
+
+type fakeRuntimes map[[2]uint64]bool
+
+func (r fakeRuntimes) Has(dev uint32, inode uint64) bool { return r[[2]uint64{uint64(dev), inode}] }
+
+// The runtime is known by the file it runs, and by nothing a process can
+// choose for itself.
+func TestRuntimeByIdentity(t *testing.T) {
+	f := newFixture(t)
+	f.webPod()
+	f.e.SetRuntimes(fakeRuntimes{{8, 100}: true})
+	cg := f.cgroup("system.slice/containerd.service")
+	pod := f.cgroup(scope)
+	exec := func(pid uint32, path string, dev uint32, inode uint64, flags uint32, argv ...string) *export.Record {
+		return f.e.Handle(&events.Exec{
+			Header: events.Header{Type: events.TypeExec, PID: pid, StartTimeNS: uint64(pid) * 1000, PPID: 1, CgroupID: cg, Flags: flags},
+			Path:   path, Dev: dev, Inode: inode, Argv: argv,
+		}, time.Now())
+	}
+
+	if rec := exec(50, "/usr/local/sbin/runc", 8, 100, 0, "runc", "create"); !rec.Process.Runtime {
+		t.Error("the node's runc is not recognised")
+	}
+	// runc re-executing a copy of itself from memory.
+	if rec := exec(50, "/proc/self/fd/7", 1, 999, events.ExecUnlinked, "runc", "init"); !rec.Process.Runtime {
+		t.Error("runc init run from memory by the node's runc is not recognised")
+	}
+	// What that copy executes next is the container's own program.
+	if rec := exec(50, "/proc/self/fd/3", 1, 555, events.ExecUnlinked, "runc", "init"); rec.Process.Runtime {
+		t.Error("a second image without a file inherits the runtime's standing")
+	}
+
+	// The same name and command line on another file is not the runtime,
+	if rec := exec(60, "/usr/local/sbin/runc", 8, 200, 0, "runc", "create"); rec.Process.Runtime {
+		t.Error("a binary recognised by its path alone")
+	}
+	// nor is what it runs from memory,
+	if rec := exec(60, "/proc/self/fd/7", 1, 998, events.ExecUnlinked, "runc", "init"); rec.Process.Runtime {
+		t.Error("runc init recognised without the node's runc behind it")
+	}
+	// nor anything else the real runc executes from memory.
+	exec(70, "/usr/local/sbin/runc", 8, 100, 0, "runc", "exec")
+	if rec := exec(70, "/proc/self/fd/9", 1, 997, events.ExecUnlinked, "payload"); rec.Process.Runtime {
+		t.Error("an arbitrary memory image run by runc is taken for the runtime")
+	}
+
+	// Newer runc runs itself through a private overlay, already in the
+	// container's cgroup: the same inode number on another device.
+	exec(75, "/usr/local/sbin/runc", 8, 100, 0, "runc", "exec")
+	sealed := func(pid uint32, inode uint64, argv ...string) *export.Record {
+		return f.e.Handle(&events.Exec{
+			Header: events.Header{Type: events.TypeExec, PID: pid, StartTimeNS: uint64(pid) * 1000, PPID: 1, CgroupID: pod},
+			Path:   "/proc/self/fd/6", Dev: 404, Inode: inode, Argv: argv,
+		}, time.Now())
+	}
+	if rec := sealed(75, 100, "runc", "init"); !rec.Process.Runtime || rec.Container == nil {
+		t.Errorf("runc init through an overlay not recognised (runtime %v, container %v)", rec.Process.Runtime, rec.Container)
+	}
+	// The program it then executes in the container is not the runtime,
+	// whatever it calls itself.
+	if rec := sealed(75, 100, "runc", "init"); rec.Process.Runtime {
+		t.Error("a program executed by runc init is taken for the runtime")
+	}
+	// A runc that runs its own file as "runc init" is the runtime by
+	// identity; what that executes is not, even from memory and under
+	// runc's command line.
+	exec(76, "/usr/local/sbin/runc", 8, 100, 0, "runc", "exec")
+	if rec := exec(76, "/usr/local/sbin/runc", 8, 100, 0, "runc", "init"); !rec.Process.Runtime {
+		t.Error("runc init run from runc's own file is not recognised")
+	}
+	if rec := exec(76, "/proc/self/fd/9", 1, 996, events.ExecUnlinked, "runc", "init"); rec.Process.Runtime {
+		t.Error("a memory image executed by runc init is taken for the runtime")
+	}
+	// Another file with another inode number, on a filesystem of the
+	// caller's choosing.
+	exec(77, "/usr/local/sbin/runc", 8, 100, 0, "runc", "exec")
+	if rec := sealed(77, 4242, "runc", "init"); rec.Process.Runtime {
+		t.Error("a file that is neither unlinked nor runc's inode is taken for the runtime")
+	}
+
+	// A child of the runtime runs the same file until it execs.
+	exec(80, "/usr/local/sbin/runc", 8, 100, 0, "runc", "create")
+	f.e.Handle(&events.Fork{
+		Header:   events.Header{Type: events.TypeFork, PID: 80, StartTimeNS: 80000, CgroupID: cg},
+		ChildPID: 81, ChildStartNS: 81000, ParentPID: 80, ParentStartNS: 80000,
+	}, time.Now())
+	rec := exec(81, "/bin/true", 8, 300, 0, "true")
+	if rec.Process.Runtime {
+		t.Error("a program executed by the runtime is taken for the runtime")
+	}
+	if rec.Parent == nil || !rec.Parent.Runtime {
+		t.Errorf("parent of a process started by runc not marked as the runtime: %+v", rec.Parent)
+	}
+}

@@ -26,13 +26,15 @@ Milestones follow section 10 of the design.
 | M6 Packaging | Done |
 | M7 Harness and first coverage report | Done |
 | M8 Remaining hooks | Done |
+| After M8: refused opens, deletes and renames, runtime by file identity | Done |
 | M9 Evasion work | Not started |
 
 What works today: the agent watches process starts and exits, connections
-(IPv4, IPv6 and Unix sockets), opens of watched files, ptrace attach,
-credential changes, mounts, namespace switches, kernel module loads, BPF
-program loads and memfd creation on its node. It attributes each event to a
-pod, evaluates the 21 detection rules in [rules/](rules/), and writes events
+(IPv4, IPv6 and Unix sockets), opens of watched files, opens of those files
+that the kernel refused, watched files being deleted, renamed, replaced or
+linked, ptrace attach, credential changes, mounts, namespace switches, kernel
+module loads, BPF program loads and memfd creation on its node. It attributes
+each event to a pod, evaluates the 24 detection rules in [rules/](rules/), and writes events
 and alerts as JSON lines on stdout. A collector forwards both to Loki, and a
 Grafana dashboard shows the alerts and the sensor's own health.
 
@@ -40,7 +42,12 @@ The agent does not run privileged. It holds four capabilities (BPF, PERFMON,
 SYS_PTRACE, SYS_RESOURCE), drops the rest, and has a read-only root
 filesystem.
 
-[docs/coverage.md](docs/coverage.md) is the evidence: 17 attack techniques
+Rules that have to let the container runtime through (runc re-executing
+itself, mounting a container's filesystem, loading cgroup BPF programs) know
+it by the device and inode of the node's own runtime binaries, not by a path
+or a command line, which a process in a container could copy.
+
+[docs/coverage.md](docs/coverage.md) is the evidence: 22 attack techniques
 run for real in the lab cluster, each with the rule that caught it, and a
 30-minute run of ordinary workloads listing every alert that fired.
 
@@ -72,8 +79,9 @@ process that started it had already exited.
 
 Connection events add a `network` object (direction, family, protocol,
 `SourceIp`, `SourcePort`, `DestinationIp`, `DestinationPort`, or `unix_path`);
-file events add a `file` object (path, flags, `write`, `truncate`, and
-`target` when a file was recognised through a hard link). A process outside
+file events add a `file` object (path, flags, `write`, `truncate`, `target`
+when a file was recognised through a hard link, `op` on a file_change and
+`error` on a file_denied). A process outside
 every pod has `"k8s": {"namespace": "host"}` and no `container`. The agent's
 own log goes to stderr; its lines have `level` and `msg` instead of `type`.
 
@@ -83,7 +91,7 @@ export queue are on `/metrics`, port 9090 of each agent pod.
 ## Rules
 
 A rule is a YAML file: one event type, named blocks of field tests, and a
-condition that combines the blocks. [rules/](rules/) holds R001 to R021;
+condition that combines the blocks. [rules/](rules/) holds R001 to R024;
 section 6 of the design describes the schema.
 
 ```sh
@@ -217,6 +225,15 @@ The VM takes its DNS servers from the laptop when it starts. If the laptop
 moves to another network while the VM is running, image pulls inside it fail;
 `make vm-down && make vm-up` fixes that.
 
+## Releases
+
+Nothing is published yet. Pushing a tag `vX.Y.Z` that matches the chart's
+`appVersion` runs [.github/workflows/release.yaml](.github/workflows/release.yaml),
+which builds the two images, pushes them to `ghcr.io/naved124`, signs them
+with cosign (keyless, bound to that workflow) and pushes the chart with both
+images pinned by digest. Until then the chart's default image names point at
+images that do not exist; the kind setup builds and loads its own.
+
 ## Other targets
 
 ```sh
@@ -246,6 +263,7 @@ internal/k8s/        cgroup ID -> container -> pod
 internal/enrich/     ancestry, user and pod attribution per event
 internal/filter/     what the kernel is told to report
 internal/inodewatch/ watched files by device and inode, per root filesystem
+internal/runtimeid/  the node's container runtime binaries, by device and inode
 internal/rules/      rule parser, compiler and matcher
 internal/config/     configuration file
 internal/export/     wire format, JSON lines on stdout, gRPC client

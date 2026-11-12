@@ -15,6 +15,6 @@ detection:
 action: alert
 description: >-
   The history file was opened for truncation, which empties it. Deleting the
-  file or replacing it with a link is not seen: those are not opens.
+  file or replacing it is reported by R022.
 falsepositives:
   - A shell rewriting its whole history on exit, which bash does when the session added more lines than the file holds

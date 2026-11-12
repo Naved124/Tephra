@@ -1,0 +1,33 @@
+id: R023
+title: Sensitive file put in place without being opened
+level: high
+tags: [attack.persistence, attack.t1574.006]
+event: file_change
+detection:
+  preload:
+    file.path: /etc/ld.so.preload
+  cron:
+    file.path|startswith:
+      - /etc/cron.d/
+      - /etc/cron.hourly/
+      - /etc/cron.daily/
+      - /etc/cron.weekly/
+      - /etc/cron.monthly/
+      - /etc/crontabs/
+      - /var/spool/cron/
+  crontab:
+    file.path: /etc/crontab
+  keys:
+    file.path|endswith: [/authorized_keys, /authorized_keys2]
+  created:
+    file.op: [rename_to, link, symlink]
+  condition: (preload or cron or crontab or keys) and created
+action: alert
+description: >-
+  A file was moved or linked onto one of the names that R007, R008 and R009
+  watch for writes. Writing a file elsewhere and renaming it into place
+  gives the same result as writing it there, without ever opening the
+  watched name.
+falsepositives:
+  - Package managers and configuration management, which replace files by renaming a temporary file into place
+  - crontab(1), which installs a user's table the same way

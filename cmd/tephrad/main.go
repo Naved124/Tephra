@@ -33,6 +33,7 @@ import (
 	"github.com/Naved124/tephra/internal/loader"
 	"github.com/Naved124/tephra/internal/proctree"
 	"github.com/Naved124/tephra/internal/rules"
+	"github.com/Naved124/tephra/internal/runtimeid"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -58,11 +59,13 @@ type options struct {
 type counters struct {
 	decodeErrors atomic.Uint64
 	nestedOpens  atomic.Uint64
-	exported     atomic.Uint64
-	exportErrors atomic.Uint64
-	reloads      atomic.Uint64
-	reloadErrors atomic.Uint64
-	rulesLoaded  atomic.Int64
+	// deniedUnwatched counts refused opens of files no watch covers.
+	deniedUnwatched atomic.Uint64
+	exported        atomic.Uint64
+	exportErrors    atomic.Uint64
+	reloads         atomic.Uint64
+	reloadErrors    atomic.Uint64
+	rulesLoaded     atomic.Int64
 
 	mu     sync.Mutex
 	alerts map[alertKey]uint64
@@ -194,6 +197,7 @@ type agent struct {
 	sensor   *loader.Sensor
 	tree     *proctree.Tree
 	tracker  *inodewatch.Tracker
+	runtimes *runtimeid.Set
 	enricher *enrich.Enricher
 	stdout   *export.JSONLines
 	grpc     *export.GRPC
@@ -213,6 +217,12 @@ func (a *agent) apply(s *settings) error {
 	}
 	a.tracker.SetWatches(f.Exacts())
 	a.observeRoots()
+	a.enricher.SetWatched(f.Match)
+	a.runtimes.SetPaths(s.cfg.RuntimeBinaries)
+	runtimeBinaries := a.runtimes.Refresh()
+	if runtimeBinaries == 0 {
+		a.log.Warn("none of runtime_binaries was found on the node; rules that let the container runtime through will report it")
+	}
 	a.enricher.SetAPIServers(s.apiServers())
 	a.cur = s
 	a.c.rulesLoaded.Store(int64(len(s.rules.Rules)))
@@ -225,7 +235,7 @@ func (a *agent) apply(s *settings) error {
 	}
 	inodes, roots, _ := a.tracker.Stats()
 	a.log.Info("configuration loaded", "rules", len(s.rules.Rules), "file_watches", len(f.Watches),
-		"inode_watches", inodes, "roots", roots, "net_ignore", len(f.NetIgnore), "events", on, "raw_events", s.cfg.Export.RawEvents)
+		"inode_watches", inodes, "roots", roots, "runtime_binaries", runtimeBinaries, "net_ignore", len(f.NetIgnore), "events", on, "raw_events", s.cfg.Export.RawEvents)
 	return nil
 }
 
@@ -264,7 +274,11 @@ func (a *agent) startRing() uint32 { return uint32(a.o.ringBufSize) }
 func (a *agent) handle(ev events.Event) {
 	rec := a.enricher.Handle(ev, time.Now())
 	if rec == nil {
-		a.c.nestedOpens.Add(1)
+		if _, denied := ev.(*events.FileDenied); denied {
+			a.c.deniedUnwatched.Add(1)
+		} else {
+			a.c.nestedOpens.Add(1)
+		}
 		return
 	}
 	if a.cur.cfg.Export.RawEvents {
@@ -416,11 +430,13 @@ func run(log *slog.Logger, o options) error {
 		sensor:   sensor,
 		tree:     tree,
 		tracker:  inodewatch.New(o.procRoot, sensor),
+		runtimes: runtimeid.New(o.procRoot, nil),
 		enricher: enrich.New(node, tree, procfs, k8s.NewCgroupResolver(o.cgroupRoot), pods),
 		stdout:   export.NewJSONLines(os.Stdout),
 		c:        c,
 	}
 	a.enricher.ObserveRoots(a.tracker)
+	a.enricher.SetRuntimes(a.runtimes)
 	if err := a.apply(s); err != nil {
 		return err
 	}
@@ -488,6 +504,8 @@ func run(log *slog.Logger, o options) error {
 				live[p.ContainerID] = true
 			}
 			a.tracker.GC(func(owner string) bool { return live[owner] })
+			// A runtime upgraded since the last look.
+			a.runtimes.Refresh()
 		case ev := <-queue:
 			a.handle(ev)
 			if len(queue) == 0 {

@@ -1,0 +1,6 @@
+id: A22
+title: Effective uid goes from non-zero to zero outside an exec
+tags: [attack.privilege_escalation, attack.t1068]
+expect: [R019]
+run:
+  pod: victim

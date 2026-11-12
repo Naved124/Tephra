@@ -7,6 +7,8 @@ package enrich
 
 import (
 	"net/netip"
+	"path"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -42,6 +44,80 @@ type Enricher struct {
 	// hostNS is the inode number of each of the node's own namespaces,
 	// by kind.
 	hostNS map[string]uint32
+	// runtimes, if set, knows the node's runtime binaries.
+	runtimes RuntimeSet
+	// watched, if set, says which watches cover a path. Refused opens
+	// arrive unfiltered and are kept only when one does.
+	watched         func(path string) uint32
+	deniedUnwatched uint64
+}
+
+// RuntimeSet recognises the node's container runtime binaries by file
+// identity; runtimeid.Set implements it.
+type RuntimeSet interface {
+	Has(dev uint32, inode uint64) bool
+}
+
+// SetRuntimes sets who recognises runtime binaries.
+func (e *Enricher) SetRuntimes(r RuntimeSet) { e.runtimes = r }
+
+// SetWatched sets the matcher for refused opens.
+func (e *Enricher) SetWatched(match func(path string) uint32) { e.watched = match }
+
+// DeniedUnwatched is the number of refused opens dropped because no watch
+// covers their path.
+func (e *Enricher) DeniedUnwatched() uint64 { return e.deniedUnwatched }
+
+// realRuntime reports whether the process runs a runtime binary's own file.
+func (e *Enricher) realRuntime(p proctree.Proc) bool {
+	return e.runtimes != nil && e.runtimes.Has(p.ExeDev, p.ExeInode)
+}
+
+func (e *Enricher) isRuntime(p proctree.Proc) bool {
+	return p.RuntimeChild || e.realRuntime(p)
+}
+
+func isRuncInit(argv []string) bool {
+	return len(argv) == 2 && argv[0] == "runc" && argv[1] == "init"
+}
+
+// procRootRE matches the ways of naming a root directory through /proc.
+var procRootRE = regexp.MustCompile(`^/proc/(self|thread-self|[0-9]+)(/task/[0-9]+)?/root(/|$)`)
+
+// deniedPath puts the name of a refused open into the form the watches use.
+// The kernel never resolved it, so this is done on the text alone: a
+// relative name is joined to the working directory, "." and ".." are
+// removed, and a detour through /proc/<pid>/root is cut. A symbolic link in
+// the name is not followed.
+func deniedPath(ev *events.FileDenied) string {
+	name := ev.Name
+	if !strings.HasPrefix(name, "/") {
+		if ev.Cwd == "" || ev.Flags&events.DeniedCwdCut != 0 {
+			return name
+		}
+		name = ev.Cwd + "/" + name
+	}
+	name = path.Clean(name)
+	for i := 0; i < 4; i++ {
+		loc := procRootRE.FindStringIndex(name)
+		if loc == nil {
+			break
+		}
+		name = path.Clean("/" + name[loc[1]:])
+	}
+	return name
+}
+
+func errnoName(n uint32) string {
+	switch unix.Errno(n) {
+	case unix.EACCES:
+		return "EACCES"
+	case unix.EPERM:
+		return "EPERM"
+	case unix.EROFS:
+		return "EROFS"
+	}
+	return strconv.Itoa(int(n))
 }
 
 // readHostNS reads the namespaces of the node's first process.
@@ -153,6 +229,14 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		e.nested++
 		return nil
 	}
+	var denied string
+	if f, ok := ev.(*events.FileDenied); ok {
+		denied = deniedPath(f)
+		if e.watched == nil || e.watched(denied) == 0 {
+			e.deniedUnwatched++
+			return nil
+		}
+	}
 	rec := &export.Record{
 		TS:   e.boot.Add(time.Duration(h.TSBootNS)).UTC().Format("2006-01-02T15:04:05.000000Z"),
 		Type: h.Type.String(),
@@ -160,9 +244,24 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 	}
 
 	var p proctree.Proc
+	// runc does not run its own file as "runc init", the stage that sets
+	// up and enters a container. It runs a protected copy: a sealed
+	// memory file in older versions, the binary seen through a private
+	// read-only overlay in newer ones. Neither has the identity of the
+	// node's runc. The copy is taken for the runtime when the task that
+	// executed it was running the node's real runc as something other
+	// than "runc init", the new command line is exactly "runc init", and
+	// the new file is unlinked or has runc's inode number. A process in a
+	// container never runs the node's real runc, and what the copy
+	// executes next (the container's program) fails the first test.
+	runtimeCopy := false
 	switch ev := ev.(type) {
 	case *events.Exec:
+		// What the task was running until now, for runtimeCopy below.
+		prev, known := e.tree.Get(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
 		p = e.tree.Exec(ev)
+		runtimeCopy = known && e.realRuntime(prev) && !isRuncInit(prev.Argv) && isRuncInit(ev.Argv) &&
+			(ev.Flags&events.ExecUnlinked != 0 || ev.Inode == prev.ExeInode)
 		rec.Process.Exec = &export.Exec{
 			StdinIsSocket:  ev.Flags&events.ExecStdinSock != 0,
 			StdoutIsSocket: ev.Flags&events.ExecStdoutSock != 0,
@@ -237,6 +336,31 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 				rec.Namespaces.Host = append(rec.Namespaces.Host, name)
 			}
 		}
+	case *events.FileChange:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.File = &export.File{
+			Path:      ev.Path,
+			Write:     true,
+			Inode:     ev.Inode,
+			Dev:       ev.Dev,
+			MatchedBy: matchedBy(ev.Flags),
+			Op:        ev.Op,
+		}
+		if e.inodes != nil && ev.Flags&events.FileByInode != 0 {
+			if target, ok := e.inodes.WatchedPath(ev.Dev, ev.Inode); ok && target != ev.Path {
+				rec.File.Target = target
+			}
+		}
+	case *events.FileDenied:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.File = &export.File{
+			Path:      denied,
+			Flags:     ev.OpenFlags,
+			Write:     ev.Write(),
+			Truncate:  ev.OpenFlags&events.OTrunc != 0,
+			MatchedBy: "path",
+			Error:     errnoName(ev.Errno),
+		}
 	case *events.FileOpen:
 		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
 		rec.File = &export.File{
@@ -281,9 +405,14 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 	rec.Process.GID = h.GID
 	rec.Process.CgroupID = h.CgroupID
 	rec.Process.User = e.users.name(h.PID, h.MntNS, h.UID)
+	rec.Process.Runtime = e.isRuntime(p)
 
 	e.ancestry(rec, p)
 	e.attribute(rec, p, h.CgroupID)
+	if runtimeCopy {
+		e.tree.SetRuntimeChild(p.Key)
+		rec.Process.Runtime = true
+	}
 	if rec.Container != nil {
 		_, isExec := ev.(*events.Exec)
 		rec.Process.IsMainBinary = e.isMainBinary(rec.Container.ID, p, isExec)
@@ -431,6 +560,7 @@ func (e *Enricher) ancestry(rec *export.Record, p proctree.Proc) {
 				PID:         parent.Key.PID,
 				Image:       parent.Image,
 				CommandLine: strings.Join(parent.Argv, " "),
+				Runtime:     e.isRuntime(parent),
 			}
 		}
 		rec.Ancestors = append(rec.Ancestors, parent.Image)

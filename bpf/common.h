@@ -51,6 +51,8 @@ enum event_type {
 	EVENT_CRED_CHANGE = 12,
 	EVENT_MOUNT = 13,
 	EVENT_SETNS = 14,
+	EVENT_FILE_CHANGE = 15,
+	EVENT_FILE_DENIED = 16,
 	EVENT_TYPE_MAX = 32,
 };
 
@@ -154,6 +156,39 @@ struct file_event {
 	char path[PATH_LEN];
 };
 
+/* What was done to a watched name without opening it. file_event.open_flags
+ * holds one of these for a file_change. */
+enum file_op {
+	FILE_OP_UNLINK = 1,
+	FILE_OP_RENAME_FROM = 2, /* the name a rename takes away */
+	FILE_OP_RENAME_TO = 3,	 /* the name a rename creates or replaces */
+	FILE_OP_LINK = 4,	 /* new hard link under this name */
+	FILE_OP_SYMLINK = 5,	 /* new symbolic link under this name */
+	FILE_OP_TRUNCATE = 6,	 /* truncate(2); an open with O_TRUNC is a
+				    file_open */
+};
+
+#define EPERM	 1
+#define EACCES	 13
+#define EROFS	 30
+#define AT_FDCWD (-100)
+
+#define DENIED_F_CWD_CUT (1U << 0) /* cwd longer than PATH_LEN */
+#define DENIED_F_NO_CWD	 (1U << 1) /* relative to a directory fd, not cwd */
+
+/* An open the kernel refused. name is what the caller passed, unresolved;
+ * cwd is filled when name is relative to the working directory. A record
+ * ends before cwd when cwd_len is zero. */
+struct denied_event {
+	struct event_hdr h;
+	__u32 error;	  /* errno, positive */
+	__u32 open_flags; /* O_* as asked for */
+	__u32 name_len;	  /* bytes used in name, NUL included */
+	__u32 cwd_len;	  /* bytes used in cwd, NUL included */
+	char name[PATH_LEN];
+	char cwd[PATH_LEN];
+};
+
 #define PTRACE_MODE_ATTACH 0x02
 #define BPF_PROG_LOAD_CMD  5
 
@@ -240,6 +275,9 @@ struct setns_event {
 /* Watch bits: which kinds of open an entry reports. */
 #define WATCH_READ  (1U << 0)
 #define WATCH_WRITE (1U << 1)
+/* Reports refused opens only; never looked at in the kernel, which sends
+ * every refusal and leaves the path matching to the agent. */
+#define WATCH_DENIED (1U << 2)
 
 struct path_key {
 	__u32 prefixlen; /* in bits */
@@ -321,6 +359,25 @@ struct {
 	__type(key, __u32);
 	__type(value, struct stats_val);
 } stats SEC(".maps");
+
+/* Work area for build_path: a path is assembled from its last component
+ * backwards, ending at byte PATH_LEN - 1. The upper half is never written
+ * and stays zero, which bounds every access for the verifier. */
+struct pathbuf {
+	char b[2 * PATH_LEN];
+	/* Where the path starts so far. Kept here and not in a register:
+	 * a value read back from a map is unknown to the verifier, so every
+	 * way through one step of the walk ends in the same state and the
+	 * steps are checked once each, not once per combination. */
+	__u32 off;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct pathbuf);
+} path_scratch SEC(".maps");
 
 /* cgroups whose events are never emitted: the agent itself, and later other
  * trusted cgroups. */
@@ -468,6 +525,91 @@ static __always_inline bool fill_hdr(struct event_hdr *h,
 	h->flags = 0;
 	bpf_get_current_comm(h->comm, sizeof(h->comm));
 	return true;
+}
+
+/* Hides a value's range from the compiler. Without it clang proves that an
+ * index is already in bounds and drops the mask that proves the same thing
+ * to the verifier, which does not follow the reasoning. */
+#ifndef barrier_var /* newer libbpf headers have it */
+#define barrier_var(var) asm volatile("" : "=r"(var) : "0"(var))
+#endif
+
+#define PATH_MAX_STEPS 24 /* components plus mount points crossed */
+
+/* Writes the path of @dentry on @mnt, as the calling task sees it, into @out
+ * (PATH_LEN bytes, zero padded) and returns its length with the NUL, or 0.
+ * bpf_d_path does this where the kernel allows it; the hooks that use this
+ * are not among those. Sets *cut when the path did not fit: @out then holds
+ * its tail. */
+static __always_inline __u32 build_path(struct dentry *dentry,
+					struct vfsmount *mnt, char *out,
+					bool *cut)
+{
+	struct task_struct *task = bpf_get_current_task_btf();
+	struct dentry *root_d = BPF_CORE_READ(task, fs, root.dentry);
+	struct vfsmount *root_m = BPF_CORE_READ(task, fs, root.mnt);
+	struct pathbuf *pb;
+	__u32 zero = 0, off, len, pos;
+	int i;
+
+	pb = bpf_map_lookup_elem(&path_scratch, &zero);
+	if (!pb)
+		return 0;
+	pb->b[PATH_LEN - 1] = 0;
+	pb->off = PATH_LEN - 1;
+
+	for (i = 0; i < PATH_MAX_STEPS; i++) {
+		struct dentry *parent, *mnt_root;
+
+		if (!dentry || !mnt || (dentry == root_d && mnt == root_m))
+			break;
+		mnt_root = BPF_CORE_READ(mnt, mnt_root);
+		parent = BPF_CORE_READ(dentry, d_parent);
+		if (dentry == mnt_root || dentry == parent) {
+			/* Top of this filesystem: go on from where it is
+			 * mounted. */
+			struct mount *m = (void *)mnt - bpf_core_field_offset(
+							    struct mount, mnt);
+			struct mount *up = BPF_CORE_READ(m, mnt_parent);
+
+			if (up == m)
+				break;
+			dentry = BPF_CORE_READ(m, mnt_mountpoint);
+			mnt = (void *)up +
+			      bpf_core_field_offset(struct mount, mnt);
+			continue;
+		}
+		len = BPF_CORE_READ(dentry, d_name.len);
+		off = *(volatile __u32 *)&pb->off;
+		if (off > PATH_LEN - 1 || len + 1 > off) {
+			*cut = true;
+			break;
+		}
+		off -= len + 1;
+		*(volatile __u32 *)&pb->off = off;
+		pos = off;
+		barrier_var(pos);
+		pos &= PATH_LEN - 1;
+		barrier_var(len);
+		len &= PATH_LEN - 1;
+		pb->b[pos] = '/';
+		bpf_probe_read_kernel(&pb->b[pos + 1], len,
+				      BPF_CORE_READ(dentry, d_name.name));
+		dentry = parent;
+	}
+	if (i == PATH_MAX_STEPS)
+		*cut = true;
+	off = *(volatile __u32 *)&pb->off;
+	if (off >= PATH_LEN - 1) {
+		/* The root directory itself. */
+		off = PATH_LEN - 2;
+		pb->b[PATH_LEN - 2] = '/';
+	}
+	pos = off;
+	barrier_var(pos);
+	pos &= PATH_LEN - 1;
+	bpf_probe_read_kernel(out, PATH_LEN, &pb->b[pos]);
+	return PATH_LEN - pos;
 }
 
 #endif /* TEPHRA_COMMON_H */

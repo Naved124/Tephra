@@ -8,13 +8,14 @@ detection:
     bpf.prog_type|gt: 0
   runtime:
     k8s.namespace: host
-    process.Image|endswith: [/runc, /systemd, /containerd, /dockerd, /crun]
+    process.runtime: true
   condition: selection and not runtime
 action: alert
 description: >-
   BPF programs can observe and change what the kernel does, including what
   this sensor sees. The sensor's own programs are not reported. Loads by the
   container runtime and by systemd on the host, which use BPF for device and
-  network control of cgroups, are filtered.
+  network control of cgroups, are filtered; both are recognised by the
+  identity of their binaries on the node.
 falsepositives:
   - Other BPF-based tools installed on purpose (CNI plugins, profilers, other security agents)

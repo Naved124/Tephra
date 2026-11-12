@@ -1,0 +1,6 @@
+id: A21
+title: Start a program with LD_PRELOAD set
+tags: [attack.persistence, attack.t1574.006]
+expect: [R021]
+run:
+  pod: victim

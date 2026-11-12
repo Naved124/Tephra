@@ -151,6 +151,8 @@ The kernel side is thirteen small programs that each attach to one hook, fill on
 | connect | security_socket_connect | fentry | Family, destination address and port (or Unix socket path) from the kernel copy of sockaddr | M3 |
 | accept | security_sock_graft (fallback: inet_csk_accept, fexit) | fentry | Local and peer address from the accepted struct sock | M3 |
 | file_open | security_file_open | fentry | Path via bpf_d_path, open flags, inode and device | M3 |
+| file_change | security_path_unlink, security_path_rename, security_path_link, security_path_symlink, vfs_truncate | fentry | The name removed, renamed, replaced or created as a link; its path rebuilt from the directory entries, across mount points | after M8 |
+| file_denied | do_filp_open | fexit | Opens refused with EACCES, EPERM or EROFS: the name as passed, the open flags, and the working directory for a relative name | after M8 |
 | ptrace | security_ptrace_access_check | fentry | Target pid, mode (only PTRACE_MODE_ATTACH is emitted) | M8 |
 | memfd | __x64_sys_memfd_create | fentry | Flags only; the name pointer is not trusted | M8 |
 | module_load | module_load | tp_btf | Module name | M8 |
@@ -164,6 +166,8 @@ Reasons behind the less obvious choices:
 - sched_process_exec instead of sys_enter_execve. The syscall-entry tracepoint fires before the kernel has resolved anything, so the path and argv are user pointers that can be rewritten by another thread. The scheduler tracepoint fires after the exec has succeeded and exposes struct linux_binprm.
 - security_* functions with fentry in v1. They are the same call sites the LSM programs use in v2, so the v2 change is mostly a program-type switch plus a return value. fentry needs kernel 5.5 or newer on x86-64 and is cheaper than a kprobe.
 - security_sock_graft for accept. It is entered in the accepting task once the connection is established, with the new socket as an argument. An exit hook on inet_csk_accept would miss the first connection of every server that was already waiting in accept() when the agent attached; it is kept only as a fallback.
+- The return of do_filp_open for refused opens. security_file_open only runs once the permission checks have passed, so a refusal is invisible there. Every open ends in do_filp_open, whichever check said no. Refusals are rare, so the kernel sends all of them and the agent matches the name against the watches.
+- The path hooks for file_change. Deleting a watched file, renaming another file onto its name or linking the name somewhere else never opens it. The security_path_* functions give the directory's mount as well as the entry, which the path needs; they exist on kernels built with CONFIG_SECURITY_PATH (AppArmor and Landlock select it). Without them the event type is reported as unavailable.
 - commit_creds is not a stable interface. It is the one hook most likely to need a fallback; the loader treats attach failure here as a warning, not an error.
 
 ### Common event header
@@ -428,7 +432,7 @@ The loader validates every rule (unknown field, wrong type for a modifier, bad A
 | R009 | Write to an authorized_keys file | file_open | T1098.004 | High |
 | R010 | Connection to the container runtime's Unix socket from inside a container | connect | T1611 | Critical |
 | R011 | Write to a cgroup release_agent or to core_pattern | file_open | T1611 | Critical |
-| R012 | Shell history truncated or removed | file_open | T1070.003 | Low |
+| R012 | Shell history truncated | file_open | T1070.003 | Low |
 | R013 | Connection to the Kubernetes API from an unexpected binary | connect | T1613 | Medium |
 | R014 | Outbound connection to common mining-pool ports | connect | T1496 | Low |
 | R015 | ptrace attach to another process | ptrace | T1055.008 | High |
@@ -437,6 +441,11 @@ The loader validates every rule (unknown field, wrong type for a modifier, bad A
 | R018 | setns into a host namespace | setns | T1611 | Critical |
 | R019 | uid changes to 0 with no setuid binary executed | cred_change | T1068 | Critical |
 | R020 | BPF program loaded by anything other than the sensor | bpf_load | T1562.001 | High |
+
+| R021 | Program started in a container with a dynamic loader override | exec | T1574.006 | Medium |
+| R022 | Shell history removed or replaced | file_change | T1070.003 | Low |
+| R023 | Sensitive file put in place without being opened (rename, link, symlink onto the names of R007 to R009) | file_change | T1574.006 | High |
+| R024 | Refused attempt to open a sensitive file | file_denied | T1003.008 | Medium |
 
 R001 to R014 use only M1 and M3 hooks and form the first rule milestone. R015 to R020 arrive with the M8 hooks.
 
@@ -565,7 +574,13 @@ harness run --all writes docs/coverage.md and coverage.json. The Markdown report
 | A16 | Enter host namespaces with nsenter from a hostPID pod | R018 |
 | A17 | Load a BPF program with a second tool | R020 |
 
-R019 (uid changes to 0 with no setuid exec) has no live scenario, because reproducing it needs a kernel exploit. It is covered by a unit test with a synthetic event, and the coverage report says so.
+| A18 | Delete shell history and link it to /dev/null | R022 |
+| A19 | Write a file elsewhere and rename it onto /etc/ld.so.preload | R023 |
+| A20 | Read /etc/shadow as an unprivileged user and be refused | R024 |
+| A21 | Start a program with LD_PRELOAD set | R021 |
+| A22 | Drop the effective uid and take it back from the saved uid | R019 |
+
+A22 does not use an exploit. It produces the credential change R019 looks for, a non-zero effective uid becoming zero outside an exec, by legitimate means: a root process drops its effective uid and restores it from its saved uid. It shows the hook and the rule work end to end; it does not show that any particular exploit is caught.
 
 ### Evasion scenarios
 
@@ -844,9 +859,36 @@ M3 to M5 were run on the dev VM (Ubuntu 24.04, kernel 6.8.0-147) on a freshly cr
 - **Mount target.** `bpf_d_path` cannot be called at `security_sb_mount`. The target is rebuilt from up to six directory entries within the filesystem the mount point is on, with ".../" in front when there were more.
 - **R015, R016, R017, R018 exclude the host namespace**: the container runtime, the kubelet and CNI plugins mount, switch namespaces and load modules on the host all the time. R017 also excludes runc setting up a container, with the same exact-command-line-and-parent filter as R003.
 - **R020 excludes the container runtime and systemd on the host**, which load BPF programs for cgroup device and network control on every container start. The sensor's own loads come from its ignored cgroup.
-- **A hook that fails costs only its own event type.** A privileged test loads the sensor with commit_creds replaced by a function that does not exist and checks that the other 13 event types still work.
+- **A hook that fails costs only its own event type.** A privileged test loads the sensor with commit_creds replaced by a function that does not exist and checks that the other event types still work.
 - **A14 loads a real module.** The scenario loads the kernel's `dummy` network driver from the node's /lib/modules into the lab VM's kernel and removes it afterwards.
 
 ### Tested on (M6 to M8)
 
 Dev VM (Ubuntu 24.04, kernel 6.8.0-147), freshly created kind cluster, agents without privileged mode: the 18 privileged load tests pass, the acceptance tests M0 to M6 pass, and `harness run --all` reports A01 to A17 detected with zero ring buffer drops. The 30-minute false-positive run was made on the build before the last fix to the overlayfs duplicate filter, which does not change what rules fire. On Ubuntu 22.04 (kernel 5.15.0-203) the 18 privileged load tests pass, covering every program including the seven M8 hooks; the kind runs, the capability-only security context and the harness were not repeated there.
+
+### After M8: the limits listed at M5 and M8
+
+Work done after M8 to close the limits reported at the end of M5 and M8. Each item is a divergence from the design as first written.
+
+- **Refused opens are reported (file_denied).** An fexit program on `do_filp_open` reports every open that ends in EACCES, EPERM or EROFS. The kernel does not filter these by path: a relative name has to be joined to the working directory first, and refusals are rare. The agent builds the path, drops the event if no watch covers it (counted in `tephra_agent_denied_unwatched_total`), and reports the rest. A watch bit of its own (denied) lets a rule ask for refusals of a file without also asking for its successful opens. R024 uses it.
+- **The name of a refused open is compared as text.** "." and ".." are removed, a relative name is joined to the working directory, and a detour through `/proc/<pid>/root` is cut. A symbolic link in the name is not followed, and a name relative to a directory descriptor (openat with a descriptor other than the working directory) is matched by its last component only. The alternative, a hook on `inode_permission`, sees the file's identity but runs for every component of every path lookup on the node and does not see a refusal at a parent directory or at file creation.
+- **Deleting, renaming and linking a watched name is reported (file_change).** Five hooks: `security_path_unlink`, `security_path_rename` (two events, one for the name taken away and one for the name created or replaced), `security_path_link`, `security_path_symlink` and `vfs_truncate`. They use the same watch maps as file_open and count as writes. R022 covers shell history; R023 covers a file renamed or linked onto the names R007 to R009 watch, which those rules could not see because the name is never opened.
+- **ftruncate and O_TRUNC are not file_change events.** Both need the file opened for writing first, which is already a file_open.
+- **A path builder in the kernel.** `bpf_d_path` is not allowed at these hooks, so the path is rebuilt from the directory entries, from the last component backwards, crossing mount points and stopping at the task's root. It is limited to 255 bytes and 24 steps; a longer path is marked as cut and can then match only by file name or identity. The walk keeps its position in a map value and not in a register, because the 5.15 verifier otherwise checks every combination of branches across the steps and gives up at one million instructions.
+- **Per-CPU work areas assume a program is not preempted by another run of a program on the same CPU.** That holds on kernels that do not preempt kernel code, which is the default of the Ubuntu kernels this was tested on. On a fully preemptible kernel two events could interleave in the same work area and one of them would carry a wrong path. This applies to the event scratch area since M1 as well as to the path builder; it has not been tested on such a kernel.
+- **file_change needs CONFIG_SECURITY_PATH.** AppArmor and Landlock both select it, so the kernels of Ubuntu, Debian, Arch and Amazon Linux 2023 have it. Where they are missing, the event type is reported as unavailable and R022 and R023 cannot fire.
+- **The container runtime is recognised by file identity.** The agent resolves a list of runtime binaries (`runtime_binaries` in the configuration) in the node's root filesystem and keeps their device and inode numbers. Every process carries the identity of the binary it runs, from the exec event or from /proc for processes older than the agent. `process.runtime` and `parent.runtime` are true when the identity is in the set. R003, R017 and R020 use `process.runtime` in place of the path and command-line filters they had, which a process in a container could imitate.
+- **runc's protected copy.** runc does not run its own file as `runc init`, the stage that sets up and enters a container. Older versions run a sealed copy in an anonymous memory file; runc 1.4 in the lab runs the binary through a private read-only overlay, which shows runc's inode number on another device, and does so already inside the pod's cgroup. Neither has the identity of the node's runc. The copy is taken for the runtime only if the task that executed it was running the node's real runc as something other than `runc init`, the new command line is exactly `runc init`, and the new file is unlinked or has runc's inode number. What the copy executes next, the container's own program, fails the first condition. The first version of this check also required the task to be outside every container's cgroup; the run on the lab cluster showed R003 firing on every `kubectl exec`, because runc 1.4 starts `runc init` inside the cgroup, and the condition was replaced by the one on the executing task's command line.
+- **systemd's executor.** The first false-positive run after this change reported R003 three times on the node itself: systemd 255 and later start every service through `systemd-executor`, which they execute by file descriptor. The old R003 filter did not cover it either; the M7 false-positive run did not report it, presumably because no service was started on a node during that half hour. `systemd-executor` is now in the default `runtime_binaries`, so it is recognised the same way as runc.
+- **A22 gives R019 a live event without an exploit.** A root process drops its effective uid and restores it from its saved uid. R021 is covered by A21.
+- **protoc digest.** The pinned SHA-256 of the protoc archive was compared with the digest the GitHub release itself publishes for that asset; they match. CI already fails if the committed generated code differs from a fresh generation.
+- **Release workflow.** `.github/workflows/release.yaml` runs on a version tag: it builds and pushes the two images, signs them with cosign (keyless) and pushes the chart with `image.digest` set for both. The chart uses the digest in place of the tag when it is set. The workflow has not run; it publishes under the repository owner's account and runs only when a tag is pushed.
+- **Harness.** `--out` now creates its directory. The M4 acceptance check no longer prints a jq error per log line on jq 1.6.
+
+### Tested on (after M8)
+
+Ubuntu 22.04 (kernel 5.15.0-203), freshly created kind cluster, agents without privileged mode: the 21 privileged load tests pass, the acceptance tests M0 to M6 pass with all 16 event types attached on every node, and `harness run --all` reports A01 to A22 detected with no other rule firing beyond the two already known (R004 in A05, R017 in A10). This is the first full cluster run on the kernel floor; before it only the load tests had been run there.
+
+Dev VM (Ubuntu 24.04, kernel 6.8.0-147), existing kind cluster upgraded in place: the same 21 load tests and the acceptance tests M0 to M6 pass, A01 to A22 are detected with zero ring buffer drops, and `hack/check-dashboard.sh` finds every dashboard query accepted and returning data. The 30-minute false-positive run was made twice. The first reported R003, high, three times for systemd's executor on a node (see above); after the fix the second reported no high or critical alert, zero drops, and the one known low alert (R004, 11 times, nginx's entrypoint). The fix was also checked directly by starting a systemd unit on a node: its exec carries `process.runtime` and raises no alert. The 22 scenarios were run on the build before that one-line change to the default configuration and not again after it.
+
+Not verified: the release workflow, which has not run; the dashboard as rendered in a browser; any kernel without CONFIG_SECURITY_PATH; any fully preemptible kernel. CI has not run on this work.

@@ -6,12 +6,18 @@
 // maps.
 package filter
 
-import "net/netip"
+import (
+	"net/netip"
+	"path"
+	"strings"
+)
 
 // Watch bits, WATCH_* in bpf/common.h.
 const (
 	Read  uint32 = 1 << 0
 	Write uint32 = 1 << 1
+	// Denied reports refused opens of the file and nothing else.
+	Denied uint32 = 1 << 2
 )
 
 // Kind is how a watch selects files.
@@ -70,4 +76,28 @@ func (s Set) Exacts() map[string]uint32 {
 		}
 	}
 	return out
+}
+
+// Match returns the bits of every watch that covers a path, the way the
+// kernel maps would. The agent uses it for events the kernel sends
+// unfiltered.
+func (s Set) Match(p string) uint32 {
+	var bits uint32
+	for _, w := range s.Watches {
+		switch w.Kind {
+		case Exact:
+			if p == w.Path {
+				bits |= w.Bits
+			}
+		case Prefix:
+			if strings.HasPrefix(p, w.Path) {
+				bits |= w.Bits
+			}
+		case Name:
+			if path.Base(p) == w.Path {
+				bits |= w.Bits
+			}
+		}
+	}
+	return bits
 }

@@ -64,6 +64,10 @@ type Process struct {
 	// IsMainBinary says the process runs the same binary as its
 	// container's first process. Always false outside a container.
 	IsMainBinary bool `json:"is_main_binary,omitempty"`
+	// Runtime says the process runs one of the node's container runtime
+	// binaries, recognised by the identity of the file and not by its
+	// name.
+	Runtime bool `json:"runtime,omitempty"`
 	// Exec is set on exec events only; its fields appear inline.
 	*Exec
 }
@@ -119,7 +123,7 @@ type Network struct {
 	IsK8sAPI bool `json:"is_k8s_api,omitempty"`
 }
 
-// File is set on file_open events.
+// File is set on file_open, file_change and file_denied events.
 type File struct {
 	// Path is as the opening process sees it, relative to its own root.
 	Path string `json:"path"`
@@ -136,6 +140,12 @@ type File struct {
 	// MatchedBy is the kernel filter that let the event through: "path",
 	// "name" or "inode".
 	MatchedBy string `json:"matched_by"`
+	// Op is set on file_change: what was done to the name (unlink,
+	// rename_from, rename_to, link, symlink, truncate).
+	Op string `json:"op,omitempty"`
+	// Error is set on file_denied: why the kernel refused the open
+	// (EACCES, EPERM or EROFS).
+	Error string `json:"error,omitempty"`
 }
 
 // Parent is the process's parent as the process tree knows it.
@@ -143,6 +153,7 @@ type Parent struct {
 	PID         uint32 `json:"pid"`
 	Image       string `json:"Image"`
 	CommandLine string `json:"CommandLine"`
+	Runtime     bool   `json:"runtime,omitempty"`
 }
 
 // Container is absent for host processes.

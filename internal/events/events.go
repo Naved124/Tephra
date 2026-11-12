@@ -31,12 +31,17 @@ const (
 	TypeCredChange  Type = 12
 	TypeMount       Type = 13
 	TypeSetns       Type = 14
+	// TypeFileChange is a watched name removed, renamed, replaced or
+	// created as a link; TypeFileDenied an open the kernel refused.
+	TypeFileChange Type = 15
+	TypeFileDenied Type = 16
 )
 
 // Types lists every event type the agent knows.
 var Types = []Type{
 	TypeExec, TypeFork, TypeExit, TypeConnect, TypeAccept, TypeUnixConnect, TypeFileOpen,
 	TypePtrace, TypeMemfd, TypeModuleLoad, TypeBPFLoad, TypeCredChange, TypeMount, TypeSetns,
+	TypeFileChange, TypeFileDenied,
 }
 
 // ParseType is the inverse of Type.String.
@@ -79,6 +84,10 @@ func (t Type) String() string {
 		return "mount"
 	case TypeSetns:
 		return "setns"
+	case TypeFileChange:
+		return "file_change"
+	case TypeFileDenied:
+		return "file_denied"
 	}
 	return fmt.Sprintf("unknown(%d)", uint32(t))
 }
@@ -102,6 +111,16 @@ const (
 	// FileKernelCreds marks an open made under credentials the kernel
 	// substituted, such as overlayfs opening a backing file.
 	FileKernelCreds = 1 << 4
+)
+
+// FileOps are the operations of a file_change, enum file_op in bpf/common.h,
+// by value.
+var FileOps = [...]string{"", "unlink", "rename_from", "rename_to", "link", "symlink", "truncate"}
+
+// Flag bits in Header.Flags of a file_denied, DENIED_F_* in bpf/common.h.
+const (
+	DeniedCwdCut = 1 << 0
+	DeniedNoCwd  = 1 << 1
 )
 
 // CredInExec in Header.Flags of a cred_change: the change was made by an
@@ -191,6 +210,33 @@ type FileOpen struct {
 	WatchBits uint32
 	Path      string
 }
+
+// FileChange is struct file_event with type file_change: something was done
+// to a watched name without opening it.
+type FileChange struct {
+	Header
+	// Inode and Dev are zero for a name that did not exist before.
+	Inode uint64
+	Dev   uint32
+	// Op is one of FileOps.
+	Op   string
+	Path string
+}
+
+// FileDenied is struct denied_event: an open the kernel refused.
+type FileDenied struct {
+	Header
+	// Errno is the positive error number: EACCES, EPERM or EROFS.
+	Errno     uint32
+	OpenFlags uint32
+	// Name is the path as the caller passed it. Cwd is the working
+	// directory when Name is relative to it, and empty otherwise.
+	Name string
+	Cwd  string
+}
+
+// Write reports whether the refused open asked to change or create the file.
+func (f *FileDenied) Write() bool { return f.OpenFlags&(OAccMode|OTrunc|OCreat) != 0 }
 
 // Ptrace is struct ptrace_event: attach-level access to another process.
 type Ptrace struct {
@@ -350,6 +396,42 @@ func Decode(raw []byte) (Event, error) {
 			WatchBits: le.Uint32(raw[fileWatchBits:]),
 			Path:      cstr(raw[filePath : filePath+n]),
 		}, nil
+	case TypeFileChange:
+		if len(raw) < filePath {
+			return nil, short(h, raw, filePath)
+		}
+		n := int(le.Uint32(raw[filePathLen:]))
+		if n > pathLen || filePath+n > len(raw) {
+			return nil, fmt.Errorf("file_change record of %d bytes cannot hold path_len %d", len(raw), n)
+		}
+		op := le.Uint32(raw[fileOpenFlags:])
+		if op == 0 || int(op) >= len(FileOps) {
+			return nil, fmt.Errorf("file_change record with unknown operation %d", op)
+		}
+		return &FileChange{
+			Header: h,
+			Inode:  le.Uint64(raw[fileInode:]),
+			Dev:    le.Uint32(raw[fileDev:]),
+			Op:     FileOps[op],
+			Path:   cstr(raw[filePath : filePath+n]),
+		}, nil
+	case TypeFileDenied:
+		if len(raw) < deniedCwd {
+			return nil, short(h, raw, deniedCwd)
+		}
+		d := &FileDenied{
+			Header:    h,
+			Errno:     le.Uint32(raw[deniedError:]),
+			OpenFlags: le.Uint32(raw[deniedOpenFlags:]),
+			Name:      cstr(raw[deniedName:deniedCwd]),
+		}
+		if n := int(le.Uint32(raw[deniedCwdLen:])); n > 0 {
+			if n > pathLen || deniedCwd+n > len(raw) {
+				return nil, fmt.Errorf("file_denied record of %d bytes cannot hold cwd_len %d", len(raw), n)
+			}
+			d.Cwd = cstr(raw[deniedCwd : deniedCwd+n])
+		}
+		return d, nil
 	case TypePtrace:
 		if len(raw) < ptraceSize {
 			return nil, short(h, raw, ptraceSize)

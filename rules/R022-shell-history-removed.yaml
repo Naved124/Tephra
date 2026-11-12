@@ -1,0 +1,20 @@
+id: R022
+title: Shell history removed or replaced
+level: low
+tags: [attack.defense_evasion, attack.t1070.003]
+event: file_change
+detection:
+  selection:
+    file.path|endswith:
+      - /.bash_history
+      - /.zsh_history
+      - /.ash_history
+      - /.sh_history
+  condition: selection
+action: alert
+description: >-
+  The history file was deleted, renamed away, replaced by another file or by
+  a link (to /dev/null, usually), or cut short with truncate. None of these
+  opens the file, so R012 does not see them.
+falsepositives:
+  - Image builds and clean-up scripts that delete history files on purpose

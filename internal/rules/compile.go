@@ -9,10 +9,11 @@ import (
 	"github.com/Naved124/tephra/internal/filter"
 )
 
-// compileWatches derives the kernel file watches of a file_open rule.
+// compileWatches derives the kernel file watches of a rule on file_open,
+// file_change or file_denied.
 //
-// The kernel emits a file open only when a watch matches, so a rule that
-// could be satisfied by an open no watch covers would silently never fire.
+// A file event is emitted only when a watch matches, so a rule that could be
+// satisfied by an event no watch covers would silently never fire.
 // Such a rule is rejected. A block is covered when it constrains file.path
 // in a way the kernel can filter on:
 //
@@ -23,7 +24,7 @@ import (
 // The whole condition is covered when every way of satisfying it goes
 // through a covered block.
 func (r *Rule) compileWatches() error {
-	if r.Event != "file_open" {
+	if r.Event != "file_open" && r.Event != "file_change" && r.Event != "file_denied" {
 		return nil
 	}
 	byName := map[string]*block{}
@@ -35,13 +36,20 @@ func (r *Rule) compileWatches() error {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("the condition can be met by a file open that no kernel watch covers; " +
+		return fmt.Errorf("the condition can be met by a file event that no kernel watch covers; " +
 			"every alternative needs file.path with equals, startswith, or endswith \"/<file name>\"")
 	}
 	// If nothing but writes can satisfy the rule, reads are dropped in
 	// the kernel.
 	bits := filter.Read | filter.Write
-	if needsWrite(r.cond, byName) {
+	switch {
+	case r.Event == "file_change":
+		// Every such operation changes the name.
+		bits = filter.Write
+	case r.Event == "file_denied":
+		// Successful opens of the file are of no use to this rule.
+		bits = filter.Denied
+	case needsWrite(r.cond, byName):
 		bits = filter.Write
 	}
 	for i := range ws {

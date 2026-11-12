@@ -25,6 +25,7 @@ func ToProto(r *Record) *tephrav1.Record {
 			Gid:          r.Process.GID,
 			CgroupId:     r.Process.CgroupID,
 			IsMainBinary: r.Process.IsMainBinary,
+			Runtime:      r.Process.Runtime,
 		},
 		K8S: &tephrav1.K8S{Namespace: r.K8s.Namespace, Pod: r.K8s.Pod, Labels: r.K8s.Labels},
 	}
@@ -40,7 +41,7 @@ func ToProto(r *Record) *tephrav1.Record {
 		}
 	}
 	if x := r.Parent; x != nil {
-		p.Parent = &tephrav1.Parent{Pid: x.PID, Image: x.Image, CommandLine: x.CommandLine}
+		p.Parent = &tephrav1.Parent{Pid: x.PID, Image: x.Image, CommandLine: x.CommandLine, Runtime: x.Runtime}
 	}
 	if x := r.Container; x != nil {
 		p.Container = &tephrav1.Container{Id: x.ID, Name: x.Name, Image: x.Image}
@@ -59,7 +60,7 @@ func ToProto(r *Record) *tephrav1.Record {
 	if x := r.File; x != nil {
 		p.File = &tephrav1.File{
 			Path: x.Path, Target: x.Target, Flags: x.Flags, Write: x.Write, Truncate: x.Truncate,
-			Inode: x.Inode, Dev: x.Dev, MatchedBy: x.MatchedBy,
+			Inode: x.Inode, Dev: x.Dev, MatchedBy: x.MatchedBy, Op: x.Op, Error: x.Error,
 		}
 	}
 	if x := r.Ptrace; x != nil {
@@ -109,7 +110,7 @@ func FromProto(p *tephrav1.Record) *Record {
 	if x := p.GetProcess(); x != nil {
 		r.Process = Process{
 			PID: x.GetPid(), StartTimeNS: x.GetStartTimeNs(), Image: x.GetImage(), CommandLine: x.GetCommandLine(),
-			User: x.GetUser(), UID: x.GetUid(), GID: x.GetGid(), CgroupID: x.GetCgroupId(), IsMainBinary: x.GetIsMainBinary(),
+			User: x.GetUser(), UID: x.GetUid(), GID: x.GetGid(), CgroupID: x.GetCgroupId(), IsMainBinary: x.GetIsMainBinary(), Runtime: x.GetRuntime(),
 		}
 		if e := x.GetExec(); e != nil {
 			r.Process.Exec = &Exec{
@@ -124,7 +125,7 @@ func FromProto(p *tephrav1.Record) *Record {
 		}
 	}
 	if x := p.GetParent(); x != nil {
-		r.Parent = &Parent{PID: x.GetPid(), Image: x.GetImage(), CommandLine: x.GetCommandLine()}
+		r.Parent = &Parent{PID: x.GetPid(), Image: x.GetImage(), CommandLine: x.GetCommandLine(), Runtime: x.GetRuntime()}
 	}
 	if x := p.GetContainer(); x != nil {
 		r.Container = &Container{ID: x.GetId(), Name: x.GetName(), Image: x.GetImage()}
@@ -149,7 +150,7 @@ func FromProto(p *tephrav1.Record) *Record {
 	if x := p.GetFile(); x != nil {
 		r.File = &File{
 			Path: x.GetPath(), Target: x.GetTarget(), Flags: x.GetFlags(), Write: x.GetWrite(), Truncate: x.GetTruncate(),
-			Inode: x.GetInode(), Dev: x.GetDev(), MatchedBy: x.GetMatchedBy(),
+			Inode: x.GetInode(), Dev: x.GetDev(), MatchedBy: x.GetMatchedBy(), Op: x.GetOp(), Error: x.GetError(),
 		}
 	}
 	if x := p.GetPtrace(); x != nil {

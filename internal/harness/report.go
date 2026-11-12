@@ -94,6 +94,9 @@ func (r *Report) Write(dir string) error {
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
 	if err := os.WriteFile(filepath.Join(dir, "coverage.json"), append(data, '\n'), 0o644); err != nil {
 		return err
 	}
@@ -157,7 +160,7 @@ func (r *Report) Markdown() string {
 			res.ID, res.Title, strings.Join(rules, ", "), res.Verdict(), seconds(slowest), seconds(res.VisibleMS), also)
 	}
 	b.WriteString("\n\"Event after\" is the time from the start of the technique to the kernel event that raised the alert. \"Visible after\" is the time until every expected alert could be queried through Grafana; it includes the harness's own one-second polling.\n\n")
-	b.WriteString("R019 (a process becomes root without running a setuid binary) has no live scenario: reproducing it needs a kernel exploit. It is covered by a rule test on a synthetic event (`rules/testdata/R019.*.jsonl`).\n")
+	b.WriteString("A22 does not use an exploit. It produces the credential change R019 looks for, a non-zero effective uid becoming zero outside an exec, by legitimate means: a root process drops its effective uid and restores it from its saved uid. It shows that the hook and the rule work; it does not show that a particular exploit is caught.\n")
 	if len(notes) > 0 {
 		b.WriteString("\n### Notes\n\n")
 		for _, n := range notes {

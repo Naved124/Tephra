@@ -1,0 +1,6 @@
+id: A20
+title: Refused read of /etc/shadow by an unprivileged user
+tags: [attack.credential_access, attack.t1003.008]
+expect: [R024]
+run:
+  pod: victim

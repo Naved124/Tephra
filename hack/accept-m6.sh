@@ -49,8 +49,8 @@ for pod in $(agent_pods); do
 	missing=$(scrape "$pod" | awk '/^tephra_event_type_available/ && $2 != 1 {print $1}' | tr '\n' ' ')
 	[ -z "$missing" ] || fail "${pod}: event types without a hook: ${missing}"
 	n=$(scrape "$pod" | grep -c '^tephra_event_type_available')
-	[ "$n" -eq 14 ] || fail "${pod}: ${n} event types reported, want 14"
+	[ "$n" -eq 16 ] || fail "${pod}: ${n} event types reported, want 16"
 done
-pass "all 14 event types have a hook attached on every node"
+pass "all 16 event types have a hook attached on every node"
 
 echo "PASS: M6"

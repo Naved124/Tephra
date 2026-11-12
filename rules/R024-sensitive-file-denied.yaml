@@ -1,0 +1,36 @@
+id: R024
+title: Refused attempt to open a sensitive file
+level: medium
+tags: [attack.credential_access, attack.t1003.008]
+event: file_denied
+detection:
+  credentials:
+    file.path: [/etc/shadow, /etc/gshadow, /etc/sudoers]
+  preload:
+    file.path: /etc/ld.so.preload
+    file.write: true
+  cron:
+    file.path|startswith: [/etc/cron.d/, /var/spool/cron/]
+    file.write: true
+  crontab:
+    file.path: /etc/crontab
+    file.write: true
+  keys:
+    file.path|endswith: [/authorized_keys, /authorized_keys2]
+    file.write: true
+  escape:
+    file.path|endswith: [/release_agent, /core_pattern]
+    file.write: true
+  host:
+    k8s.namespace: host
+  condition: (credentials or preload or cron or crontab or keys or escape) and not host
+action: alert
+description: >-
+  A process in a container tried to open one of these files and the kernel
+  said no: wrong user, a read-only filesystem, or a security module. The
+  attempt failed, but it is what someone looking for a way up tries first.
+  The name is compared as text after "." and ".." are removed; a symbolic
+  link in it is not followed.
+falsepositives:
+  - Programs that probe for files they may not read and carry on, such as some PAM-aware tools run as a non-root user
+  - Containers with a read-only root filesystem whose entrypoint tries to edit these files

@@ -86,6 +86,14 @@ const (
 	filePathLen   = hdrSize + 20
 	filePath      = hdrSize + 24
 
+	deniedError     = hdrSize + 0
+	deniedOpenFlags = hdrSize + 4
+	deniedNameLen   = hdrSize + 8
+	deniedCwdLen    = hdrSize + 12
+	deniedName      = hdrSize + 16
+	deniedCwd       = deniedName + pathLen
+	deniedSize      = deniedCwd + pathLen
+
 	forkChildPID    = hdrSize + 0
 	forkParentPID   = hdrSize + 4
 	forkChildStart  = hdrSize + 8
@@ -172,6 +180,15 @@ var Layout = map[string]Struct{
 		"watch_bits": {fileWatchBits, 4},
 		"path_len":   {filePathLen, 4},
 		"path":       {filePath, pathLen},
+	}},
+	"denied_event": {Size: deniedSize, Fields: map[string]Field{
+		"h":          {0, hdrSize},
+		"error":      {deniedError, 4},
+		"open_flags": {deniedOpenFlags, 4},
+		"name_len":   {deniedNameLen, 4},
+		"cwd_len":    {deniedCwdLen, 4},
+		"name":       {deniedName, pathLen},
+		"cwd":        {deniedCwd, pathLen},
 	}},
 	"fork_event": {Size: forkSize, Fields: map[string]Field{
 		"h":                    {0, hdrSize},

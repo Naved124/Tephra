@@ -1,0 +1,6 @@
+id: A18
+title: Delete shell history and link it to /dev/null
+tags: [attack.defense_evasion, attack.t1070.003]
+expect: [R022]
+run:
+  pod: victim
