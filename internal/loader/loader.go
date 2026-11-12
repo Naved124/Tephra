@@ -110,7 +110,11 @@ var hooks = []hook{
 		types: []events.Type{events.TypeFileChange}},
 	{program: "tephra_truncate", section: "fentry/vfs_truncate", kfunc: "vfs_truncate",
 		types: []events.Type{events.TypeFileChange}},
-	{program: "tephra_open_denied", section: "fexit/do_filp_open", kfunc: "do_filp_open", params: 3,
+	// The function every open ends in was renamed; the two programs are
+	// the same apart from the name they attach to.
+	{program: "tephra_open_denied", section: "fexit/do_filp_open", kfunc: "do_filp_open", params: 3, group: "denied",
+		types: []events.Type{events.TypeFileDenied}},
+	{program: "tephra_open_denied_v2", section: "fexit/do_file_open", kfunc: "do_file_open", params: 3, group: "denied",
 		types: []events.Type{events.TypeFileDenied}},
 	{program: "tephra_ptrace", section: "fentry/security_ptrace_access_check", kfunc: "security_ptrace_access_check",
 		types: []events.Type{events.TypePtrace}},

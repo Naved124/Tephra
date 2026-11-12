@@ -245,13 +245,14 @@ int BPF_PROG(tephra_truncate, const struct path *path)
 }
 
 /* Opens the kernel refused never reach security_file_open, or reach it and
- * are refused there. The return of do_filp_open is where every open ends,
+ * are refused there. The return of do_filp_open (do_file_open on newer
+ * kernels) is where every open ends,
  * whichever check said no. Refusals are rare, so all of them are sent and
  * the agent matches the name against the watches: it has to put a relative
  * name together with the working directory first. */
-SEC("fexit/do_filp_open")
-int BPF_PROG(tephra_open_denied, int dfd, struct filename *pathname,
-	     const struct open_flags *op, struct file *ret)
+static __always_inline int open_denied(unsigned long long *ctx, int dfd,
+				       struct filename *pathname,
+				       const struct open_flags *op)
 {
 	unsigned long r = 0;
 	struct tephra_cfg *c;
@@ -319,4 +320,19 @@ int BPF_PROG(tephra_open_denied, int dfd, struct filename *pathname,
 	else
 		s->emitted++;
 	return 0;
+}
+
+SEC("fexit/do_filp_open")
+int BPF_PROG(tephra_open_denied, int dfd, struct filename *pathname,
+	     const struct open_flags *op, struct file *ret)
+{
+	return open_denied(ctx, dfd, pathname, op);
+}
+
+/* Newer kernels call the same function do_file_open. */
+SEC("fexit/do_file_open")
+int BPF_PROG(tephra_open_denied_v2, int dfd, struct filename *pathname,
+	     const struct open_flags *op, struct file *ret)
+{
+	return open_denied(ctx, dfd, pathname, op);
 }
