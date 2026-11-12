@@ -1,0 +1,19 @@
+id: R019
+title: Process became root without running a setuid binary
+level: critical
+tags: [attack.privilege_escalation, attack.t1068]
+event: cred_change
+detection:
+  selection:
+    cred.new_euid: 0
+    cred.old_euid|gt: 0
+    cred.in_exec: false
+  condition: selection
+action: alert
+description: >-
+  The legitimate way for an unprivileged process to become root is to execute
+  a setuid binary, which changes credentials as part of the exec. An
+  effective uid that goes from non-zero to zero outside an exec is what a
+  kernel privilege-escalation exploit produces.
+falsepositives:
+  - None known. A process that kept a saved uid of 0 and switches back to it changes euid this way; such programs are rare and worth knowing about

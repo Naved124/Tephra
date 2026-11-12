@@ -51,7 +51,17 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
           securityContext:
-            privileged: {{ .Values.agent.privileged }}
+            {{- if .Values.agent.privileged }}
+            privileged: true
+            {{- else }}
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add:
+                {{- toYaml .Values.agent.capabilities | nindent 16 }}
+            {{- end }}
           resources:
             {{- toYaml .Values.agent.resources | nindent 12 }}
           volumeMounts:

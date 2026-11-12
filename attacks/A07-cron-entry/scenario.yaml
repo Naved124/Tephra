@@ -1,0 +1,6 @@
+id: A07
+title: Add a cron entry
+tags: [attack.persistence, attack.t1053.003]
+expect: [R008]
+run:
+  pod: victim

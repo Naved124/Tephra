@@ -42,6 +42,57 @@ message Record {
   // on a timer so that the dashboard can show sensor health from the same
   // store as the events.
   map<string, uint64> health = 13;
+  Ptrace ptrace = 14;
+  Memfd memfd = 15;
+  Module module = 16;
+  Bpf bpf = 17;
+  Cred cred = 18;
+  Mount mount = 19;
+  Namespaces namespaces = 20;
+}
+
+message Ptrace {
+  uint32 target_pid = 1;
+  string target_image = 2;
+  string target_command_line = 3;
+  uint32 mode = 4;
+}
+
+message Memfd {
+  uint32 flags = 1;
+}
+
+message Module {
+  string name = 1;
+}
+
+message Bpf {
+  uint32 prog_type = 1;
+  string name = 2;
+}
+
+message Cred {
+  uint32 old_uid = 1;
+  uint32 new_uid = 2;
+  uint32 old_euid = 3;
+  uint32 new_euid = 4;
+  uint32 old_gid = 5;
+  uint32 new_gid = 6;
+  bool in_exec = 7;
+  bool caps_gained = 8;
+  uint64 old_cap_effective = 9;
+  uint64 new_cap_effective = 10;
+}
+
+message Mount {
+  string fstype = 1;
+  uint64 flags = 2;
+  string target = 3;
+}
+
+message Namespaces {
+  repeated string changed = 1;
+  repeated string host = 2;
 }
 
 message Rule {

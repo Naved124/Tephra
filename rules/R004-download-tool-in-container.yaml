@@ -26,4 +26,4 @@ description: >-
   packages in a running one is how tools are brought in after a compromise.
 falsepositives:
   - Health checks and init scripts that call curl or wget
-  - Images that install packages at start-up
+  - Images that install or query packages at start-up; the official nginx image's entrypoint runs "apk manifest nginx"

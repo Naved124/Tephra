@@ -1,0 +1,20 @@
+id: R020
+title: BPF program loaded by something other than the sensor
+level: high
+tags: [attack.defense_evasion, attack.t1562.001]
+event: bpf_load
+detection:
+  selection:
+    bpf.prog_type|gt: 0
+  runtime:
+    k8s.namespace: host
+    process.Image|endswith: [/runc, /systemd, /containerd, /dockerd, /crun]
+  condition: selection and not runtime
+action: alert
+description: >-
+  BPF programs can observe and change what the kernel does, including what
+  this sensor sees. The sensor's own programs are not reported. Loads by the
+  container runtime and by systemd on the host, which use BPF for device and
+  network control of cgroups, are filtered.
+falsepositives:
+  - Other BPF-based tools installed on purpose (CNI plugins, profilers, other security agents)

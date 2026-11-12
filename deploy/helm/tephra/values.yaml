@@ -8,9 +8,15 @@ image:
   pullPolicy: IfNotPresent
 
 agent:
-  # Privileged until the narrowed capability list (BPF, PERFMON, SYS_RESOURCE,
-  # SYS_PTRACE) has been proven to work in M6.
-  privileged: true
+  # The agent runs with these capabilities and nothing else. Set privileged
+  # to true only on a kernel or runtime where the list is not enough; the
+  # agent's start-up log says which hook failed.
+  privileged: false
+  capabilities:
+    - BPF
+    - PERFMON
+    - SYS_RESOURCE
+    - SYS_PTRACE
   # Events ring buffer in bytes; a power of two.
   ringBufSize: 16777216
   # Prometheus endpoint, /metrics on the pod IP.

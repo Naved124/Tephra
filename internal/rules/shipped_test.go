@@ -54,8 +54,8 @@ func TestShippedRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set.Rules) != 15 {
-		t.Errorf("loaded %d rules, want R001 to R014 and R021", len(set.Rules))
+	if len(set.Rules) != 21 {
+		t.Errorf("loaded %d rules, want R001 to R021", len(set.Rules))
 	}
 	for _, r := range set.Rules {
 		if r.Description == "" || len(r.Tags) < 2 {
@@ -67,6 +67,15 @@ func TestShippedRules(t *testing.T) {
 			}
 			if !r.Matches(rec) {
 				t.Errorf("%s did not fire on %s %q", r.ID, rec.Type, describe(rec))
+			}
+		}
+		// Events the attack harness captured from a live detection.
+		live := filepath.Join(shipped, "testdata", r.ID+".live.jsonl")
+		if _, err := os.Stat(live); err == nil {
+			for _, rec := range readEvents(t, live) {
+				if !r.Matches(rec) {
+					t.Errorf("%s did not fire on its live event %s %q", r.ID, rec.Type, describe(rec))
+				}
 			}
 		}
 		for _, rec := range readEvents(t, filepath.Join(shipped, "testdata", r.ID+".nomatch.jsonl")) {
@@ -136,12 +145,14 @@ func TestShippedWatches(t *testing.T) {
 	for _, typ := range set.EventTypes() {
 		types[typ.String()] = true
 	}
-	for _, name := range []string{"exec", "connect", "unix_connect", "file_open"} {
+	for _, name := range []string{"exec", "connect", "unix_connect", "file_open", "ptrace", "module_load", "bpf_load", "cred_change", "mount", "setns"} {
 		if !types[name] {
 			t.Errorf("event type %s not enabled by the shipped rules", name)
 		}
 	}
-	if types["accept"] {
-		t.Error("accept enabled, but no shipped rule uses it")
+	for _, name := range []string{"accept", "memfd"} {
+		if types[name] {
+			t.Errorf("%s enabled, but no shipped rule uses it", name)
+		}
 	}
 }

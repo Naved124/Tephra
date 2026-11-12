@@ -1,0 +1,6 @@
+id: A12
+title: Connect to a lab listener on a mining-pool port
+tags: [attack.impact, attack.t1496]
+expect: [R014]
+run:
+  pod: victim

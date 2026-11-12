@@ -19,6 +19,8 @@ func metricsHandler(a *agent, pods *k8s.PodIndex) http.Handler {
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		var b strings.Builder
 		c := a.c
+		b.WriteString("# HELP tephra_build_info The running agent's version.\n# TYPE tephra_build_info gauge\n")
+		fmt.Fprintf(&b, "tephra_build_info{version=%q} 1\n", version)
 		b.WriteString("# HELP tephra_kernel_events_total Events per hook by outcome. seen = filtered + emitted + dropped.\n")
 		b.WriteString("# TYPE tephra_kernel_events_total counter\n")
 		for _, t := range events.Types {

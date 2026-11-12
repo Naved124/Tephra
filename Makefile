@@ -9,7 +9,7 @@ VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo de
 
 CHART    := deploy/helm/tephra
 BPF_SRCS := $(wildcard bpf/*.bpf.c) bpf/common.h
-SCRIPTS  := $(wildcard hack/*.sh deploy/vm/*.sh)
+SCRIPTS  := $(wildcard hack/*.sh deploy/vm/*.sh attacks/*/*.sh)
 
 .DEFAULT_GOAL := build
 
@@ -50,9 +50,10 @@ proto: $(PROTOC) ## Regenerate the Go code of the agent-to-collector API
 		api/tephra/v1/tephra.proto
 
 .PHONY: build
-build: generate ## Build bin/tephrad and bin/collector
+build: generate ## Build bin/tephrad, bin/collector and bin/harness
 	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/tephrad ./cmd/tephrad
 	CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o bin/collector ./cmd/collector
+	CGO_ENABLED=0 go build -trimpath -o bin/harness ./cmd/harness
 
 .PHONY: rules-validate
 rules-validate: generate ## Check every shipped rule
@@ -122,6 +123,17 @@ accept: ## Run the acceptance tests of every finished milestone against the clus
 	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m3.sh
 	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m4.sh
 	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m5.sh
+	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m6.sh
+
+# --- attack harness (lab cluster only) ----------------------------------------
+
+.PHONY: coverage
+coverage: build ## Run every attack scenario against the lab cluster and write docs/coverage.md
+	bin/harness run --all --context kind-$(CLUSTER) --record rules/testdata
+
+.PHONY: false-positives
+false-positives: build ## Run ordinary workloads for 30 minutes and list every alert
+	bin/harness fp --context kind-$(CLUSTER)
 
 # --- dev VM (run on the laptop) ---------------------------------------------
 

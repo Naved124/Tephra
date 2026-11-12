@@ -1,0 +1,7 @@
+id: A01
+title: Reverse shell from a web server pod to a listener pod
+tags: [attack.execution, attack.t1059.004]
+expect: [R001, R002]
+run:
+  pod: listener
+alert_pod: web

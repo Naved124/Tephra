@@ -527,11 +527,12 @@ func TestNestedOverlayOpenDropped(t *testing.T) {
 	h.Type = events.TypeFileOpen
 	h.TID = 48300
 	h.TSBootNS = 1_000_000_000
+	path := "/etc/shadow"
 	open := func(flags uint32, inode uint64, at uint64) *export.Record {
 		h := h
 		h.Flags = flags
 		h.TSBootNS = at
-		return f.e.Handle(&events.FileOpen{Header: h, Inode: inode, Path: "/etc/shadow"}, time.Now())
+		return f.e.Handle(&events.FileOpen{Header: h, Inode: inode, Path: path}, time.Now())
 	}
 	kernel := uint32(events.FileByPath | events.FileKernelCreds)
 
@@ -541,11 +542,21 @@ func TestNestedOverlayOpenDropped(t *testing.T) {
 	if open(kernel, 9, 1_000_009_000) != nil {
 		t.Error("the backing-file open that followed it was reported again")
 	}
+	// A file that was copied up has another inode number in the upper
+	// layer; the path still says it is the same open.
+	if open(events.FileByInode, 9, 1_100_000_000) == nil {
+		t.Fatal("the process's own open was dropped")
+	}
+	if open(kernel, 77, 1_100_009_000) != nil {
+		t.Error("the backing-file open of a copied-up file was reported again")
+	}
 	// Everything else under substituted credentials is kept: another
 	// file, a later time, a thread with no open reported.
-	if open(kernel, 10, 1_000_010_000) == nil {
-		t.Error("an open of another inode was dropped")
+	path = "/etc/gshadow"
+	if open(kernel, 10, 1_100_010_000) == nil {
+		t.Error("an open of another file was dropped")
 	}
+	path = "/etc/shadow"
 	if open(kernel, 9, 1_500_000_000) == nil {
 		t.Error("an open long after the first was dropped")
 	}
@@ -553,7 +564,7 @@ func TestNestedOverlayOpenDropped(t *testing.T) {
 	if open(kernel, 9, 1_000_009_000) == nil {
 		t.Error("an open in another thread was dropped")
 	}
-	if f.e.NestedOpens() != 1 {
-		t.Errorf("nested opens = %d, want 1", f.e.NestedOpens())
+	if f.e.NestedOpens() != 2 {
+		t.Errorf("nested opens = %d, want 2", f.e.NestedOpens())
 	}
 }

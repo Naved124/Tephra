@@ -1,0 +1,17 @@
+id: R016
+title: Kernel module loaded while a container process is current
+level: critical
+tags: [attack.persistence, attack.t1547.006]
+event: module_load
+detection:
+  selection:
+    module.name|re: '.+'
+  host:
+    k8s.namespace: host
+  condition: selection and not host
+action: alert
+description: >-
+  A kernel module runs with the kernel's privileges on the whole node. A
+  container that can load one has left its isolation behind.
+falsepositives:
+  - Privileged system containers that manage node drivers (GPU or storage driver installers)

@@ -1,0 +1,6 @@
+id: A02
+title: Run a harmless binary from a memfd with no file on disk
+tags: [attack.defense_evasion, attack.t1620]
+expect: [R003]
+run:
+  pod: victim

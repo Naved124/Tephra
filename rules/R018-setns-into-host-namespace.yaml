@@ -1,0 +1,18 @@
+id: R018
+title: Process entered one of the node's own namespaces
+level: critical
+tags: [attack.privilege_escalation, attack.t1611]
+event: setns
+detection:
+  selection:
+    namespaces.host: [mnt, pid, net, uts, ipc, cgroup, time]
+  host:
+    k8s.namespace: host
+  condition: selection and not host
+action: alert
+description: >-
+  A process that belongs to a pod switched into a namespace of the node
+  itself, as nsenter does. From there it sees the node's processes, network
+  or filesystem as if it were not in a container.
+falsepositives:
+  - Privileged node-maintenance pods that use nsenter by design

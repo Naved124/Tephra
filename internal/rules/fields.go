@@ -66,6 +66,52 @@ var (
 	onExit = []string{"exit"}
 )
 
+// sub builds a field of one of the per-event objects: absent when the
+// record has no such object.
+func sub[T any](k kind, event string, pick func(*export.Record) *T, get func(*T) value) field {
+	return field{kind: k, events: []string{event}, get: func(r *export.Record) value {
+		if x := pick(r); x != nil {
+			return get(x)
+		}
+		return value{}
+	}}
+}
+
+func ptraceOf(r *export.Record) *export.Ptrace { return r.Ptrace }
+func memfdOf(r *export.Record) *export.Memfd   { return r.Memfd }
+func moduleOf(r *export.Record) *export.Module { return r.Module }
+func bpfOf(r *export.Record) *export.BPF       { return r.BPF }
+func credOf(r *export.Record) *export.Cred     { return r.Cred }
+func mountOf(r *export.Record) *export.Mount   { return r.Mount }
+func nsOf(r *export.Record) *export.Namespaces { return r.Namespaces }
+
+func init() {
+	for name, f := range map[string]field{
+		"ptrace.target_pid":          sub(kInt, "ptrace", ptraceOf, func(p *export.Ptrace) value { return integer(int64(p.TargetPID)) }),
+		"ptrace.target_image":        sub(kString, "ptrace", ptraceOf, func(p *export.Ptrace) value { return present(p.TargetImage) }),
+		"ptrace.target_command_line": sub(kString, "ptrace", ptraceOf, func(p *export.Ptrace) value { return present(p.TargetCommandLine) }),
+		"memfd.flags":                sub(kInt, "memfd", memfdOf, func(m *export.Memfd) value { return integer(int64(m.Flags)) }),
+		"module.name":                sub(kString, "module_load", moduleOf, func(m *export.Module) value { return str(m.Name) }),
+		"bpf.prog_type":              sub(kInt, "bpf_load", bpfOf, func(b *export.BPF) value { return integer(int64(b.ProgType)) }),
+		"bpf.name":                   sub(kString, "bpf_load", bpfOf, func(b *export.BPF) value { return present(b.Name) }),
+		"cred.old_uid":               sub(kInt, "cred_change", credOf, func(c *export.Cred) value { return integer(int64(c.OldUID)) }),
+		"cred.new_uid":               sub(kInt, "cred_change", credOf, func(c *export.Cred) value { return integer(int64(c.NewUID)) }),
+		"cred.old_euid":              sub(kInt, "cred_change", credOf, func(c *export.Cred) value { return integer(int64(c.OldEUID)) }),
+		"cred.new_euid":              sub(kInt, "cred_change", credOf, func(c *export.Cred) value { return integer(int64(c.NewEUID)) }),
+		"cred.old_gid":               sub(kInt, "cred_change", credOf, func(c *export.Cred) value { return integer(int64(c.OldGID)) }),
+		"cred.new_gid":               sub(kInt, "cred_change", credOf, func(c *export.Cred) value { return integer(int64(c.NewGID)) }),
+		"cred.in_exec":               sub(kBool, "cred_change", credOf, func(c *export.Cred) value { return boolean(c.InExec) }),
+		"cred.caps_gained":           sub(kBool, "cred_change", credOf, func(c *export.Cred) value { return boolean(c.CapsGained) }),
+		"mount.fstype":               sub(kString, "mount", mountOf, func(m *export.Mount) value { return str(m.FSType) }),
+		"mount.target":               sub(kString, "mount", mountOf, func(m *export.Mount) value { return str(m.Target) }),
+		"mount.flags":                sub(kInt, "mount", mountOf, func(m *export.Mount) value { return integer(int64(m.Flags)) }),
+		"namespaces.changed":         sub(kStrings, "setns", nsOf, func(n *export.Namespaces) value { return value{ss: n.Changed, ok: true} }),
+		"namespaces.host":            sub(kStrings, "setns", nsOf, func(n *export.Namespaces) value { return value{ss: n.Host, ok: true} }),
+	} {
+		fields[name] = f
+	}
+}
+
 func execField(k kind, get func(*export.Exec) value) field {
 	return field{kind: k, events: onExec, get: func(r *export.Record) value {
 		if r.Process.Exec == nil {

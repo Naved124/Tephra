@@ -1,0 +1,6 @@
+id: A13
+title: ptrace attach to a neighbouring process
+tags: [attack.defense_evasion, attack.t1055.008]
+expect: [R015]
+run:
+  pod: victim

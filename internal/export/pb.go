@@ -62,6 +62,30 @@ func ToProto(r *Record) *tephrav1.Record {
 			Inode: x.Inode, Dev: x.Dev, MatchedBy: x.MatchedBy,
 		}
 	}
+	if x := r.Ptrace; x != nil {
+		p.Ptrace = &tephrav1.Ptrace{TargetPid: x.TargetPID, TargetImage: x.TargetImage, TargetCommandLine: x.TargetCommandLine, Mode: x.Mode}
+	}
+	if x := r.Memfd; x != nil {
+		p.Memfd = &tephrav1.Memfd{Flags: x.Flags}
+	}
+	if x := r.Module; x != nil {
+		p.Module = &tephrav1.Module{Name: x.Name}
+	}
+	if x := r.BPF; x != nil {
+		p.Bpf = &tephrav1.Bpf{ProgType: x.ProgType, Name: x.Name}
+	}
+	if x := r.Cred; x != nil {
+		p.Cred = &tephrav1.Cred{
+			OldUid: x.OldUID, NewUid: x.NewUID, OldEuid: x.OldEUID, NewEuid: x.NewEUID, OldGid: x.OldGID, NewGid: x.NewGID,
+			InExec: x.InExec, CapsGained: x.CapsGained, OldCapEffective: x.OldCapEffective, NewCapEffective: x.NewCapEffective,
+		}
+	}
+	if x := r.Mount; x != nil {
+		p.Mount = &tephrav1.Mount{Fstype: x.FSType, Flags: x.Flags, Target: x.Target}
+	}
+	if x := r.Namespaces; x != nil {
+		p.Namespaces = &tephrav1.Namespaces{Changed: x.Changed, Host: x.Host}
+	}
 	return p
 }
 
@@ -126,6 +150,36 @@ func FromProto(p *tephrav1.Record) *Record {
 		r.File = &File{
 			Path: x.GetPath(), Target: x.GetTarget(), Flags: x.GetFlags(), Write: x.GetWrite(), Truncate: x.GetTruncate(),
 			Inode: x.GetInode(), Dev: x.GetDev(), MatchedBy: x.GetMatchedBy(),
+		}
+	}
+	if x := p.GetPtrace(); x != nil {
+		r.Ptrace = &Ptrace{TargetPID: x.GetTargetPid(), TargetImage: x.GetTargetImage(), TargetCommandLine: x.GetTargetCommandLine(), Mode: x.GetMode()}
+	}
+	if x := p.GetMemfd(); x != nil {
+		r.Memfd = &Memfd{Flags: x.GetFlags()}
+	}
+	if x := p.GetModule(); x != nil {
+		r.Module = &Module{Name: x.GetName()}
+	}
+	if x := p.GetBpf(); x != nil {
+		r.BPF = &BPF{ProgType: x.GetProgType(), Name: x.GetName()}
+	}
+	if x := p.GetCred(); x != nil {
+		r.Cred = &Cred{
+			OldUID: x.GetOldUid(), NewUID: x.GetNewUid(), OldEUID: x.GetOldEuid(), NewEUID: x.GetNewEuid(), OldGID: x.GetOldGid(), NewGID: x.GetNewGid(),
+			InExec: x.GetInExec(), CapsGained: x.GetCapsGained(), OldCapEffective: x.GetOldCapEffective(), NewCapEffective: x.GetNewCapEffective(),
+		}
+	}
+	if x := p.GetMount(); x != nil {
+		r.Mount = &Mount{FSType: x.GetFstype(), Flags: x.GetFlags(), Target: x.GetTarget()}
+	}
+	if x := p.GetNamespaces(); x != nil {
+		r.Namespaces = &Namespaces{}
+		if len(x.GetChanged()) > 0 {
+			r.Namespaces.Changed = x.GetChanged()
+		}
+		if len(x.GetHost()) > 0 {
+			r.Namespaces.Host = x.GetHost()
 		}
 	}
 	return r

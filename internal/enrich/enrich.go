@@ -39,11 +39,27 @@ type Enricher struct {
 	// lastOpen is the latest file_open reported for each thread.
 	lastOpen map[uint32]openMark
 	nested   uint64
+	// hostNS is the inode number of each of the node's own namespaces,
+	// by kind.
+	hostNS map[string]uint32
+}
+
+// readHostNS reads the namespaces of the node's first process.
+func readHostNS(procRoot string) map[string]uint32 {
+	out := map[string]uint32{}
+	for _, name := range events.NSNames {
+		var st unix.Stat_t
+		if unix.Stat(procRoot+"/1/ns/"+name, &st) == nil {
+			out[name] = uint32(st.Ino)
+		}
+	}
+	return out
 }
 
 // openMark identifies one reported open.
 type openMark struct {
 	inode uint64
+	path  string
 	ts    uint64
 }
 
@@ -51,8 +67,11 @@ type openMark struct {
 // process asked for, and straight after, in the same thread, for the backing
 // file overlayfs opens under its own credentials. The second one says
 // nothing new, so it is dropped: a file_open marked as made under
-// substituted credentials, for the same inode number as the open the thread
-// was just reported for. Anything that does not fit all of that is kept.
+// substituted credentials, straight after an open the same thread was
+// reported for, of the same file. "The same file" is the same inode number
+// or the same path: overlayfs shows a file's original inode number even
+// after the file has been copied to the upper layer, where the backing file
+// has another. Anything that does not fit all of that is kept.
 const (
 	nestedWindow = 10 * time.Millisecond
 	maxLastOpen  = 8192
@@ -61,12 +80,13 @@ const (
 func (e *Enricher) nestedOpen(ev *events.FileOpen) bool {
 	if ev.Flags&events.FileKernelCreds != 0 {
 		last, ok := e.lastOpen[ev.TID]
-		return ok && last.inode == ev.Inode && ev.TSBootNS-last.ts < uint64(nestedWindow)
+		return ok && ev.TSBootNS-last.ts < uint64(nestedWindow) &&
+			(last.inode == ev.Inode || (ev.Path != "" && last.path == ev.Path))
 	}
 	if len(e.lastOpen) >= maxLastOpen {
 		e.lastOpen = map[uint32]openMark{}
 	}
-	e.lastOpen[ev.TID] = openMark{inode: ev.Inode, ts: ev.TSBootNS}
+	e.lastOpen[ev.TID] = openMark{inode: ev.Inode, path: ev.Path, ts: ev.TSBootNS}
 	return false
 }
 
@@ -113,6 +133,7 @@ func New(node string, tree *proctree.Tree, procfs proctree.ProcFS, cgroups *k8s.
 		boot:     bootTime(),
 		mains:    map[string]*mainBinary{},
 		lastOpen: map[uint32]openMark{},
+		hostNS:   readHostNS(procfs.Root),
 	}
 }
 
@@ -181,6 +202,41 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		// so one rule event type covers both.
 		rec.Type = events.TypeConnect.String()
 		rec.Network = &export.Network{Direction: "outbound", Family: "unix", UnixPath: ev.Path}
+	case *events.Ptrace:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.Ptrace = &export.Ptrace{TargetPID: ev.TargetPID, Mode: ev.Mode}
+		if target, ok := e.byPID(ev.TargetPID); ok {
+			rec.Ptrace.TargetImage = target.Image
+			rec.Ptrace.TargetCommandLine = strings.Join(target.Argv, " ")
+		}
+	case *events.Memfd:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.Memfd = &export.Memfd{Flags: ev.MemfdFlags}
+	case *events.ModuleLoad:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.Module = &export.Module{Name: ev.Name}
+	case *events.BPFLoad:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.BPF = &export.BPF{ProgType: ev.ProgType, Name: ev.Name}
+	case *events.CredChange:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.Cred = &export.Cred{
+			OldUID: ev.OldUID, NewUID: ev.NewUID, OldEUID: ev.OldEUID, NewEUID: ev.NewEUID, OldGID: ev.OldGID, NewGID: ev.NewGID,
+			InExec:          ev.Flags&events.CredInExec != 0,
+			CapsGained:      ev.NewCap&^ev.OldCap != 0,
+			OldCapEffective: ev.OldCap, NewCapEffective: ev.NewCap,
+		}
+	case *events.Mount:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.Mount = &export.Mount{FSType: ev.FSType, Flags: ev.MntFlags, Target: ev.Target}
+	case *events.Setns:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.Namespaces = &export.Namespaces{Changed: ev.Changed}
+		for _, name := range ev.Changed {
+			if host, ok := e.hostNS[name]; ok && host == ev.Inum[name] {
+				rec.Namespaces.Host = append(rec.Namespaces.Host, name)
+			}
+		}
 	case *events.FileOpen:
 		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
 		rec.File = &export.File{

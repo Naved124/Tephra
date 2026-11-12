@@ -24,10 +24,20 @@ const (
 	TypeAccept      Type = 5
 	TypeUnixConnect Type = 6
 	TypeFileOpen    Type = 7
+	TypePtrace      Type = 8
+	TypeMemfd       Type = 9
+	TypeModuleLoad  Type = 10
+	TypeBPFLoad     Type = 11
+	TypeCredChange  Type = 12
+	TypeMount       Type = 13
+	TypeSetns       Type = 14
 )
 
 // Types lists every event type the agent knows.
-var Types = []Type{TypeExec, TypeFork, TypeExit, TypeConnect, TypeAccept, TypeUnixConnect, TypeFileOpen}
+var Types = []Type{
+	TypeExec, TypeFork, TypeExit, TypeConnect, TypeAccept, TypeUnixConnect, TypeFileOpen,
+	TypePtrace, TypeMemfd, TypeModuleLoad, TypeBPFLoad, TypeCredChange, TypeMount, TypeSetns,
+}
 
 // ParseType is the inverse of Type.String.
 func ParseType(s string) (Type, bool) {
@@ -55,6 +65,20 @@ func (t Type) String() string {
 		return "unix_connect"
 	case TypeFileOpen:
 		return "file_open"
+	case TypePtrace:
+		return "ptrace"
+	case TypeMemfd:
+		return "memfd"
+	case TypeModuleLoad:
+		return "module_load"
+	case TypeBPFLoad:
+		return "bpf_load"
+	case TypeCredChange:
+		return "cred_change"
+	case TypeMount:
+		return "mount"
+	case TypeSetns:
+		return "setns"
 	}
 	return fmt.Sprintf("unknown(%d)", uint32(t))
 }
@@ -79,6 +103,17 @@ const (
 	// substituted, such as overlayfs opening a backing file.
 	FileKernelCreds = 1 << 4
 )
+
+// CredInExec in Header.Flags of a cred_change: the change was made by an
+// exec, as a setuid binary does.
+const CredInExec = 1 << 0
+
+// MountDeeper in Header.Flags of a mount: the target has more parent
+// directories than were captured.
+const MountDeeper = 1 << 0
+
+// NSNames are the namespace kinds of a setns event, by bit position.
+var NSNames = [...]string{"mnt", "pid", "net", "uts", "ipc", "cgroup", "time"}
 
 // Address families and open flags as the kernel numbers them.
 const (
@@ -155,6 +190,63 @@ type FileOpen struct {
 	OpenFlags uint32
 	WatchBits uint32
 	Path      string
+}
+
+// Ptrace is struct ptrace_event: attach-level access to another process.
+type Ptrace struct {
+	Header
+	TargetPID     uint32
+	TargetStartNS uint64
+	Mode          uint32
+}
+
+// Memfd is struct memfd_event.
+type Memfd struct {
+	Header
+	MemfdFlags uint32
+}
+
+// ModuleLoad is struct module_event.
+type ModuleLoad struct {
+	Header
+	Name string
+}
+
+// BPFLoad is struct bpf_event.
+type BPFLoad struct {
+	Header
+	Cmd      uint32
+	ProgType uint32
+	Name     string
+}
+
+// CredChange is struct cred_event. The header's uid and gid are the ones
+// before the change.
+type CredChange struct {
+	Header
+	OldUID, NewUID   uint32
+	OldEUID, NewEUID uint32
+	OldGID, NewGID   uint32
+	OldCap, NewCap   uint64
+}
+
+// Mount is struct mount_event. Target is the mount point within the
+// filesystem it is on; it starts with ".../" when its upper directories were
+// not captured.
+type Mount struct {
+	Header
+	MntFlags uint64
+	FSType   string
+	Target   string
+}
+
+// Setns is struct setns_event.
+type Setns struct {
+	Header
+	// Changed lists the namespaces that were switched, by kind; Inum is
+	// the inode number of each namespace the task is in afterwards.
+	Changed []string
+	Inum    map[string]uint32
 }
 
 // Write reports whether the open can change the file.
@@ -258,6 +350,52 @@ func Decode(raw []byte) (Event, error) {
 			WatchBits: le.Uint32(raw[fileWatchBits:]),
 			Path:      cstr(raw[filePath : filePath+n]),
 		}, nil
+	case TypePtrace:
+		if len(raw) < ptraceSize {
+			return nil, short(h, raw, ptraceSize)
+		}
+		return &Ptrace{Header: h, TargetPID: le.Uint32(raw[hdrSize:]), Mode: le.Uint32(raw[hdrSize+4:]), TargetStartNS: le.Uint64(raw[hdrSize+8:])}, nil
+	case TypeMemfd:
+		if len(raw) < memfdSize {
+			return nil, short(h, raw, memfdSize)
+		}
+		return &Memfd{Header: h, MemfdFlags: le.Uint32(raw[hdrSize:])}, nil
+	case TypeModuleLoad:
+		if len(raw) < moduleSize {
+			return nil, short(h, raw, moduleSize)
+		}
+		return &ModuleLoad{Header: h, Name: cstr(raw[hdrSize:moduleSize])}, nil
+	case TypeBPFLoad:
+		if len(raw) < bpfSize {
+			return nil, short(h, raw, bpfSize)
+		}
+		return &BPFLoad{Header: h, Cmd: le.Uint32(raw[hdrSize:]), ProgType: le.Uint32(raw[hdrSize+4:]), Name: cstr(raw[hdrSize+8 : bpfSize])}, nil
+	case TypeCredChange:
+		if len(raw) < credSize {
+			return nil, short(h, raw, credSize)
+		}
+		return &CredChange{
+			Header: h,
+			OldUID: le.Uint32(raw[hdrSize:]), NewUID: le.Uint32(raw[hdrSize+4:]),
+			OldEUID: le.Uint32(raw[hdrSize+8:]), NewEUID: le.Uint32(raw[hdrSize+12:]),
+			OldGID: le.Uint32(raw[hdrSize+16:]), NewGID: le.Uint32(raw[hdrSize+20:]),
+			OldCap: le.Uint64(raw[hdrSize+24:]), NewCap: le.Uint64(raw[hdrSize+32:]),
+		}, nil
+	case TypeMount:
+		return decodeMount(h, raw)
+	case TypeSetns:
+		if len(raw) < setnsSize {
+			return nil, short(h, raw, setnsSize)
+		}
+		s := &Setns{Header: h, Inum: map[string]uint32{}}
+		changed := le.Uint32(raw[hdrSize:])
+		for i, name := range NSNames {
+			s.Inum[name] = le.Uint32(raw[hdrSize+8+4*i:])
+			if changed&(1<<i) != 0 {
+				s.Changed = append(s.Changed, name)
+			}
+		}
+		return s, nil
 	}
 	return nil, fmt.Errorf("unknown event type %d", uint32(h.Type))
 }
@@ -289,6 +427,38 @@ func decodeExec(h Header, raw []byte) (Event, error) {
 		CapEffective: le.Uint64(raw[execCapEff:]),
 		Path:         cstr(raw[execPath : execPath+pathLen]),
 		Argv:         splitArgv(raw[execArgv : execArgv+n]),
+	}, nil
+}
+
+func short(h Header, raw []byte, want int) error {
+	return fmt.Errorf("%s record of %d bytes, want %d", h.Type, len(raw), want)
+}
+
+func decodeMount(h Header, raw []byte) (Event, error) {
+	if len(raw) < mountSize {
+		return nil, short(h, raw, mountSize)
+	}
+	n := int(le.Uint32(raw[hdrSize+8:]))
+	if n > mountComponents {
+		return nil, fmt.Errorf("mount record claims %d path components", n)
+	}
+	// Components are stored leaf first.
+	target := ""
+	for i := 0; i < n; i++ {
+		off := mountComp + i*mountComponentLen
+		target = "/" + cstr(raw[off:off+mountComponentLen]) + target
+	}
+	switch {
+	case h.Flags&MountDeeper != 0:
+		target = "..." + target
+	case target == "":
+		target = "/"
+	}
+	return &Mount{
+		Header:   h,
+		MntFlags: le.Uint64(raw[hdrSize:]),
+		FSType:   cstr(raw[hdrSize+16 : hdrSize+48]),
+		Target:   target,
 	}, nil
 }
 

@@ -1,0 +1,6 @@
+id: A06
+title: Write an entry to /etc/ld.so.preload
+tags: [attack.persistence, attack.t1574.006]
+expect: [R007]
+run:
+  pod: victim

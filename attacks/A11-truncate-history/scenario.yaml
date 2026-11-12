@@ -1,0 +1,6 @@
+id: A11
+title: Truncate shell history
+tags: [attack.defense_evasion, attack.t1070.003]
+expect: [R012]
+run:
+  pod: victim

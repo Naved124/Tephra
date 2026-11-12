@@ -1,0 +1,6 @@
+id: A17
+title: Load a BPF program with a second tool
+tags: [attack.defense_evasion, attack.t1562.001]
+expect: [R020]
+run:
+  pod: victim

@@ -1,0 +1,158 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Ordinary workloads for the false-positive run: a web server under HTTP
+# load, a database under a benchmark, and an image build every few minutes.
+# The harness adds rolling updates of the web server.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: web}
+  template:
+    metadata:
+      labels: {app: web}
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80}]
+          readinessProbe:
+            httpGet: {path: /, port: 80}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector: {app: web}
+  ports: [{port: 80}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: load}
+  template:
+    metadata:
+      labels: {app: load}
+    spec:
+      containers:
+        - name: load
+          image: python:3.14-alpine
+          command: ["python3", "-u", "-c"]
+          args:
+            - |
+              import time, urllib.request
+              n = 0
+              while True:
+                  try:
+                      urllib.request.urlopen("http://web/", timeout=5).read()
+                      n += 1
+                  except Exception as e:
+                      print("request failed:", e)
+                      time.sleep(1)
+                  if n % 1000 == 0:
+                      print(n, "requests")
+                  time.sleep(0.02)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+spec:
+  clusterIP: None
+  selector: {app: db}
+  ports: [{port: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: db
+spec:
+  serviceName: db
+  replicas: 1
+  selector:
+    matchLabels: {app: db}
+  template:
+    metadata:
+      labels: {app: db}
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          env:
+            # A throwaway database in a throwaway namespace.
+            - {name: POSTGRES_PASSWORD, value: lab-only}
+          ports: [{containerPort: 5432}]
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "postgres"]}
+            periodSeconds: 3
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bench
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: bench}
+  template:
+    metadata:
+      labels: {app: bench}
+    spec:
+      containers:
+        - name: pgbench
+          image: postgres:17-alpine
+          env:
+            - {name: PGPASSWORD, value: lab-only}
+            - {name: PGHOST, value: db}
+            - {name: PGUSER, value: postgres}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until pg_isready -q; do sleep 2; done
+              pgbench -i -s 5 postgres
+              while true; do pgbench -c 4 -T 120 postgres; done
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: build-context
+data:
+  Dockerfile: |
+    FROM busybox:1.37
+    RUN mkdir -p /app && echo 'echo hello' > /app/run.sh && chmod +x /app/run.sh
+    RUN for i in 1 2 3 4 5; do echo "$i" >> /app/data; done
+    CMD ["/app/run.sh"]
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: build
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 120
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: kaniko
+              image: gcr.io/kaniko-project/executor:v1.23.2
+              args: ["--dockerfile=/workspace/Dockerfile", "--context=dir:///workspace", "--no-push"]
+              volumeMounts:
+                - {name: context, mountPath: /workspace}
+          volumes:
+            - name: context
+              configMap: {name: build-context}

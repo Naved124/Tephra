@@ -22,6 +22,9 @@ detection:
       - /usr/sbin/chpasswd
       - /usr/sbin/pwck
       - /usr/sbin/cron
+      # Image builders unpack a base image, shadow file included, into
+      # their own container.
+      - /kaniko/executor
   condition: selection and not allowed
 action: alert
 description: >-
@@ -30,3 +33,4 @@ description: >-
   a hard link to it under another name is still reported.
 falsepositives:
   - Backup and configuration-management agents that read all of /etc
+  - Image builders other than kaniko, which is allowed by path, unpacking a base image. The false-positive run in docs/coverage.md found this one

@@ -23,18 +23,30 @@ Milestones follow section 10 of the design.
 | M3 Network and file events | Done |
 | M4 Rule engine | Done |
 | M5 Backend | Done |
-| M6 Packaging | Not started |
+| M6 Packaging | Done |
+| M7 Harness and first coverage report | Done |
+| M8 Remaining hooks | Done |
+| M9 Evasion work | Not started |
 
-What works today: the agent captures process starts and exits, outbound and
-inbound connections (IPv4, IPv6 and Unix sockets) and opens of watched files
-on its node. It attributes each event to a pod, evaluates the detection rules
-in [rules/](rules/), and writes events and alerts as JSON lines on stdout. A
-collector forwards both to Loki, and a Grafana dashboard shows the alerts and
-the sensor's own health.
+What works today: the agent watches process starts and exits, connections
+(IPv4, IPv6 and Unix sockets), opens of watched files, ptrace attach,
+credential changes, mounts, namespace switches, kernel module loads, BPF
+program loads and memfd creation on its node. It attributes each event to a
+pod, evaluates the 21 detection rules in [rules/](rules/), and writes events
+and alerts as JSON lines on stdout. A collector forwards both to Loki, and a
+Grafana dashboard shows the alerts and the sensor's own health.
 
-Not built yet: the capability-only security context (the agent still runs
-privileged), the attack harness and coverage report, and the remaining hooks
-(ptrace, module load, mount and others).
+The agent does not run privileged. It holds four capabilities (BPF, PERFMON,
+SYS_PTRACE, SYS_RESOURCE), drops the rest, and has a read-only root
+filesystem.
+
+[docs/coverage.md](docs/coverage.md) is the evidence: 17 attack techniques
+run for real in the lab cluster, each with the rule that caught it, and a
+30-minute run of ordinary workloads listing every alert that fired.
+
+Not built yet: the evasion scenarios and their write-ups, benchmarks against
+Falco and Tetragon, the EKS demo, blocking (the sensor only detects), and
+rules that correlate several events.
 
 An alert, as `kubectl logs` shows it: the event that matched, with the rule
 in front. This one is a bind shell started with `nc -l -p 4445 -e /bin/sh` in
@@ -71,8 +83,8 @@ export queue are on `/metrics`, port 9090 of each agent pod.
 ## Rules
 
 A rule is a YAML file: one event type, named blocks of field tests, and a
-condition that combines the blocks. [rules/](rules/) holds R001 to R014 and
-R021; section 6 of the design describes the schema.
+condition that combines the blocks. [rules/](rules/) holds R001 to R021;
+section 6 of the design describes the schema.
 
 ```sh
 bin/tephrad rules validate rules/                 # check every rule, errors carry file and line
@@ -90,6 +102,33 @@ loaded.
 
 The agent re-reads its configuration and rules on SIGHUP. If either is
 invalid it keeps running on what it had and logs why.
+
+## Attack harness
+
+> **Lab use only.** The harness runs real attack techniques: it opens a
+> reverse shell, mounts the node's disk, loads a kernel module. It refuses to
+> start unless every node of the cluster is labelled `tephra.dev/lab=true`,
+> which the kind cluster of this repository is. There is no flag to override
+> that.
+
+```sh
+bin/harness list                     # the scenarios and the rules each must trigger
+bin/harness run A01 A04              # run two scenarios
+make coverage                        # run all of them, rewrite docs/coverage.md
+make false-positives                 # 30 minutes of ordinary workloads, list every alert
+```
+
+Each scenario is a directory under [attacks/](attacks/): the victim workload
+(`target.yaml`), the technique (`run.sh`, executed inside the target pod),
+and what must fire (`scenario.yaml`). A run creates a fresh namespace,
+applies the workload, runs the technique, asks Loki through Grafana for the
+alerts of that namespace, and deletes the namespace. The verdict per rule is
+detected, partial (the alert fired but names the wrong pod or no container)
+or missed.
+
+`make coverage` also saves the event behind every detection to
+`rules/testdata/<rule>.live.jsonl`, and the rule tests check that each rule
+still fires on it.
 
 ## Backend
 
@@ -155,6 +194,8 @@ PASS: M3
 PASS: M4
 ...
 PASS: M5
+...
+PASS: M6
 ```
 
 `make accept` reruns only the tests against the cluster that is already up.
@@ -179,7 +220,7 @@ moves to another network while the VM is running, image pulls inside it fail;
 ## Other targets
 
 ```sh
-make build      # compile the BPF programs, build bin/tephrad and bin/collector
+make build      # compile the BPF programs, build bin/tephrad, bin/collector and bin/harness
 make test       # unit tests, unprivileged
 make rules-validate  # check the shipped rules
 make proto      # regenerate the Go code of the agent-to-collector API
@@ -196,6 +237,8 @@ api/                 protobuf definition of the agent-to-collector API
 bpf/                 eBPF programs (C, CO-RE)
 cmd/tephrad/         agent entrypoint, rules subcommands
 cmd/collector/       gRPC -> Loki
+cmd/harness/         attack runner and coverage report
+attacks/             one directory per attack scenario
 internal/loader/     bpf2go bindings, attach, kernel feature probes
 internal/events/     Go mirrors of the kernel structs, decoder
 internal/proctree/   process cache and /proc seeding
@@ -207,13 +250,14 @@ internal/rules/      rule parser, compiler and matcher
 internal/config/     configuration file
 internal/export/     wire format, JSON lines on stdout, gRPC client
 internal/collector/  stream handling, batching, Loki push
+internal/harness/    scenario runner, verdicts, report
 rules/               shipped detection rules and their recorded events
 deploy/docker/       image builds
 deploy/helm/tephra/  Helm chart
 deploy/kind/         lab cluster definition
 deploy/vm/           dev VM definition
 hack/                acceptance tests, one script per milestone
-docs/                design
+docs/                design, coverage report
 ```
 
 ## Licence

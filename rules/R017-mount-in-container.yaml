@@ -1,0 +1,25 @@
+id: R017
+title: mount called from inside a container
+level: high
+tags: [attack.privilege_escalation, attack.t1611]
+event: mount
+detection:
+  selection:
+    mount.target|re: '.+'
+  host:
+    k8s.namespace: host
+  runtime:
+    process.CommandLine: runc init
+    parent.Image:
+      - /usr/bin/runc
+      - /usr/sbin/runc
+      - /usr/local/bin/runc
+      - /usr/local/sbin/runc
+  condition: selection and not (host or runtime)
+action: alert
+description: >-
+  An ordinary container cannot mount anything. One that does is privileged,
+  and a mount is the usual first step to reaching the node's filesystem.
+falsepositives:
+  - The container runtime setting up a container's own filesystem; the filter covers runc by its exact command line and its parent's path
+  - Privileged storage and CSI driver pods

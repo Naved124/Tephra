@@ -1,0 +1,6 @@
+id: A08
+title: Append a key to authorized_keys
+tags: [attack.persistence, attack.t1098.004]
+expect: [R009]
+run:
+  pod: victim

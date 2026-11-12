@@ -31,8 +31,19 @@ const (
 	fileSize  = hdrSize + 24 + pathLen
 
 	unixPathMax = 108
-	forkSize    = hdrSize + 24
-	exitSize    = hdrSize + 8
+
+	ptraceSize        = hdrSize + 16
+	memfdSize         = hdrSize + 8
+	moduleSize        = hdrSize + 56
+	bpfSize           = hdrSize + 24
+	credSize          = hdrSize + 40
+	mountComponents   = 6
+	mountComponentLen = 40
+	mountComp         = hdrSize + 48
+	mountSize         = mountComp + mountComponents*mountComponentLen
+	setnsSize         = hdrSize + 8 + 4*8
+	forkSize          = hdrSize + 24
+	exitSize          = hdrSize + 8
 
 	hdrTSBoot    = 0
 	hdrStartTime = 8
@@ -127,6 +138,31 @@ var Layout = map[string]Struct{
 		"h":        {0, hdrSize},
 		"path_len": {unixPathLen, 4},
 		"path":     {unixPath, unixPathMax},
+	}},
+	"ptrace_event": {Size: ptraceSize, Fields: map[string]Field{
+		"h": {0, hdrSize}, "target_pid": {hdrSize, 4}, "mode": {hdrSize + 4, 4}, "target_start_time_ns": {hdrSize + 8, 8},
+	}},
+	"memfd_event": {Size: memfdSize, Fields: map[string]Field{
+		"h": {0, hdrSize}, "memfd_flags": {hdrSize, 4}, "_pad": {hdrSize + 4, 4},
+	}},
+	"module_event": {Size: moduleSize, Fields: map[string]Field{
+		"h": {0, hdrSize}, "name": {hdrSize, 56},
+	}},
+	"bpf_event": {Size: bpfSize, Fields: map[string]Field{
+		"h": {0, hdrSize}, "cmd": {hdrSize, 4}, "prog_type": {hdrSize + 4, 4}, "name": {hdrSize + 8, 16},
+	}},
+	"cred_event": {Size: credSize, Fields: map[string]Field{
+		"h": {0, hdrSize}, "old_uid": {hdrSize, 4}, "new_uid": {hdrSize + 4, 4},
+		"old_euid": {hdrSize + 8, 4}, "new_euid": {hdrSize + 12, 4},
+		"old_gid": {hdrSize + 16, 4}, "new_gid": {hdrSize + 20, 4},
+		"old_cap_effective": {hdrSize + 24, 8}, "new_cap_effective": {hdrSize + 32, 8},
+	}},
+	"mount_event": {Size: mountSize, Fields: map[string]Field{
+		"h": {0, hdrSize}, "mnt_flags": {hdrSize, 8}, "ncomp": {hdrSize + 8, 4}, "_pad": {hdrSize + 12, 4},
+		"fstype": {hdrSize + 16, 32}, "comp": {mountComp, mountComponents * mountComponentLen},
+	}},
+	"setns_event": {Size: setnsSize, Fields: map[string]Field{
+		"h": {0, hdrSize}, "changed": {hdrSize, 4}, "_pad": {hdrSize + 4, 4}, "inum": {hdrSize + 8, 32},
 	}},
 	"file_event": {Size: fileSize, Fields: map[string]Field{
 		"h":          {0, hdrSize},

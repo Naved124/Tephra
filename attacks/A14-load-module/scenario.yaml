@@ -1,0 +1,7 @@
+id: A14
+title: Load a benign kernel module from a privileged pod
+tags: [attack.persistence, attack.t1547.006]
+expect: [R016]
+run:
+  pod: victim
+note: Loads the kernel's own dummy network driver into the lab VM's kernel and removes it again.

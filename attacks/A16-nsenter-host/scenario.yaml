@@ -1,0 +1,6 @@
+id: A16
+title: Enter host namespaces with nsenter from a hostPID pod
+tags: [attack.privilege_escalation, attack.t1611]
+expect: [R018]
+run:
+  pod: victim

@@ -206,6 +206,8 @@ func TestEventsAndAlertsReachLoki(t *testing.T) {
 	g.Offer(host)
 
 	waitFor(t, "all records in Loki", func() bool { return loki.count() == n+3 })
+	// Stored first, acknowledged a moment later.
+	waitFor(t, "every record acknowledged", func() bool { return g.Stats().Acked == n+3 })
 	if st := g.Stats(); st.Acked != n+3 || st.DroppedEvents != 0 || st.DroppedAlerts != 0 || st.Rejected != 0 {
 		t.Errorf("exporter stats %+v", st)
 	}
@@ -407,7 +409,7 @@ func TestHealthRecords(t *testing.T) {
 	if !found {
 		t.Errorf("agent health line not stored as %s", want)
 	}
-	if g.Stats().Rejected != 1 {
-		t.Errorf("health record without counters: rejected %d, want 1", g.Stats().Rejected)
-	}
+	// A health record without counters is refused; the acknowledgement
+	// that says so arrives after the batch is stored.
+	waitFor(t, "the rejection to be acknowledged", func() bool { return g.Stats().Rejected == 1 })
 }

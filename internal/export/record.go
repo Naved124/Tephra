@@ -23,6 +23,14 @@ type Record struct {
 	Exit      *Exit      `json:"exit,omitempty"`
 	Network   *Network   `json:"network,omitempty"`
 	File      *File      `json:"file,omitempty"`
+	// One of the following is set on the event type of the same name.
+	Ptrace     *Ptrace     `json:"ptrace,omitempty"`
+	Memfd      *Memfd      `json:"memfd,omitempty"`
+	Module     *Module     `json:"module,omitempty"`
+	BPF        *BPF        `json:"bpf,omitempty"`
+	Cred       *Cred       `json:"cred,omitempty"`
+	Mount      *Mount      `json:"mount,omitempty"`
+	Namespaces *Namespaces `json:"namespaces,omitempty"`
 	// Health is set on records of type TypeHealth only. They go to the
 	// collector and are not printed on stdout.
 	Health map[string]uint64 `json:"health,omitempty"`
@@ -164,4 +172,66 @@ type K8s struct {
 type Exit struct {
 	Code   uint32 `json:"code"`
 	Signal uint32 `json:"signal"`
+}
+
+// Ptrace is set on ptrace events: the process asked for attach-level access
+// to the target.
+type Ptrace struct {
+	TargetPID         uint32 `json:"target_pid"`
+	TargetImage       string `json:"target_image,omitempty"`
+	TargetCommandLine string `json:"target_command_line,omitempty"`
+	Mode              uint32 `json:"mode"`
+}
+
+// Memfd is set on memfd events.
+type Memfd struct {
+	Flags uint32 `json:"flags"`
+}
+
+// Module is set on module_load events.
+type Module struct {
+	Name string `json:"name"`
+}
+
+// BPF is set on bpf_load events.
+type BPF struct {
+	ProgType uint32 `json:"prog_type"`
+	Name     string `json:"name,omitempty"`
+}
+
+// Cred is set on cred_change events.
+type Cred struct {
+	OldUID  uint32 `json:"old_uid"`
+	NewUID  uint32 `json:"new_uid"`
+	OldEUID uint32 `json:"old_euid"`
+	NewEUID uint32 `json:"new_euid"`
+	OldGID  uint32 `json:"old_gid"`
+	NewGID  uint32 `json:"new_gid"`
+	// InExec says the change was made by an exec, which is how a setuid
+	// binary gains its owner's identity.
+	InExec bool `json:"in_exec"`
+	// CapsGained says the process has effective capabilities it did not
+	// have before.
+	CapsGained      bool   `json:"caps_gained"`
+	OldCapEffective uint64 `json:"old_cap_effective"`
+	NewCapEffective uint64 `json:"new_cap_effective"`
+}
+
+// Mount is set on mount events.
+type Mount struct {
+	// FSType is empty for a bind mount or a remount.
+	FSType string `json:"fstype,omitempty"`
+	Flags  uint64 `json:"flags"`
+	// Target is the mount point within the filesystem it is on, with
+	// ".../" in front when its upper directories were not captured.
+	Target string `json:"target"`
+}
+
+// Namespaces is set on setns events, which cover setns and unshare.
+type Namespaces struct {
+	// Changed lists the kinds of namespace the process switched: mnt,
+	// pid, net, uts, ipc, cgroup, time.
+	Changed []string `json:"changed"`
+	// Host lists those of them that are now the node's own namespace.
+	Host []string `json:"host,omitempty"`
 }

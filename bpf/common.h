@@ -44,6 +44,13 @@ enum event_type {
 	EVENT_ACCEPT = 5,
 	EVENT_UNIX_CONNECT = 6,
 	EVENT_FILE_OPEN = 7,
+	EVENT_PTRACE = 8,
+	EVENT_MEMFD = 9,
+	EVENT_MODULE_LOAD = 10,
+	EVENT_BPF_LOAD = 11,
+	EVENT_CRED_CHANGE = 12,
+	EVENT_MOUNT = 13,
+	EVENT_SETNS = 14,
 	EVENT_TYPE_MAX = 32,
 };
 
@@ -145,6 +152,89 @@ struct file_event {
 	__u32 watch_bits; /* value of the matching watch entry */
 	__u32 path_len;	  /* bytes used in path, NUL included */
 	char path[PATH_LEN];
+};
+
+#define PTRACE_MODE_ATTACH 0x02
+#define BPF_PROG_LOAD_CMD  5
+
+/* A task asked for attach-level access to another: ptrace attach, or
+ * reading and writing its memory. */
+struct ptrace_event {
+	struct event_hdr h;
+	__u32 target_pid; /* tgid in the node's pid namespace; 0 if outside */
+	__u32 mode;	  /* PTRACE_MODE_* bits */
+	__u64 target_start_time_ns;
+};
+
+struct memfd_event {
+	struct event_hdr h;
+	__u32 memfd_flags; /* MFD_* as passed; the name pointer is not read */
+	__u32 _pad;
+};
+
+#define MODULE_NAME_MAX 56
+
+struct module_event {
+	struct event_hdr h;
+	char name[MODULE_NAME_MAX];
+};
+
+struct bpf_event {
+	struct event_hdr h;
+	__u32 cmd; /* always BPF_PROG_LOAD */
+	__u32 prog_type;
+	char name[16];
+};
+
+/* The change was made by an exec, as a setuid binary does. */
+#define CRED_F_IN_EXEC (1U << 0)
+
+struct cred_event {
+	struct event_hdr h;
+	__u32 old_uid;
+	__u32 new_uid;
+	__u32 old_euid;
+	__u32 new_euid;
+	__u32 old_gid;
+	__u32 new_gid;
+	__u64 old_cap_effective;
+	__u64 new_cap_effective;
+};
+
+#define MOUNT_COMPONENTS    6
+#define MOUNT_COMPONENT_LEN 40
+#define MOUNT_F_DEEPER	    (1U << 0) /* target has more parent directories */
+
+/* bpf_d_path cannot be called at this hook. The target is given as its last
+ * path components, leaf first, within the filesystem it is on. */
+struct mount_event {
+	struct event_hdr h;
+	__u64 mnt_flags; /* MS_* */
+	__u32 ncomp;
+	__u32 _pad;
+	char fstype[32];
+	char comp[MOUNT_COMPONENTS][MOUNT_COMPONENT_LEN];
+};
+
+/* Namespace bits of setns_event.changed, and indexes into inum. */
+enum ns_kind {
+	NS_MNT = 0,
+	NS_PID = 1, /* the namespace children will be created in */
+	NS_NET = 2,
+	NS_UTS = 3,
+	NS_IPC = 4,
+	NS_CGROUP = 5,
+	NS_TIME = 6,
+	NS_KINDS = 8,
+};
+
+/* A task's namespaces were switched (setns or unshare). inum holds the inode
+ * number of every namespace the task has afterwards. */
+struct setns_event {
+	struct event_hdr h;
+	__u32 changed; /* bit (1 << ns_kind) per namespace that differs */
+	__u32 _pad;
+	__u32 inum[NS_KINDS];
 };
 
 /* Watch bits: which kinds of open an entry reports. */

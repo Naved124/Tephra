@@ -1,0 +1,6 @@
+id: A10
+title: Write a cgroup release_agent from a privileged pod
+tags: [attack.privilege_escalation, attack.t1611]
+expect: [R011]
+run:
+  pod: victim

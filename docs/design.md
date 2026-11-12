@@ -152,11 +152,12 @@ The kernel side is thirteen small programs that each attach to one hook, fill on
 | accept | security_sock_graft (fallback: inet_csk_accept, fexit) | fentry | Local and peer address from the accepted struct sock | M3 |
 | file_open | security_file_open | fentry | Path via bpf_d_path, open flags, inode and device | M3 |
 | ptrace | security_ptrace_access_check | fentry | Target pid, mode (only PTRACE_MODE_ATTACH is emitted) | M8 |
-| memfd | sys_enter_memfd_create | tracepoint | Flags only; the name pointer is not trusted | M8 |
-| module_load | module:module_load | tracepoint | Module name | M8 |
-| bpf_load | security_bpf | fentry | Command (only BPF_PROG_LOAD), program type | M8 |
-| cred_change | commit_creds | fentry | Old and new uid, gid and effective capabilities | M8 |
-| mount / setns | security_sb_mount, sys_enter_setns | fentry, tracepoint | Filesystem type, flags, target path; namespace type | M8 |
+| memfd | __x64_sys_memfd_create | fentry | Flags only; the name pointer is not trusted | M8 |
+| module_load | module_load | tp_btf | Module name | M8 |
+| bpf_load | security_bpf | fentry | Command (only BPF_PROG_LOAD), program type, program name | M8 |
+| cred_change | commit_creds | fentry | Old and new uid, euid, gid and effective capabilities; whether an exec made the change | M8 |
+| mount | security_sb_mount | fentry | Filesystem type, flags, the last six components of the target path | M8 |
+| setns | switch_task_namespaces | fentry | Which namespaces changed and the inode number of each namespace afterwards | M8 |
 
 Reasons behind the less obvious choices:
 
@@ -231,7 +232,7 @@ struct file_event {
 
 A connect to an AF_UNIX socket is emitted as a separate unix_connect record: the header plus sun_path[108] from the kernel copy of the address. R010 matches on it.
 
-The remaining payloads (ptrace, memfd, module_load, bpf_load, cred_change, mount, setns) are small fixed structs defined when M8 starts; each is the header plus the fields named in the hook table.
+The remaining payloads (ptrace, memfd, module_load, bpf_load, cred_change, mount, setns) are small fixed structs in bpf/common.h; each is the header plus the fields named in the hook table.
 
 The two socket flags on exec are the basis of reverse-shell detection: the program reads file descriptors 0 and 1 from task->files->fdt and checks whether each inode is a socket.
 
@@ -482,9 +483,9 @@ One Grafana alert rule fires on any high or critical alert and posts to a config
 | Setting | Value | Reason |
 |---|---|---|
 | hostPID | true | Read /proc for the start-up process scan |
-| Capabilities | BPF, PERFMON, SYS_RESOURCE, SYS_PTRACE | Load and attach programs, raise memlock, read other processes' /proc entries |
-| privileged | true until M6, then replaced by the capability list | The narrowed list must be proven to work, not assumed |
-| Host mounts, read-only | /proc, /sys/fs/cgroup, /sys/kernel/btf, /sys/kernel/tracing, /sys/kernel/security | Process scan, cgroup resolution, CO-RE, tracepoint IDs, LSM list |
+| Capabilities | BPF, PERFMON, SYS_RESOURCE, SYS_PTRACE; all others dropped | Load and attach programs, raise memlock, read other processes' /proc entries |
+| privileged | false, with no privilege escalation and a read-only root filesystem | The capability list was proven on the lab cluster in M6; `agent.privileged` remains as a switch for a kernel where it is not enough |
+| Host mounts, read-only | /sys/fs/cgroup, /sys/kernel/btf, /sys/kernel/security | Cgroup resolution, CO-RE, LSM list. /proc is the pod's own, which hostPID makes the node's; no hook needs tracefs |
 | RBAC | get, list, watch on pods | Pod informer only |
 | Tolerations | All taints | The sensor must run on every node, including control-plane nodes |
 | Resources | Requests 100m CPU and 128 MiB; limit 512 MiB | Starting point, revised from benchmark results |
@@ -524,17 +525,18 @@ Each scenario is a directory under attacks/:
 
 ```
 attacks/A01-reverse-shell/
-  scenario.yaml     # id, title, ATT&CK tags, expected rule IDs, timeout, target pod spec
+  scenario.yaml     # id, title, ATT&CK tags, expected rule IDs, timeout, the pod
+                    # run.sh runs in, and the pod the alerts must name if different
   target.yaml       # the victim workload (and any attacker-side listener pod)
   run.sh            # the technique, executed inside the target with kubectl exec
-  cleanup.sh
+  cleanup.sh        # optional
 ```
 
 ### How a run works
 
 1. Create a fresh namespace and apply target.yaml. Wait for readiness.
 2. Record the start time, run run.sh, record the end time.
-3. Query Loki for alerts in that window, namespace and pod.
+3. Query Loki, through Grafana, for alerts in that window and namespace.
 4. Verdict per expected rule: detected (alert present with the right pod and process), partial (alert present, attribution wrong or incomplete), missed.
 5. Record detection latency (alert timestamp minus action timestamp) and the ring buffer drop counter delta.
 6. Run cleanup.sh and delete the namespace.
@@ -779,7 +781,7 @@ Where the build diverged from the text above, by milestone. The sections above a
 - **Watch bits** are read and write. A watch needed only by rules about writes drops reads in the kernel.
 - **Exact paths** are stored in `path_watch` with their terminating NUL, so `/etc/shadow` does not also report `/etc/shadow-`.
 - **`inode_watch` is filled per root filesystem.** The agent resolves each exact path through `/proc/<pid>/root` for the node and, on every exec in a container, for that container's root if it has not been done. Paths are resolved beneath the root with `openat2(RESOLVE_IN_ROOT)`, so a symlink in a container cannot point the agent at its own files. An event matched by identity carries `file.target`, the watched path, next to `file.path`, the path used; a rule test on `file.path` holds if either passes.
-- **Two reports for one open on overlayfs.** Overlayfs opens the backing file itself, under its own credentials, and that open reaches the hook too. The kernel side marks opens made under substituted credentials (`FILE_F_KERNEL_CREDS`) and the agent drops one that follows, within 10 ms and in the same thread, an open it reported for the same inode number. The kernel filters nothing here: dropping every such open in the kernel would also hide an io_uring open made under a registered personality.
+- **Two reports for one open on overlayfs.** Overlayfs opens the backing file itself, under its own credentials, and that open reaches the hook too. The kernel side marks opens made under substituted credentials (`FILE_F_KERNEL_CREDS`) and the agent drops one that follows, within 10 ms and in the same thread, an open it reported for the same file: the same inode number or the same path. The path is needed because overlayfs keeps showing a file's original inode number after the file has been copied to the upper layer, where the backing file has a different one. The kernel filters nothing here: dropping every such open in the kernel would also hide an io_uring open made under a registered personality.
 - **Not seen:** an open that fails its permission check never reaches `security_file_open`, so a denied attempt to read a watched file produces no event.
 - **Unix socket connects** have their own kernel event type and counters, and leave the agent as `connect` events with `network.family: unix`, so one rule event type covers both.
 - **Optional hooks.** connect, accept and file_open are loaded if the kernel takes them. One that is missing or rejected is logged, shown in `tephra_event_type_available`, and costs only its own event type.
@@ -812,3 +814,39 @@ Where the build diverged from the text above, by milestone. The sections above a
 ### Tested on
 
 M3 to M5 were run on the dev VM (Ubuntu 24.04, kernel 6.8.0-147) on a freshly created kind cluster: the privileged load tests and the acceptance tests M0 to M5 pass, with zero ring buffer drops. The alert took between 1.4 and 2.3 seconds to reach Grafana across four runs. On Ubuntu 22.04 (kernel 5.15.0-203) the privileged load tests pass, which covers every program, the filter maps and the environment scan on the kernel floor; the kind acceptance run was not repeated there for these milestones.
+
+### M6
+
+- **The four capabilities of the design are enough.** With BPF, PERFMON, SYS_PTRACE and SYS_RESOURCE, everything else dropped, no privilege escalation and a read-only root filesystem, all 13 programs load and attach and the M1 to M5 acceptance tests pass unchanged on the lab cluster (kind on kernel 6.8, containerd's default seccomp profile). None had to be added. The acceptance test reads the capability sets of the running agent from /proc on each node, so it checks what the kernel granted, not what the chart asked for.
+- **Not tested without privilege:** kernel 5.15, and container runtimes other than containerd. `agent.privileged: true` is kept as a values switch for those.
+- **No tracefs mount.** The design lists /sys/kernel/tracing among the host mounts for tracepoint IDs. No hook uses a perf-event tracepoint (M8), so it is not mounted.
+- **CI scenarios.** The kind job runs harness scenarios A01 and A04 after the acceptance tests.
+- **Not part of this milestone:** publishing images. The chart's default image names point at a registry nothing pushes to yet; the lab side-loads its images.
+
+### M7
+
+- **Lab guard.** The harness reads the node list first and refuses unless every node has `tephra.dev/lab=true`. It has no override.
+- **Alerts are read through Grafana.** Loki accepts connections only from the collector and Grafana (M5), so the harness uses Grafana's datasource proxy over a port-forward, with the credentials read from the Secret and kept in the process.
+- **Verdicts are by namespace.** Each scenario has a namespace of its own, so an alert is attributed to the scenario by its namespace label; "detected" also needs the expected pod name, a container and a process image in the alert.
+- **Two times per scenario.** "Event after" is from the start of run.sh to the kernel timestamp of the event that raised the alert. "Visible after" is until every expected alert could be queried, and includes the harness's one-second polling.
+- **A01 uses a deliberately vulnerable CGI endpoint** in a busybox web server, so the shell is a real descendant of the server. The request comes from the listener pod and the alerts must name the web pod (`alert_pod`).
+- **Live events as rule tests.** `harness run --record` saves the event behind each detection as `rules/testdata/<rule>.live.jsonl`; the rule tests require each rule to fire on its live event. The hand-written events stay, because they also hold the cases that must not fire.
+- **What the false-positive run found.** The first 30-minute run raised R005 (high) 26 times: the image builder, kaniko, writes /etc/shadow while it unpacks a base image into its own container. `/kaniko/executor` was added to R005's allowlist and the run repeated: zero high or critical alerts. The one alert left is R004 (low), from the official nginx image's entrypoint running `apk manifest nginx`; it is listed under that rule's false positives and not suppressed.
+- **Credentials in command lines.** The first version of A05 passed the pod's service account token to wget on the command line, and the sensor recorded it, as it records every command line. The token of that deleted pod was redacted from the saved event and the scenario no longer uses it. The general point stands: an exec sensor captures secrets that programs are given as arguments, and Loki then holds them.
+- **False-positive workloads** are in `attacks/fp/workloads.yaml`; the load generator is a Python loop, not curl or wget, which R004 would report by design.
+
+### M8
+
+- **memfd and module_load are not perf tracepoints.** memfd is an fentry on the syscall's own entry function and module_load a tp_btf program, the same attach type as the lifecycle hooks. Nothing needs tracefs or perf_event_open.
+- **setns is hooked where namespaces are switched** (`switch_task_namespaces`), not at the setns syscall. It covers setns with a namespace file, setns with a pidfd, and unshare, and it reports the namespaces the task is in afterwards. The agent compares them with the namespaces of the node's first process, which is how R018 knows a pod entered a host namespace. The syscall's arguments alone do not say that.
+- **cred_change is filtered in the kernel** to changes of uid, euid or gid and to gains of effective capabilities; commit_creds runs on every exec. Each event says whether an exec made the change, read from the task's in_execve bit. R019 is "euid goes from non-zero to zero outside an exec".
+- **ptrace reports attach-level access**, which includes process_vm_writev and opening /proc/<pid>/mem, not only ptrace(PTRACE_ATTACH). Access by a process to itself is filtered.
+- **Mount target.** `bpf_d_path` cannot be called at `security_sb_mount`. The target is rebuilt from up to six directory entries within the filesystem the mount point is on, with ".../" in front when there were more.
+- **R015, R016, R017, R018 exclude the host namespace**: the container runtime, the kubelet and CNI plugins mount, switch namespaces and load modules on the host all the time. R017 also excludes runc setting up a container, with the same exact-command-line-and-parent filter as R003.
+- **R020 excludes the container runtime and systemd on the host**, which load BPF programs for cgroup device and network control on every container start. The sensor's own loads come from its ignored cgroup.
+- **A hook that fails costs only its own event type.** A privileged test loads the sensor with commit_creds replaced by a function that does not exist and checks that the other 13 event types still work.
+- **A14 loads a real module.** The scenario loads the kernel's `dummy` network driver from the node's /lib/modules into the lab VM's kernel and removes it afterwards.
+
+### Tested on (M6 to M8)
+
+Dev VM (Ubuntu 24.04, kernel 6.8.0-147), freshly created kind cluster, agents without privileged mode: the 18 privileged load tests pass, the acceptance tests M0 to M6 pass, and `harness run --all` reports A01 to A17 detected with zero ring buffer drops. The 30-minute false-positive run was made on the build before the last fix to the overlayfs duplicate filter, which does not change what rules fire. On Ubuntu 22.04 (kernel 5.15.0-203) the 18 privileged load tests pass, covering every program including the seven M8 hooks; the kind runs, the capability-only security context and the harness were not repeated there.

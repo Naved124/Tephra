@@ -4,3 +4,5 @@
 #include "exec.bpf.c"
 #include "file.bpf.c"
 #include "net.bpf.c"
+#include "priv.bpf.c"
+#include "tamper.bpf.c"

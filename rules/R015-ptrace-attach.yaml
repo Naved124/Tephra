@@ -1,0 +1,19 @@
+id: R015
+title: Attach-level access to another process
+level: high
+tags: [attack.defense_evasion, attack.t1055.008]
+event: ptrace
+detection:
+  selection:
+    ptrace.target_pid|gt: 0
+  host:
+    k8s.namespace: host
+  condition: selection and not host
+action: alert
+description: >-
+  A process in a container asked the kernel for attach-level access to
+  another process: ptrace attach, or reading and writing its memory. That is
+  how code is injected into a running process and how secrets are read out of
+  one.
+falsepositives:
+  - Debuggers, profilers and crash handlers run on purpose in a container

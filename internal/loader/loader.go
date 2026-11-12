@@ -98,7 +98,26 @@ var hooks = []hook{
 		types: []events.Type{events.TypeAccept}},
 	{program: "tephra_file_open", section: "fentry/security_file_open", kfunc: "security_file_open",
 		types: []events.Type{events.TypeFileOpen}},
+	{program: "tephra_ptrace", section: "fentry/security_ptrace_access_check", kfunc: "security_ptrace_access_check",
+		types: []events.Type{events.TypePtrace}},
+	{program: "tephra_memfd", section: "fentry/__x64_sys_memfd_create", kfunc: "__x64_sys_memfd_create",
+		types: []events.Type{events.TypeMemfd}},
+	{program: "tephra_module", section: "tp_btf/module_load", types: []events.Type{events.TypeModuleLoad}},
+	{program: "tephra_bpf", section: "fentry/security_bpf", kfunc: "security_bpf",
+		types: []events.Type{events.TypeBPFLoad}},
+	// commit_creds is not a stable interface; of all the hooks it is the
+	// likeliest to be missing on some kernel.
+	{program: "tephra_cred", section: "fentry/commit_creds", kfunc: "commit_creds",
+		types: []events.Type{events.TypeCredChange}},
+	{program: "tephra_mount", section: "fentry/security_sb_mount", kfunc: "security_sb_mount",
+		types: []events.Type{events.TypeMount}},
+	{program: "tephra_setns", section: "fentry/switch_task_namespaces", kfunc: "switch_task_namespaces",
+		types: []events.Type{events.TypeSetns}},
 }
+
+// brokenHook, when set by a test, names a program whose kernel function is
+// replaced by one that does not exist.
+var brokenHook string
 
 // Sensor owns the loaded programs and their links. Links are held open and not
 // pinned: when the agent exits the kernel detaches everything.
@@ -222,6 +241,9 @@ func (s *Sensor) precheck(spec *ebpf.CollectionSpec) []hook {
 			continue
 		}
 		var fn *btf.Func
+		if h.program == brokenHook {
+			h.kfunc = "tephra_no_such_function"
+		}
 		if err := kernel.TypeByName(h.kfunc, &fn); err != nil {
 			s.drop(spec, h, "kernel has no function "+h.kfunc)
 			continue

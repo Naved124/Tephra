@@ -31,7 +31,7 @@ jobs:
       - name: clang-format
         run: clang-format --dry-run --Werror bpf/*.bpf.c bpf/common.h
       - name: shellcheck
-        run: shellcheck -x hack/*.sh deploy/vm/*.sh
+        run: shellcheck -x hack/*.sh deploy/vm/*.sh attacks/*/*.sh
 
   build-test:
     runs-on: ubuntu-24.04
@@ -73,8 +73,17 @@ jobs:
           sudo install -m 0755 linux-amd64/helm /usr/local/bin/helm
       - name: Chart lint
         run: helm lint deploy/helm/tephra -f deploy/helm/tephra/values-kind.yaml
-      - name: make dev (acceptance tests M0 to M5)
+      - name: make dev (acceptance tests M0 to M6)
         run: make dev
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Two real attack techniques against the cluster that was just
+      # installed. A missed detection fails the build.
+      - name: Attack scenarios A01 and A04
+        run: |
+          go build -o bin/harness ./cmd/harness
+          bin/harness run --context kind-tephra --out "$RUNNER_TEMP" A01 A04
       - name: Backend state
         if: failure()
         run: |

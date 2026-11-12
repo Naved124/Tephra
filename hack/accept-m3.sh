@@ -100,7 +100,9 @@ after=$(scrape "$agent" | counter file_open seen)
 
 for pod in $(agent_pods); do
 	snap=$(scrape "$pod")
-	for type in exec fork exit connect accept unix_connect file_open; do
+	# Every event type the agent reports, whatever milestone added it.
+	mapfile -t types < <(awk -F'"' '/^tephra_kernel_events_total.*outcome="dropped"/ {print $2}' <<<"$snap")
+	for type in "${types[@]}"; do
 		dropped=$(counter "$type" dropped <<<"$snap")
 		[ "$dropped" -eq 0 ] || fail "${pod}: ${dropped} ${type} events dropped"
 	done

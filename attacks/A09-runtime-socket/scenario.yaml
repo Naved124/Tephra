@@ -1,0 +1,6 @@
+id: A09
+title: Open the containerd socket through a hostPath mount
+tags: [attack.privilege_escalation, attack.t1611]
+expect: [R010]
+run:
+  pod: victim

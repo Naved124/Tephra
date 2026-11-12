@@ -1,0 +1,6 @@
+id: A04
+title: Read /etc/shadow from a non-system process
+tags: [attack.credential_access, attack.t1003.008]
+expect: [R005]
+run:
+  pod: victim
