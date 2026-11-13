@@ -11,7 +11,7 @@ detection:
   runtime:
     process.runtime: true
   condition: (unlinked or memfd) and not runtime
-action: alert
+action: block
 description: >-
   The binary has no name on disk: it was run from an anonymous memory file or
   deleted before it was executed. Both leave nothing for a file scanner to

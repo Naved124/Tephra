@@ -1,0 +1,39 @@
+id: R025
+title: File fetched into a container and then executed
+level: high
+tags: [attack.command_and_control, attack.t1105, attack.execution, attack.t1059]
+sequence:
+  by: pod
+  window: 60s
+  steps:
+    - event: exec
+      detection:
+        fetch:
+          process.Image|endswith:
+            - /curl
+            - /wget
+            - /tftp
+            - /ftp
+            - /scp
+            - /sftp
+        host:
+          k8s.namespace: host
+        condition: fetch and not host
+    - event: exec
+      exe_changed: true
+      detection:
+        host:
+          k8s.namespace: host
+        runtime:
+          process.runtime: true
+        condition: not (host or runtime)
+action: alert
+description: >-
+  A file-transfer tool ran in a pod and, within a minute, the pod executed a
+  file that was written or made executable after that. Either step alone is
+  common; a container that fetches a file and runs it is installing something
+  it was not built with. The second step looks at the file that was asked for,
+  so a fetched script is recognised although the kernel runs its interpreter.
+falsepositives:
+  - Entrypoints that fetch a binary or script at start-up and run it
+  - Build or CI pods whose steps download a tool and run it

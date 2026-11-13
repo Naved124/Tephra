@@ -88,6 +88,63 @@ static __always_inline void read_env(struct exec_event *e, struct mm_struct *mm)
 		e->h.flags |= EXEC_F_ENV_TRUNC;
 }
 
+/* The inode change time has had three layouts: a timespec64 called i_ctime
+ * (before 6.6), the same called __i_ctime (6.6 to 6.10), and two scalars
+ * since. In the last form the top bit of the nanoseconds is a flag. */
+struct inode___ts {
+	struct timespec64 i_ctime;
+};
+
+struct inode___ts2 {
+	struct timespec64 __i_ctime;
+};
+
+static __always_inline __u64 inode_ctime_ns(struct inode *inode)
+{
+	struct inode___ts2 *mid = (void *)inode;
+	struct inode___ts *old = (void *)inode;
+	__s64 sec;
+	__u32 nsec;
+
+	if (bpf_core_field_exists(inode->i_ctime_sec)) {
+		sec = BPF_CORE_READ(inode, i_ctime_sec);
+		nsec = BPF_CORE_READ(inode, i_ctime_nsec) & 0x7fffffff;
+	} else if (bpf_core_field_exists(mid->__i_ctime)) {
+		sec = BPF_CORE_READ(mid, __i_ctime.tv_sec);
+		nsec = BPF_CORE_READ(mid, __i_ctime.tv_nsec);
+	} else if (bpf_core_field_exists(old->i_ctime)) {
+		sec = BPF_CORE_READ(old, i_ctime.tv_sec);
+		nsec = BPF_CORE_READ(old, i_ctime.tv_nsec);
+	} else {
+		return 0;
+	}
+	if (sec < 0)
+		return 0;
+	return (__u64)sec * 1000000000ULL + nsec;
+}
+
+/* For a script the exec tracepoint sees the interpreter, not the script.
+ * This runs once per execve, before any interpreter is looked up, while
+ * bprm->file is still the file that was asked for. Its change time is kept
+ * per process until the tracepoint collects it; an execve that fails leaves
+ * an entry behind, which the LRU map discards in time. */
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 4096);
+	__type(key, __u32);
+	__type(value, __u64);
+} exec_ctime SEC(".maps");
+
+SEC("fentry/security_bprm_creds_for_exec")
+int BPF_PROG(tephra_exec_file, struct linux_binprm *bprm)
+{
+	__u32 tgid = bpf_get_current_pid_tgid() >> 32;
+	__u64 ns = inode_ctime_ns(BPF_CORE_READ(bprm, file, f_inode));
+
+	bpf_map_update_elem(&exec_ctime, &tgid, &ns, BPF_ANY);
+	return 0;
+}
+
 /* Fires after a successful exec, once the kernel has resolved the binary, so
  * nothing here depends on the caller's view of its own arguments except
  * argv, which is read from the new address space the kernel just built. */
@@ -102,7 +159,8 @@ int BPF_PROG(tephra_exec, struct task_struct *p, pid_t old_pid,
 	struct mm_struct *mm;
 	const struct cred *cred;
 	__u64 arg_start, arg_end, len;
-	__u32 zero = 0, total;
+	__u32 zero = 0, total, tgid;
+	__u64 *seen;
 
 	if (!c || !s || !event_enabled(c, EVENT_EXEC))
 		return 0;
@@ -132,6 +190,16 @@ int BPF_PROG(tephra_exec, struct task_struct *p, pid_t old_pid,
 		e->h.flags |= EXEC_F_UNLINKED;
 	if (BPF_CORE_READ(inode, i_mode) & S_ISUID)
 		e->h.flags |= EXEC_F_SETUID;
+	/* The file that was asked for if it is known, else the one mapped. */
+	e->ctime_ns = inode_ctime_ns(inode);
+	/* The same number the earlier hook used; h.pid is the pid as the
+	 * node sees it, which differs inside a nested pid namespace. */
+	tgid = bpf_get_current_pid_tgid() >> 32;
+	seen = bpf_map_lookup_elem(&exec_ctime, &tgid);
+	if (seen) {
+		e->ctime_ns = *seen;
+		bpf_map_delete_elem(&exec_ctime, &tgid);
+	}
 
 	/* kernel_cap_t is two u32 before 6.3 and one u64 after; both are the
 	 * same eight little-endian bytes. */
@@ -190,6 +258,35 @@ int BPF_PROG(tephra_exec, struct task_struct *p, pid_t old_pid,
 
 /* Fires in the parent once the child is fully set up. Thread creation is
  * counted and filtered; the process tree tracks processes. */
+/* A process the container runtime forks while setting a container up is the
+ * runtime at work too: runc's init forks the stages that build the
+ * container's namespaces and mount its root filesystem. The enforcement
+ * programs' mark (runtime_tasks) passes from parent to child here; the
+ * child's own exec of the container's program clears it. Done whatever the
+ * event settings, and only while enforcement is not off. */
+static __always_inline void runtime_mark_inherit(struct task_struct *child)
+{
+	struct task_key pk = {}, ck = {};
+	struct enforce_cfg *ec;
+	__u32 zero = 0;
+	__u8 one = 1;
+
+	if (BPF_CORE_READ(child, pid) != BPF_CORE_READ(child, tgid))
+		return; /* a thread shares its process's key */
+	ec = bpf_map_lookup_elem(&enforce_cfg, &zero);
+	if (!ec || ec->mode == ENFORCE_OFF)
+		return;
+	pk.start_time_ns =
+	    BPF_CORE_READ((struct task_struct *)bpf_get_current_task_btf(),
+			  group_leader, start_boottime);
+	pk.tgid = bpf_get_current_pid_tgid() >> 32;
+	if (!bpf_map_lookup_elem(&runtime_tasks, &pk))
+		return;
+	ck.start_time_ns = BPF_CORE_READ(child, start_boottime);
+	ck.tgid = BPF_CORE_READ(child, tgid);
+	bpf_map_update_elem(&runtime_tasks, &ck, &one, BPF_ANY);
+}
+
 SEC("tp_btf/sched_process_fork")
 int BPF_PROG(tephra_fork, struct task_struct *parent, struct task_struct *child)
 {
@@ -198,6 +295,7 @@ int BPF_PROG(tephra_fork, struct task_struct *parent, struct task_struct *child)
 	struct task_struct *real_parent;
 	struct fork_event e;
 
+	runtime_mark_inherit(child);
 	if (!c || !s || !event_enabled(c, EVENT_FORK))
 		return 0;
 	s->seen++;

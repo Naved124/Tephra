@@ -12,6 +12,9 @@ image:
   pullPolicy: IfNotPresent
 
 agent:
+  # false installs the backend without agents (used by the benchmarks to
+  # measure a node with no sensor).
+  enabled: true
   # The agent runs with these capabilities and nothing else. Set privileged
   # to true only on a kernel or runtime where the list is not enough; the
   # agent's start-up log says which hook failed.
@@ -51,6 +54,29 @@ agent:
     limits:
       memory: 512Mi
   podAnnotations: {}
+  # Refusal in the kernel by rules with "action: block". Needs a kernel with
+  # BPF LSM active ("bpf" in /sys/kernel/security/lsm); elsewhere the agent
+  # logs that it is unavailable and only detects.
+  enforcement:
+    # Load the enforcement programs at all. Off by default.
+    enabled: false
+    # Report what would be refused and refuse nothing. Set to false only
+    # after a dry run has shown no would-deny events on normal workloads.
+    dryRun: true
+    # pinned: refusals stay in force while the agent restarts, held by the
+    # kernel under pinDir (mounted from the node). detach: they end with the
+    # agent. "tephrad enforce off" in the agent pod, or bpftool on the node,
+    # turns pinned refusals off.
+    onAgentExit: pinned
+    # Only pods with this label set to "true" are refused anything.
+    label: tephra.dev/enforce
+    # Pods in these namespaces never are, label or not. The agent's own
+    # namespace is always added.
+    protectNamespaces:
+      - kube-system
+    pinDir: /sys/fs/bpf/tephra
+    # Capabilities added to agent.capabilities while enforcement is enabled.
+    extraCapabilities: []
 
 # Receives the agents' gRPC streams and pushes them to Loki.
 collector:

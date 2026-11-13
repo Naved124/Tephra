@@ -1,6 +1,6 @@
 id: A03
 title: Download a tool into a running container and execute it
 tags: [attack.command_and_control, attack.t1105]
-expect: [R004]
+expect: [R004, R025]
 run:
   pod: victim

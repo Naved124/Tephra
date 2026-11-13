@@ -221,7 +221,8 @@ func TestBrokenHookDisablesOnlyItself(t *testing.T) {
 		t.Errorf("tephra_cred not reported as skipped: %+v", s.Skipped())
 	}
 	for _, typ := range events.Types {
-		if typ != events.TypeCredChange && (!s.Available(typ) || !s.Enabled(typ)) {
+		// enforce needs Options.Enforce.
+		if typ != events.TypeCredChange && typ != events.TypeEnforce && (!s.Available(typ) || !s.Enabled(typ)) {
 			t.Errorf("%s lost with the broken hook", typ)
 		}
 	}

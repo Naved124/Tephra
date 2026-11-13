@@ -25,7 +25,7 @@ const (
 	argvLen   = 1024
 	envVarLen = 256
 	envLen    = 3 * envVarLen
-	execSize  = hdrSize + 32 + pathLen + argvLen + envLen + envVarLen
+	execSize  = hdrSize + 40 + pathLen + argvLen + envLen + envVarLen
 	netSize   = hdrSize + 40
 	unixSize  = hdrSize + 4 + unixPathMax
 	fileSize  = hdrSize + 24 + pathLen
@@ -65,7 +65,8 @@ const (
 	execArgvLen = hdrSize + 12
 	execCapEff  = hdrSize + 16
 	execEnvLen  = hdrSize + 24
-	execPath    = hdrSize + 32
+	execCtime   = hdrSize + 32
+	execPath    = hdrSize + 40
 	execArgv    = execPath + pathLen
 	execEnv     = execArgv + argvLen
 
@@ -93,6 +94,13 @@ const (
 	deniedName      = hdrSize + 16
 	deniedCwd       = deniedName + pathLen
 	deniedSize      = deniedCwd + pathLen
+
+	enforceAction  = hdrSize + 0
+	enforcePathLen = hdrSize + 4
+	enforceInode   = hdrSize + 8
+	enforceDev     = hdrSize + 16
+	enforcePath    = hdrSize + 24
+	enforceSize    = enforcePath + pathLen
 
 	forkChildPID    = hdrSize + 0
 	forkParentPID   = hdrSize + 4
@@ -128,6 +136,7 @@ var Layout = map[string]Struct{
 		"cap_effective": {execCapEff, 8},
 		"env_len":       {execEnvLen, 4},
 		"_pad":          {execEnvLen + 4, 4},
+		"ctime_ns":      {execCtime, 8},
 		"path":          {execPath, pathLen},
 		"argv":          {execArgv, argvLen},
 		"env":           {execEnv, envLen},
@@ -180,6 +189,15 @@ var Layout = map[string]Struct{
 		"watch_bits": {fileWatchBits, 4},
 		"path_len":   {filePathLen, 4},
 		"path":       {filePath, pathLen},
+	}},
+	"enforce_event": {Size: enforceSize, Fields: map[string]Field{
+		"h":        {0, hdrSize},
+		"action":   {enforceAction, 4},
+		"path_len": {enforcePathLen, 4},
+		"inode":    {enforceInode, 8},
+		"dev":      {enforceDev, 4},
+		"_pad":     {enforceDev + 4, 4},
+		"path":     {enforcePath, pathLen},
 	}},
 	"denied_event": {Size: deniedSize, Fields: map[string]Field{
 		"h":          {0, hdrSize},

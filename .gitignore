@@ -17,3 +17,11 @@
 .idea/
 .vscode/
 *.swp
+
+# Terraform working files and state (state holds resource IDs of a live lab)
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfstate.d/
+bench/.cache/
+/tephrad

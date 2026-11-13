@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+# Exec-heavy: 20,000 fork+exec of /bin/true on two pinned CPUs, as four
+# parallel loops. Prints the elapsed time; throughput is execs per second.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bench
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: tephra-worker
+  containers:
+    - name: bench
+      image: busybox:1.37
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          t() { awk '{printf "%.0f", $1 * 1000000000}' /proc/uptime; }
+          start=$(t)
+          for _ in 1 2 3 4; do
+            taskset -c 2,3 sh -c 'i=0; while [ $i -lt 5000 ]; do /bin/true; i=$((i + 1)); done' &
+          done
+          wait
+          end=$(t)
+          echo "RESULT ops=20000 ns=$((end - start))"
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}

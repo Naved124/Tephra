@@ -1,0 +1,8 @@
+id: E08
+title: The payload at the end of a command line longer than the capture limit
+tags: [attack.defense_evasion, attack.t1027]
+expect: [R005]
+predicted: partial
+run:
+  pod: victim
+note: The process is python3 -c with 1500 bytes of comment before the code that opens /etc/shadow; the sensor keeps the first 1024 bytes of argv. No shipped rule matches on the command line, so what truncation costs is the evidence in the alert, not the alert.

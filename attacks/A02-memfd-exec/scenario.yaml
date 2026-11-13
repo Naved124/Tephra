@@ -4,3 +4,7 @@ tags: [attack.defense_evasion, attack.t1620]
 expect: [R003]
 run:
   pod: victim
+enforce:
+  dry_run: [R003]
+  on: [R003]
+  # The exec is refused: execve raises and run.sh fails.

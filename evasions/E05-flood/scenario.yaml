@@ -1,0 +1,10 @@
+id: E05
+title: Flood the sensor with short-lived processes, then read /etc/shadow
+tags: [attack.credential_access, attack.t1003.008, attack.defense_evasion, attack.t1562.006]
+expect: [R005]
+predicted: detected
+expect_drops: true
+timeout: 90s
+run:
+  pod: victim
+note: Detected, or ring buffer drops reported by the sensor, both count as the gap being visible.

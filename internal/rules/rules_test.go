@@ -146,7 +146,9 @@ func TestInvalidRules(t *testing.T) {
 		{"no id", "title: x\nlevel: low\nevent: exec\ndetection:\n  s:\n    process.uid: 0\n  condition: s\n", 1, "id is missing"},
 		{"unknown key", head + "severity: low\n", 6, `unknown key "severity"`},
 		{"duplicate key", head + "level: high\n", 6, `duplicate key "level"`},
-		{"block action", head + "action: block\ndetection:\n  s:\n    process.uid: 0\n  condition: s\n", 1, "enforcement"},
+		{"block action", head + "action: block\ndetection:\n  s:\n    process.uid: 0\n  condition: s\n", 8, "cannot judge process.uid"},
+		{"unknown action", head + "action: kill\ndetection:\n  s:\n    process.uid: 0\n  condition: s\n", 6, "not alert or block"},
+		{"sequence cannot block", "id: T1\ntitle: x\nlevel: low\naction: block\nsequence:\n  by: pod\n  window: 10s\n  steps:\n    - event: exec\n      detection:\n        s:\n          process.uid: 0\n        condition: s\n    - event: exec\n      detection:\n        s:\n          process.uid: 0\n        condition: s\n", 4, "block"},
 		{"not yaml", "id: T1\n  title: [\n", 2, "invalid YAML"},
 		{"second document", rule("exec", "  s:\n    process.uid: 0\n  condition: s") + "\n---\nid: T2\ntitle: x\nlevel: low\nevent: exec\ndetection:\n  s:\n    nope: 1\n  condition: s\n", 17, `unknown field "nope"`},
 		// file_open rules the kernel could not filter for.

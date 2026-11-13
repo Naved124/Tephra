@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-13",
+  "sensor": "v0.1.0-dirty (tephra/tephrad:dev)",
+  "kernel": "7.0.0-1014-aws",
+  "minutes": 30,
+  "alerts": [
+    {
+      "rule": "R004",
+      "level": "low",
+      "namespace": "tephra-fp",
+      "count": 11,
+      "example": "/sbin/apk [apk manifest nginx]"
+    }
+  ],
+  "ring_buffer_drops": 0,
+  "enforce": "on"
+}

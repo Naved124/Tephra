@@ -4,3 +4,7 @@ tags: [attack.persistence, attack.t1574.006]
 expect: [R007]
 run:
   pod: victim
+enforce:
+  dry_run: [R007]
+  on: [R007]
+  effect: grep -q not-a-library /etc/ld.so.preload

@@ -20,7 +20,7 @@ func (s *Sensor) SetFilters(f filter.Set) error {
 	paths := map[tephraPathKey]uint32{}
 	names := map[tephraNameKey]uint32{}
 	for _, w := range f.Watches {
-		if w.Bits&(filter.Read|filter.Write|filter.Denied) == 0 {
+		if w.Bits&(filter.Read|filter.Write|filter.Denied|filter.Block) == 0 {
 			return fmt.Errorf("watch %q reports nothing", w.Path)
 		}
 		switch w.Kind {

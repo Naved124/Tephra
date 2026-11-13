@@ -64,6 +64,18 @@ func metricsHandler(a *agent, pods *k8s.PodIndex) http.Handler {
 		counter(&b, "tephra_agent_reloads_total", "Configuration reloads that took effect.", c.reloads.Load())
 		counter(&b, "tephra_agent_reload_errors_total", "Configuration reloads refused because the new configuration or rules were invalid.", c.reloadErrors.Load())
 		gauge(&b, "tephra_rules_loaded", "Detection rules in force.", uint64(c.rulesLoaded.Load()))
+		// Read from the kernel, so that the kill switch shows at once.
+		var mode uint64
+		if ok, _ := a.sensor.EnforcementAvailable(); ok {
+			m, _ := a.sensor.Enforcement()
+			mode = uint64(m)
+		}
+		gauge(&b, "tephra_enforce_mode", "Enforcement in force, as the kernel holds it: 0 off, 1 dry-run, 2 on.", mode)
+		gauge(&b, "tephra_enforce_pods", "Pods on this node that enforcement applies to.", c.enforcePods.Load())
+		counter(&b, "tephra_enforce_denied_total", "Actions refused by enforcement.", c.enforceDenied.Load())
+		counter(&b, "tephra_enforce_would_deny_total", "Actions enforcement would have refused; it is in dry-run mode.", c.enforceWouldDeny.Load())
+		gauge(&b, "tephra_rule_sequences", "Partial rule sequences held in memory; bounded by a fixed cap.", c.seqHeld.Load())
+		counter(&b, "tephra_rule_sequences_evicted_total", "Partial rule sequences dropped, oldest first, to stay under the cap.", c.seqEvicted.Load())
 		gauge(&b, "tephra_proctree_entries", "Processes in the process tree, live and lingering.", uint64(a.tree.Len()))
 		gauge(&b, "tephra_pods_known", "Pods in the pod index.", uint64(pods.Len()))
 		inodes, roots, errs := a.tracker.Stats()

@@ -54,12 +54,34 @@ func TestShippedRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set.Rules) != 24 {
-		t.Errorf("loaded %d rules, want R001 to R024", len(set.Rules))
+	if len(set.Rules) != 26 {
+		t.Errorf("loaded %d rules, want R001 to R026", len(set.Rules))
 	}
 	for _, r := range set.Rules {
 		if r.Description == "" || len(r.Tags) < 2 {
 			t.Errorf("%s: needs a description, a tactic tag and a technique tag", r.ID)
+		}
+		if len(r.Steps) > 0 {
+			// A sequence rule: its recorded events are replayed in
+			// order, each file against a rule set with no history.
+			if n := replay(t, r, filepath.Join(shipped, "testdata", r.ID+".match.jsonl")); n == 0 {
+				t.Errorf("%s did not fire on its matching sequence", r.ID)
+			}
+			live := filepath.Join(shipped, "testdata", r.ID+".live.jsonl")
+			if _, err := os.Stat(live); err == nil {
+				// The harness records the event that completed the
+				// sequence, which alone cannot fire it; it must
+				// still satisfy the last step.
+				for _, rec := range readEvents(t, live) {
+					if last := r.Steps[len(r.Steps)-1]; !last.Matches(rec) {
+						t.Errorf("%s: live event %s %q does not satisfy the last step", r.ID, rec.Type, describe(rec))
+					}
+				}
+			}
+			if n := replay(t, r, filepath.Join(shipped, "testdata", r.ID+".nomatch.jsonl")); n != 0 {
+				t.Errorf("%s fired %d times on its non-matching events", r.ID, n)
+			}
+			continue
 		}
 		for _, rec := range readEvents(t, filepath.Join(shipped, "testdata", r.ID+".match.jsonl")) {
 			if rec.Type != r.Event {
@@ -84,6 +106,20 @@ func TestShippedRules(t *testing.T) {
 			}
 		}
 	}
+}
+
+// replay feeds recorded events to one rule in order and counts its alerts.
+func replay(t *testing.T, r *rules.Rule, path string) int {
+	t.Helper()
+	set, err := rules.NewSet([]*rules.Rule{r})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, rec := range readEvents(t, path) {
+		n += len(set.Match(rec))
+	}
+	return n
 }
 
 func describe(r *export.Record) string {
@@ -113,6 +149,8 @@ func TestShippedWatches(t *testing.T) {
 		{Kind: filter.Exact, Path: "/etc/shadow", Bits: rw},
 		{Kind: filter.Prefix, Path: "/var/run/secrets/kubernetes.io/serviceaccount/", Bits: rw},
 		{Kind: filter.Prefix, Path: "/run/secrets/kubernetes.io/serviceaccount/", Bits: rw},
+		{Kind: filter.Exact, Path: "/etc/ld.so.preload", Bits: filter.Write | filter.Block},
+		// R023, a write of the same file, alerts only.
 		{Kind: filter.Exact, Path: "/etc/ld.so.preload", Bits: filter.Write},
 		{Kind: filter.Prefix, Path: "/etc/cron.d/", Bits: filter.Write},
 		{Kind: filter.Prefix, Path: "/etc/cron.hourly/", Bits: filter.Write},
@@ -124,8 +162,8 @@ func TestShippedWatches(t *testing.T) {
 		{Kind: filter.Exact, Path: "/etc/crontab", Bits: filter.Write},
 		{Kind: filter.Name, Path: "authorized_keys", Bits: filter.Write},
 		{Kind: filter.Name, Path: "authorized_keys2", Bits: filter.Write},
-		{Kind: filter.Name, Path: "release_agent", Bits: filter.Write},
-		{Kind: filter.Name, Path: "core_pattern", Bits: filter.Write},
+		{Kind: filter.Name, Path: "release_agent", Bits: filter.Write | filter.Block},
+		{Kind: filter.Name, Path: "core_pattern", Bits: filter.Write | filter.Block},
 		{Kind: filter.Name, Path: ".bash_history", Bits: filter.Write},
 		{Kind: filter.Name, Path: ".zsh_history", Bits: filter.Write},
 		{Kind: filter.Name, Path: ".ash_history", Bits: filter.Write},

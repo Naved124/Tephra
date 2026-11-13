@@ -1,0 +1,9 @@
+id: E07
+title: Kill the agent on the node, read /etc/shadow, let the agent restart
+tags: [attack.defense_evasion, attack.t1562.001, attack.credential_access, attack.t1003.008]
+expect: [R005]
+predicted: missed
+timeout: 90s
+run:
+  pod: victim
+note: The pod is privileged with the host's process namespace, which is what an attacker who escaped to the node has. The report gives the agent restart count, which is how the gap shows; the agent has no heartbeat of its own.

@@ -49,6 +49,13 @@ message Record {
   Cred cred = 18;
   Mount mount = 19;
   Namespaces namespaces = 20;
+  Enforce enforce = 21;
+}
+
+// An action the kernel refused (denied), or in dry-run mode would have.
+message Enforce {
+  string action = 1;
+  bool denied = 2;
 }
 
 message Ptrace {
@@ -116,6 +123,9 @@ message Process {
   Exec exec = 10;
   // The process runs one of the node's container runtime binaries.
   bool runtime = 11;
+  // The tree of processes this one belongs to: "<pid>.<start time>" of
+  // its topmost ancestor in the same cgroup.
+  string tree = 12;
 }
 
 message Exec {
@@ -129,6 +139,8 @@ message Exec {
   uint64 cap_effective = 8;
   map<string, string> env = 9;
   bool env_truncated = 10;
+  // When the executable's inode last changed, nanoseconds since the epoch.
+  uint64 exe_ctime_ns = 11;
 }
 
 message Parent {

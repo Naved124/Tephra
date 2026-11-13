@@ -5,3 +5,7 @@ expect: [R016]
 run:
   pod: victim
 note: Loads the kernel's own dummy network driver into the lab VM's kernel and removes it again.
+enforce:
+  dry_run: [R016]
+  on: [R016]
+  effect: grep -q "^dummy " /proc/modules

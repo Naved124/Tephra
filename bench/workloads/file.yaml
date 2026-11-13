@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# File-heavy: unpack a pinned source tarball and compile it on two pinned
+# CPUs. The tarball is fetched and checked by bench/run.sh before the timer
+# starts, into a hostPath the pod reads.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bench
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: tephra-worker
+  volumes:
+    - name: src
+      hostPath: {path: /var/tmp/tephra-bench, type: Directory}
+  containers:
+    - name: bench
+      image: gcc:14.3.0
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -e
+          cd /tmp
+          t() { awk '{printf "%.0f", $1 * 1000000000}' /proc/uptime; }
+          start=$(t)
+          taskset -c 2,3 tar -xjf /src/busybox.tar.bz2
+          cd busybox-*
+          taskset -c 2,3 make -s defconfig >/dev/null
+          sed -i 's/^CONFIG_TC=y/# CONFIG_TC is not set/' .config
+          taskset -c 2,3 make -s -j2 >/dev/null 2>&1
+          end=$(t)
+          echo "RESULT ops=1 ns=$((end - start))"
+      volumeMounts:
+        - {name: src, mountPath: /src, readOnly: true}
+      resources:
+        requests: {cpu: 10m, memory: 256Mi}

@@ -97,6 +97,14 @@ kind-up: ## Create the kind lab cluster if it does not exist
 	else \
 		kind create cluster --name $(CLUSTER) --config deploy/kind/cluster.yaml --wait 120s; \
 	fi
+	@# A kind node is a container and has neither securityfs, where the
+	@# kernel lists its active security modules, nor a BPF filesystem for
+	@# pins. A real node has both. Each node gets its own BPF filesystem,
+	@# so the agents do not share pins.
+	@for node in $$(kind get nodes --name $(CLUSTER)); do \
+		docker exec $$node sh -c 'mountpoint -q /sys/kernel/security || mount -t securityfs securityfs /sys/kernel/security; \
+			mountpoint -q /sys/fs/bpf || mount -t bpf bpf /sys/fs/bpf'; \
+	done
 
 .PHONY: kind-down
 kind-down: ## Delete the kind lab cluster
@@ -128,7 +136,24 @@ accept: ## Run the acceptance tests of every finished milestone against the clus
 	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m5.sh
 	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) hack/accept-m6.sh
 
+# ENFORCE=dry-run or on: switch the installed chart's enforcement to that mode
+# and run the M12 acceptance test. Lab cluster only.
+ENFORCE ?= dry-run
+.PHONY: accept-enforce
+accept-enforce: ## Turn enforcement on in the lab cluster (ENFORCE=dry-run|on) and run the M12 acceptance test
+	@case "$(ENFORCE)" in dry-run|on) ;; *) echo "ENFORCE must be dry-run or on" >&2; exit 2 ;; esac
+	helm upgrade $(RELEASE) $(CHART) --kube-context kind-$(CLUSTER) --namespace $(NAMESPACE) --reset-then-reuse-values \
+		--set agent.enforcement.enabled=true \
+		--set agent.enforcement.dryRun=$(if $(filter on,$(ENFORCE)),false,true)
+	kubectl -n $(NAMESPACE) rollout restart daemonset/$(RELEASE)-agent
+	kubectl -n $(NAMESPACE) rollout status daemonset/$(RELEASE)-agent --timeout=180s
+	NAMESPACE=$(NAMESPACE) RELEASE=$(RELEASE) MODE=$(ENFORCE) hack/accept-m12.sh
+
 # --- attack harness (lab cluster only) ----------------------------------------
+
+.PHONY: evasions
+evasions: build ## Run the evasion scenarios against the lab cluster and write docs/evasion.md
+	bin/harness run --evasions --all --context kind-$(CLUSTER)
 
 .PHONY: coverage
 coverage: build ## Run every attack scenario against the lab cluster and write docs/coverage.md

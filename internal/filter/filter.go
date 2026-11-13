@@ -18,6 +18,25 @@ const (
 	Write uint32 = 1 << 1
 	// Denied reports refused opens of the file and nothing else.
 	Denied uint32 = 1 << 2
+	// Block refuses opens for writing where enforcement applies. It
+	// reports nothing by itself.
+	Block uint32 = 1 << 3
+)
+
+// What enforcement can refuse, enum enforce_action in bpf/common.h.
+const (
+	// ActionExecUnlinked is the exec of a file with no name on disk: a
+	// memory file, or a binary deleted after it was opened.
+	ActionExecUnlinked uint32 = 1
+	// ActionFileWrite is an open for writing of a file watched with
+	// Block.
+	ActionFileWrite uint32 = 2
+	// ActionPtrace is attach-level access to another process.
+	ActionPtrace uint32 = 3
+	// ActionModule is loading a kernel module.
+	ActionModule uint32 = 4
+	// ActionMount is a mount.
+	ActionMount uint32 = 5
 )
 
 // Kind is how a watch selects files.

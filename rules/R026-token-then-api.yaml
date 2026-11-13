@@ -1,0 +1,36 @@
+id: R026
+title: Service account token read, then the Kubernetes API contacted
+level: high
+tags: [attack.credential_access, attack.t1528, attack.discovery, attack.t1613]
+sequence:
+  by: pod
+  window: 60s
+  steps:
+    - event: file_open
+      detection:
+        selection:
+          file.path|startswith:
+            - /var/run/secrets/kubernetes.io/serviceaccount/
+            - /run/secrets/kubernetes.io/serviceaccount/
+        token:
+          file.path|endswith: /token
+        main:
+          process.is_main_binary: true
+        condition: selection and token and not main
+    - event: connect
+      detection:
+        selection:
+          network.is_k8s_api: true
+        main:
+          process.is_main_binary: true
+        host:
+          k8s.namespace: host
+        condition: selection and not (main or host)
+action: alert
+description: >-
+  A process other than the pod's main binary read the service account token
+  and, within a minute, a process other than the main binary in the same pod
+  connected to the Kubernetes API. R006 and R013 report each half; together
+  they are the shape of a stolen token being used.
+falsepositives:
+  - Sidecars or helper scripts that talk to the API with the pod's own token

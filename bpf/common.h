@@ -53,6 +53,7 @@ enum event_type {
 	EVENT_SETNS = 14,
 	EVENT_FILE_CHANGE = 15,
 	EVENT_FILE_DENIED = 16,
+	EVENT_ENFORCE = 17,
 	EVENT_TYPE_MAX = 32,
 };
 
@@ -94,6 +95,8 @@ struct exec_event {
 	__u64 cap_effective;
 	__u32 env_len; /* 0, or ENV_LEN when any slot is filled */
 	__u32 _pad;
+	__u64
+	    ctime_ns; /* when the executable's inode last changed, wall clock */
 	char path[PATH_LEN];
 	char argv[ARGV_LEN];
 	char env[ENV_LEN];	   /* allowlisted variables only */
@@ -272,12 +275,58 @@ struct setns_event {
 	__u32 inum[NS_KINDS];
 };
 
+/* What an enforcement program can refuse. The value is the bit position in
+ * enforce_cfg.actions and the action field of an enforce event. */
+enum enforce_action {
+	ENF_EXEC_UNLINKED = 1, /* exec of a file with no name: memfd, deleted */
+	ENF_FILE_WRITE = 2, /* open for writing of a file marked WATCH_BLOCK */
+	ENF_PTRACE = 3,	    /* ptrace attach */
+	ENF_MODULE = 4,	    /* kernel module load */
+	ENF_MOUNT = 5,	    /* mount */
+};
+
+#define ENFORCE_OFF    0
+#define ENFORCE_DRYRUN 1 /* report what would be refused, refuse nothing */
+#define ENFORCE_ON     2
+
+/* Set in the header flags of an enforce event when the action was refused;
+ * clear when it was only reported (dry run). */
+#define ENFORCE_F_DENIED  (1U << 0)
+#define ENFORCE_F_NO_PATH (1U << 1)
+
+/* An action an enforcement program refused, or would have. path is set for
+ * ENF_FILE_WRITE only. */
+struct enforce_event {
+	struct event_hdr h;
+	__u32 action;
+	__u32 path_len;
+	__u64 inode;
+	__u32 dev;
+	__u32 _pad;
+	char path[PATH_LEN];
+};
+
+/* The kill switch: mode ENFORCE_OFF stops every refusal with one write. */
+struct enforce_cfg {
+	__u32 mode;
+	__u32 actions; /* bit (1 << enforce_action) per action in force */
+};
+
+/* A process, by a pair that is never reused. */
+struct task_key {
+	__u64 start_time_ns;
+	__u32 tgid;
+	__u32 _pad;
+};
+
 /* Watch bits: which kinds of open an entry reports. */
 #define WATCH_READ  (1U << 0)
 #define WATCH_WRITE (1U << 1)
 /* Reports refused opens only; never looked at in the kernel, which sends
  * every refusal and leaves the path matching to the agent. */
 #define WATCH_DENIED (1U << 2)
+/* An open for writing is refused where enforcement applies. */
+#define WATCH_BLOCK (1U << 3)
 
 struct path_key {
 	__u32 prefixlen; /* in bits */
@@ -431,6 +480,50 @@ struct {
 	__type(key, struct ip6_key);
 	__type(value, __u8);
 } net_ignore_v6 SEC(".maps");
+
+/* Enforcement. These maps hold the whole policy: an enforcement program
+ * decides from them alone and never waits for the agent. */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct enforce_cfg);
+} enforce_cfg SEC(".maps");
+
+/* cgroups enforcement applies to, and everything below them: the cgroups of
+ * pods that opted in. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 4096);
+	__type(key, __u64);
+	__type(value, __u8);
+} enforce_cgroups SEC(".maps");
+
+/* cgroups that are never refused anything, and everything below them. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1024);
+	__type(key, __u64);
+	__type(value, __u8);
+} protect_cgroups SEC(".maps");
+
+/* The node's container runtime binaries, by identity. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1024);
+	__type(key, struct inode_key);
+	__type(value, __u8);
+} runtime_inodes SEC(".maps");
+
+/* Processes a runtime binary started by executing a copy of itself (runc
+ * init): they set a container up from inside its cgroup, until they execute
+ * the container's program. */
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 4096);
+	__type(key, struct task_key);
+	__type(value, __u8);
+} runtime_tasks SEC(".maps");
 
 static __always_inline struct stats_val *stats_get(__u32 type)
 {

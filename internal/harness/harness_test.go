@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Naved124/tephra/internal/rules"
 )
 
 func nodes(labels ...string) []byte {
@@ -217,5 +219,145 @@ func TestBuildVersion(t *testing.T) {
 	}
 	if got := buildVersion("tephra_rules_loaded 21\n"); got != "" {
 		t.Errorf("version %q from metrics without one", got)
+	}
+}
+
+func refusal(rule string, denied bool, at time.Time) *Alert {
+	a := alert(rule, "victim", "victim", "/bin/sh", at)
+	a.Enforce = &struct {
+		Action string `json:"action"`
+		Denied bool   `json:"denied"`
+	}{"mount", denied}
+	return a
+}
+
+// Under enforcement only the alert of a refusal of the right kind counts:
+// the ordinary alert of the rule does not, nor a would-be refusal when
+// enforcement is on.
+func TestJudgeEnforce(t *testing.T) {
+	start := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+	s := &Scenario{ID: "A10", AlertPod: "victim", Enforce: &EnforceSpec{DryRun: []string{"R017", "R011"}, On: []string{"R017"}}}
+	ordinary := alert("R017", "victim", "victim", "/bin/mount", start.Add(time.Millisecond))
+
+	rules, _ := judgeEnforce(s, EnforceOn, []*Alert{ordinary, refusal("R017", false, start)}, start)
+	if len(rules) != 1 || rules[0].Verdict != Missed {
+		t.Errorf("on, no refusal: %+v", rules)
+	}
+	rules, _ = judgeEnforce(s, EnforceOn, []*Alert{refusal("R017", true, start)}, start)
+	if len(rules) != 1 || rules[0].Verdict != Detected {
+		t.Errorf("on, refused: %+v", rules)
+	}
+	rules, _ = judgeEnforce(s, EnforceDryRun, []*Alert{refusal("R017", false, start), refusal("R011", false, start)}, start)
+	if len(rules) != 2 || rules[0].Verdict != Detected || rules[1].Verdict != Detected {
+		t.Errorf("dry-run: %+v", rules)
+	}
+}
+
+func TestEnforceVerdict(t *testing.T) {
+	yes, no := true, false
+	ok := []RuleResult{{Rule: "R017", Verdict: Detected}}
+	for _, tc := range []struct {
+		mode string
+		took *bool
+		want string
+	}{
+		{EnforceOn, &no, Detected},
+		{EnforceOn, &yes, "not-refused"},
+		{EnforceDryRun, &yes, Detected},
+		{EnforceDryRun, &no, "refused-in-dry-run"},
+	} {
+		r := &Result{Enforce: tc.mode, TookEffect: tc.took, Rules: ok}
+		if got := r.Verdict(); got != tc.want {
+			t.Errorf("%s took effect %v: %s, want %s", tc.mode, *tc.took, got, tc.want)
+		}
+	}
+}
+
+func TestSumSamples(t *testing.T) {
+	page := `# HELP x
+tephra_kernel_events_total{type="exec",outcome="dropped"} 3
+tephra_kernel_events_total{type="exec",outcome="sent"} 100
+tephra_kernel_events_total{type="open",outcome="dropped"} 4
+tephra_enforce_mode 2
+tephra_enforce_mode_other 7
+`
+	if n := sumSamples(page, "tephra_kernel_events_total", `outcome="dropped"`); n != 7 {
+		t.Errorf("drops %d, want 7", n)
+	}
+	if n := sumSamples(page, "tephra_enforce_mode"); n != 2 {
+		t.Errorf("mode %d, want 2", n)
+	}
+}
+
+func TestShippedEnforceScenarios(t *testing.T) {
+	all, err := LoadAll(filepath.Join("..", "..", "attacks"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, s := range all {
+		if s.Enforce != nil {
+			ids = append(ids, s.ID)
+		}
+	}
+	if got := strings.Join(ids, " "); got != "A02 A06 A10 A13 A14 A15" {
+		t.Errorf("blockable scenarios %s", got)
+	}
+	set, err := rules.Load(filepath.Join("..", "..", "rules"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block := map[string]bool{}
+	for _, r := range set.Rules {
+		block[r.ID] = r.Action == "block"
+	}
+	for _, s := range all {
+		if s.Enforce == nil {
+			continue
+		}
+		for _, id := range append(append([]string{}, s.Enforce.DryRun...), s.Enforce.On...) {
+			if !block[id] {
+				t.Errorf("%s: enforce names %s, which is not a block rule", s.ID, id)
+			}
+		}
+	}
+}
+
+func TestEvasionVerdicts(t *testing.T) {
+	missed := []RuleResult{{Rule: "R005", Verdict: Missed}}
+	hit := []RuleResult{{Rule: "R005", Verdict: Detected}}
+	for _, tc := range []struct {
+		r        Result
+		measured string
+		held     bool
+	}{
+		{Result{Predicted: Missed, Rules: missed}, Missed, true},
+		{Result{Predicted: Missed, Rules: hit}, Detected, false},
+		{Result{Predicted: Detected, Rules: missed, DropsVisible: true}, DropsReported, true},
+		{Result{Predicted: Detected, Rules: missed}, Missed, false},
+		{Result{Predicted: Partial, Rules: hit}, Detected, false},
+	} {
+		if m := tc.r.Measured(); m != tc.measured || tc.r.PredictionHeld() != tc.held {
+			t.Errorf("%+v: measured %s held %v, want %s %v", tc.r, m, tc.r.PredictionHeld(), tc.measured, tc.held)
+		}
+	}
+	md := (&EvasionReport{Date: "2026-11-13", Results: []*Result{{ID: "E01", Title: "x", Predicted: Missed, Rules: hit}}}).Markdown()
+	if !strings.Contains(md, "| E01 | x | R005 detected | missed | detected | corrected |") {
+		t.Errorf("markdown row missing:\n%s", md)
+	}
+}
+
+func TestShippedEvasions(t *testing.T) {
+	all, err := LoadAll(filepath.Join("..", "..", "evasions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 8 {
+		t.Fatalf("%d evasion scenarios, want 8", len(all))
+	}
+	for _, s := range all {
+		if !strings.HasPrefix(s.ID, "E") || s.Predicted == "" {
+			t.Errorf("%s: predicted %q", s.ID, s.Predicted)
+		}
 	}
 }

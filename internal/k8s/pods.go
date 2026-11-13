@@ -91,6 +91,26 @@ func (x *PodIndex) Update(pod *corev1.Pod) {
 	}
 }
 
+// PodInfo is what enforcement needs to know of a pod.
+type PodInfo struct {
+	UID       string
+	Namespace string
+	Labels    map[string]string
+}
+
+// Pods lists the pods on this node that have not been deleted.
+func (x *PodIndex) Pods() []PodInfo {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	out := make([]PodInfo, 0, len(x.pods))
+	for _, e := range x.pods {
+		if e.deleted.IsZero() {
+			out = append(out, PodInfo{UID: e.uid, Namespace: e.namespace, Labels: e.labels})
+		}
+	}
+	return out
+}
+
 // Delete marks a pod as gone. It is purged after the linger period.
 func (x *PodIndex) Delete(pod *corev1.Pod, now time.Time) {
 	x.mu.Lock()

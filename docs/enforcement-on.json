@@ -1,0 +1,141 @@
+{
+  "date": "2026-11-13",
+  "kernel": "7.0.0-1014-aws",
+  "mode": "on",
+  "results": [
+    {
+      "id": "A02",
+      "title": "Run a harmless binary from a memfd with no file on disk",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1620"
+      ],
+      "rules": [
+        {
+          "rule": "R003",
+          "verdict": "detected",
+          "latency_ms": 75,
+          "event": "{\"ts\":\"2026-11-13T04:44:59.158154Z\",\"type\":\"enforce\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R003\",\"title\":\"Execution of a memfd or already-unlinked binary\",\"level\":\"high\",\"tags\":[\"attack.defense_evasion\",\"attack.t1620\"]},\"process\":{\"pid\":25467,\"start_time_ns\":4371752552677,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":96703,\"tree\":\"25461.4371748201976\"},\"parent\":{\"pid\":25461,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"358f578586386bc5720ba826755c1c9a78d9aee84443568c72a8530a9ed0de83\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-alpine\"},\"k8s\":{\"namespace\":\"tephra-a02-147675\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\",\"tephra.dev/enforce\":\"true\"}},\"enforce\":{\"action\":\"exec_unlinked\",\"denied\":true}}"
+        }
+      ],
+      "visible_ms": 1330,
+      "ring_buffer_drops": 0,
+      "enforce": "on",
+      "took_effect": false
+    },
+    {
+      "id": "A06",
+      "title": "Write an entry to /etc/ld.so.preload",
+      "tags": [
+        "attack.persistence",
+        "attack.t1574.006"
+      ],
+      "rules": [
+        {
+          "rule": "R007",
+          "verdict": "detected",
+          "latency_ms": 59,
+          "event": "{\"ts\":\"2026-11-13T04:45:05.148670Z\",\"type\":\"enforce\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R007\",\"title\":\"Write to /etc/ld.so.preload\",\"level\":\"high\",\"tags\":[\"attack.persistence\",\"attack.t1574.006\"]},\"process\":{\"pid\":25592,\"start_time_ns\":4377754582546,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"uid\":0,\"gid\":0,\"cgroup_id\":96964,\"tree\":\"25592.4377754582546\"},\"parent\":{\"pid\":25508,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id f86b33f81374b40a15546083be4cc437ee368fb8d1388028fb6d14351ac7b5cb -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"8d82038d58b1593d8ab5bb8e9ed2247c29925cf41bedf5bb2392a6b4dc8d46ff\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a06-abab2f\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\",\"tephra.dev/enforce\":\"true\"}},\"file\":{\"path\":\"/etc/ld.so.preload\",\"flags\":0,\"write\":true,\"truncate\":false,\"inode\":1318077,\"dev\":407,\"matched_by\":\"block\"},\"enforce\":{\"action\":\"file_write\",\"denied\":true}}"
+        }
+      ],
+      "also_fired": [
+        "R024"
+      ],
+      "visible_ms": 1146,
+      "ring_buffer_drops": 0,
+      "enforce": "on",
+      "took_effect": false
+    },
+    {
+      "id": "A10",
+      "title": "Write a cgroup release_agent from a privileged pod",
+      "tags": [
+        "attack.privilege_escalation",
+        "attack.t1611"
+      ],
+      "rules": [
+        {
+          "rule": "R017",
+          "verdict": "detected",
+          "latency_ms": 73,
+          "event": "{\"ts\":\"2026-11-13T04:45:11.597599Z\",\"type\":\"enforce\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R017\",\"title\":\"mount called from inside a container\",\"level\":\"high\",\"tags\":[\"attack.privilege_escalation\",\"attack.t1611\"]},\"process\":{\"pid\":25864,\"start_time_ns\":4384206654781,\"Image\":\"/bin/mount\",\"CommandLine\":\"mount -t cgroup -o none,name=tephra-harness cgroup /tmp/cgrp\",\"uid\":0,\"gid\":0,\"cgroup_id\":97225,\"tree\":\"25857.4384200719947\"},\"parent\":{\"pid\":25857,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"82ecb1aa101c8b6f6f494ab4e21f556531f17287e620aa93ff6281bae157d2c8\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a10-5032c0\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\",\"tephra.dev/enforce\":\"true\"}},\"enforce\":{\"action\":\"mount\",\"denied\":true}}"
+        },
+        {
+          "rule": "R011",
+          "verdict": "detected",
+          "latency_ms": 73,
+          "event": "{\"ts\":\"2026-11-13T04:45:11.598006Z\",\"type\":\"enforce\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R011\",\"title\":\"Write to a cgroup release_agent or to core_pattern\",\"level\":\"critical\",\"tags\":[\"attack.privilege_escalation\",\"attack.t1611\"]},\"process\":{\"pid\":25857,\"start_time_ns\":4384200719947,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"uid\":0,\"gid\":0,\"cgroup_id\":97225,\"tree\":\"25857.4384200719947\"},\"parent\":{\"pid\":25766,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id f97913769561be6c172ac2c50b411bc7807f291822ac051cf2a32cb97df15c08 -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"82ecb1aa101c8b6f6f494ab4e21f556531f17287e620aa93ff6281bae157d2c8\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a10-5032c0\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\",\"tephra.dev/enforce\":\"true\"}},\"file\":{\"path\":\"/tmp/cgrp/release_agent\",\"flags\":0,\"write\":true,\"truncate\":false,\"inode\":1317987,\"dev\":348,\"matched_by\":\"block\"},\"enforce\":{\"action\":\"file_write\",\"denied\":true}}"
+        }
+      ],
+      "also_fired": [
+        "R024"
+      ],
+      "visible_ms": 2177,
+      "ring_buffer_drops": 0,
+      "enforce": "on",
+      "took_effect": false
+    },
+    {
+      "id": "A13",
+      "title": "ptrace attach to a neighbouring process",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1055.008"
+      ],
+      "rules": [
+        {
+          "rule": "R015",
+          "verdict": "detected",
+          "latency_ms": 203,
+          "event": "{\"ts\":\"2026-11-13T04:45:18.860830Z\",\"type\":\"enforce\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R015\",\"title\":\"Attach-level access to another process\",\"level\":\"high\",\"tags\":[\"attack.defense_evasion\",\"attack.t1055.008\"]},\"process\":{\"pid\":26485,\"start_time_ns\":4391327753196,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":97486,\"tree\":\"26479.4391322387094\"},\"parent\":{\"pid\":26479,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"d1183f15cb207b73ea9c2bacc9af062c8c3754c83f0243d0bb00db7b2c04b1d9\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-alpine\"},\"k8s\":{\"namespace\":\"tephra-a13-9801dd\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\",\"tephra.dev/enforce\":\"true\"}},\"enforce\":{\"action\":\"ptrace\",\"denied\":true}}"
+        }
+      ],
+      "visible_ms": 30220,
+      "ring_buffer_drops": 0,
+      "enforce": "on",
+      "took_effect": false
+    },
+    {
+      "id": "A14",
+      "title": "Load a benign kernel module from a privileged pod",
+      "tags": [
+        "attack.persistence",
+        "attack.t1547.006"
+      ],
+      "rules": [
+        {
+          "rule": "R016",
+          "verdict": "detected",
+          "latency_ms": 197,
+          "event": "{\"ts\":\"2026-11-13T04:45:53.660903Z\",\"type\":\"enforce\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R016\",\"title\":\"Kernel module loaded while a container process is current\",\"level\":\"critical\",\"tags\":[\"attack.persistence\",\"attack.t1547.006\"]},\"process\":{\"pid\":118473,\"start_time_ns\":4426133442940,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":97798,\"tree\":\"118467.4426128914173\"},\"parent\":{\"pid\":118467,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"e6ae402727a1d520e0f4845983aef7f4195d34842ea5276b585dcef1cea6d90c\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-alpine\"},\"k8s\":{\"namespace\":\"tephra-a14-838309\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\",\"tephra.dev/enforce\":\"true\"}},\"enforce\":{\"action\":\"module_load\",\"denied\":true}}"
+        }
+      ],
+      "visible_ms": 1428,
+      "ring_buffer_drops": 0,
+      "note": "Loads the kernel's own dummy network driver into the lab VM's kernel and removes it again.",
+      "enforce": "on",
+      "took_effect": false
+    },
+    {
+      "id": "A15",
+      "title": "Mount the host root filesystem from a privileged pod",
+      "tags": [
+        "attack.privilege_escalation",
+        "attack.t1611"
+      ],
+      "rules": [
+        {
+          "rule": "R017",
+          "verdict": "detected",
+          "latency_ms": 71,
+          "event": "{\"ts\":\"2026-11-13T04:46:00.235819Z\",\"type\":\"enforce\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R017\",\"title\":\"mount called from inside a container\",\"level\":\"high\",\"tags\":[\"attack.privilege_escalation\",\"attack.t1611\"]},\"process\":{\"pid\":118647,\"start_time_ns\":4432845473067,\"Image\":\"/bin/mount\",\"CommandLine\":\"mount -o ro /dev/root /mnt/host\",\"uid\":0,\"gid\":0,\"cgroup_id\":98059,\"tree\":\"118640.4432836209768\"},\"parent\":{\"pid\":118640,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"a85bafcc4d19299e086e4ce9593b958d8454aa0bcb96c990d85d38ef0c774b32\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a15-78d024\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\",\"tephra.dev/enforce\":\"true\"}},\"enforce\":{\"action\":\"mount\",\"denied\":true}}"
+        }
+      ],
+      "visible_ms": 1169,
+      "ring_buffer_drops": 0,
+      "enforce": "on",
+      "took_effect": false
+    }
+  ],
+  "sensor": "v0.1.0-dirty (tephra/tephrad:dev)"
+}

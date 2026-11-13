@@ -9,7 +9,7 @@ detection:
   host:
     k8s.namespace: host
   condition: selection and not host
-action: alert
+action: block
 description: >-
   A kernel module runs with the kernel's privileges on the whole node. A
   container that can load one has left its isolation behind.

@@ -111,6 +111,12 @@ cmd_up() {
 	echo "waiting for cloud-init"
 	vm_ssh 'cloud-init status --wait' || die "cloud-init failed; see /var/log/cloud-init-output.log in the VM"
 	vm_ssh 'sudo bash -s' <"$HERE/provision.sh"
+	if vm_ssh 'test -e /run/tephra-reboot-needed'; then
+		echo "rebooting to activate BPF LSM"
+		vm_ssh 'sudo systemctl reboot' || true
+		sleep 15
+		wait_ssh
+	fi
 	echo "VM ready: deploy/vm/vm.sh ssh"
 }
 

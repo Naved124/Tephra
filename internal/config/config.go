@@ -44,7 +44,38 @@ type Config struct {
 	// Read at start-up only.
 	MetricsAddr string `yaml:"metrics_addr"`
 	Export      Export `yaml:"export"`
+	// Enforcement lets rules with "action: block" refuse what they
+	// detect.
+	Enforcement Enforcement `yaml:"enforcement"`
 }
+
+// Enforcement configures refusal in the kernel. It applies only to pods
+// that carry the opt-in label, and never to processes outside a pod.
+type Enforcement struct {
+	// Enabled loads the enforcement programs. Read at start-up only.
+	Enabled bool `yaml:"enabled"`
+	// DryRun reports what would be refused and refuses nothing. It is on
+	// by default: refusal starts only when this is set to false.
+	DryRun bool `yaml:"dry_run"`
+	// OnAgentExit says what happens to refusals when the agent stops:
+	// "pinned" keeps them in force, held by the kernel, until a new
+	// agent takes over; "detach" ends them. Read at start-up only.
+	OnAgentExit string `yaml:"on_agent_exit"`
+	// Label is the pod label that opts a pod in, with the value "true".
+	Label string `yaml:"label"`
+	// ProtectNamespaces lists namespaces whose pods are never refused
+	// anything, label or not. The agent's own namespace is always one.
+	ProtectNamespaces []string `yaml:"protect_namespaces"`
+	// PinDir is the directory on a BPF filesystem that holds the pins.
+	// Read at start-up only.
+	PinDir string `yaml:"pin_dir"`
+}
+
+// Values of Enforcement.OnAgentExit.
+const (
+	OnExitPinned = "pinned"
+	OnExitDetach = "detach"
+)
 
 // Watch is one extra file watch.
 type Watch struct {
@@ -88,6 +119,13 @@ func Default() *Config {
 		},
 		MetricsAddr: ":9090",
 		Export:      Export{RawEvents: true, Queue: 8192},
+		Enforcement: Enforcement{
+			DryRun:            true,
+			OnAgentExit:       OnExitPinned,
+			Label:             "tephra.dev/enforce",
+			ProtectNamespaces: []string{"kube-system"},
+			PinDir:            "/sys/fs/bpf/tephra",
+		},
 	}
 }
 
@@ -135,6 +173,14 @@ func (c *Config) Validate() error {
 		if len(p) < 2 || p[0] != '/' {
 			return fmt.Errorf("runtime_binaries: %q is not an absolute path", p)
 		}
+	}
+	switch e := c.Enforcement; {
+	case e.OnAgentExit != OnExitPinned && e.OnAgentExit != OnExitDetach:
+		return fmt.Errorf("enforcement.on_agent_exit %q is not pinned or detach", e.OnAgentExit)
+	case e.Label == "":
+		return fmt.Errorf("enforcement.label is empty")
+	case len(e.PinDir) < 2 || e.PinDir[0] != '/':
+		return fmt.Errorf("enforcement.pin_dir %q is not an absolute path", e.PinDir)
 	}
 	_, err := c.APIServers()
 	return err

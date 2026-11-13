@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -34,9 +35,34 @@ type Scenario struct {
 	AlertPod string `yaml:"alert_pod"`
 	// Note is printed in the report, for scenarios that need a caveat.
 	Note string `yaml:"note"`
+	// Predicted is the verdict the design expects for an evasion
+	// scenario: detected, partial or missed. A different result is
+	// reported as a corrected prediction, not as a failure.
+	Predicted string `yaml:"predicted"`
+	// ExpectDrops: the evasion floods the sensor, and ring buffer drops
+	// that the sensor reports count as a visible result.
+	ExpectDrops bool `yaml:"expect_drops"`
+	// Enforce says how the scenario is refused when enforcement covers
+	// its pod. Only scenarios with it run under "harness run --enforce".
+	Enforce *EnforceSpec `yaml:"enforce"`
 
 	// Dir is where the scenario was read from.
 	Dir string `yaml:"-"`
+}
+
+// EnforceSpec is what enforcement must do to a scenario.
+type EnforceSpec struct {
+	// DryRun lists the rules that must report a would-be refusal while
+	// enforcement is in dry-run mode.
+	DryRun []string `yaml:"dry_run"`
+	// On lists the rules that must report a refusal while it is on. It can
+	// be shorter than DryRun: once an early step is refused, the later
+	// ones never happen.
+	On []string `yaml:"on"`
+	// Effect is a shell command run in the target container after run.sh.
+	// It succeeds only if the technique took effect. Empty means the exit
+	// status of run.sh.
+	Effect string `yaml:"effect"`
 }
 
 // Target is a container in the scenario's namespace.
@@ -78,6 +104,22 @@ func LoadScenario(dir string) (*Scenario, error) {
 	for _, r := range s.Expect {
 		if !ruleIDRE.MatchString(r) {
 			return nil, fmt.Errorf("%s: expected rule %q is not R followed by three digits", path, r)
+		}
+	}
+	switch {
+	case strings.HasPrefix(s.ID, "E") && s.Predicted == "":
+		return nil, fmt.Errorf("%s: an evasion scenario needs predicted", path)
+	case s.Predicted != "" && s.Predicted != Detected && s.Predicted != Partial && s.Predicted != Missed:
+		return nil, fmt.Errorf("%s: predicted %q is not detected, partial or missed", path, s.Predicted)
+	}
+	if e := s.Enforce; e != nil {
+		if len(e.DryRun) == 0 || len(e.On) == 0 {
+			return nil, fmt.Errorf("%s: enforce needs dry_run and on", path)
+		}
+		for _, r := range append(append([]string{}, e.DryRun...), e.On...) {
+			if !ruleIDRE.MatchString(r) {
+				return nil, fmt.Errorf("%s: enforce rule %q is not R followed by three digits", path, r)
+			}
 		}
 	}
 	if s.AlertPod == "" {

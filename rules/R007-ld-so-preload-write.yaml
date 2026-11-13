@@ -8,7 +8,7 @@ detection:
     file.path: /etc/ld.so.preload
     file.write: true
   condition: selection
-action: alert
+action: block
 description: >-
   A library named in this file is loaded into every dynamically linked
   program that starts afterwards.

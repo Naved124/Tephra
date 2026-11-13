@@ -1,0 +1,8 @@
+id: E04
+title: Open /etc/shadow through io_uring instead of the open system call
+tags: [attack.credential_access, attack.t1003.008, attack.defense_evasion]
+expect: [R005]
+predicted: detected
+run:
+  pod: victim
+note: The pod runs without the runtime's default seccomp profile, which may refuse io_uring, so that what is measured is the sensor.

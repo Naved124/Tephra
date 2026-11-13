@@ -6,6 +6,7 @@
 package enrich
 
 import (
+	"fmt"
 	"net/netip"
 	"path"
 	"regexp"
@@ -271,6 +272,7 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 			Inode:          ev.Inode,
 			Dev:            ev.Dev,
 			CapEffective:   ev.CapEffective,
+			ExeCtimeNS:     ev.CtimeNS,
 			EnvTruncated:   ev.Flags&events.ExecEnvTrunc != 0,
 		}
 		for _, kv := range ev.Env {
@@ -334,6 +336,23 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		for _, name := range ev.Changed {
 			if host, ok := e.hostNS[name]; ok && host == ev.Inum[name] {
 				rec.Namespaces.Host = append(rec.Namespaces.Host, name)
+			}
+		}
+	case *events.Enforce:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.Enforce = &export.Enforce{Action: ev.Action, Denied: ev.Denied()}
+		if ev.Action == "file_write" {
+			path := ev.Path
+			if ev.Flags&events.EnforceNoPath != 0 {
+				path = ""
+			}
+			rec.File = &export.File{Path: path, Write: true, Inode: ev.Inode, Dev: ev.Dev, MatchedBy: "block"}
+			// Refused through a hard link: name the protected file, as
+			// a file_open record does.
+			if e.inodes != nil {
+				if target, ok := e.inodes.WatchedPath(ev.Dev, ev.Inode); ok && target != path {
+					rec.File.Target = target
+				}
 			}
 		}
 	case *events.FileChange:
@@ -407,7 +426,7 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 	rec.Process.User = e.users.name(h.PID, h.MntNS, h.UID)
 	rec.Process.Runtime = e.isRuntime(p)
 
-	e.ancestry(rec, p)
+	e.ancestry(rec, p, h.CgroupID)
 	e.attribute(rec, p, h.CgroupID)
 	if runtimeCopy {
 		e.tree.SetRuntimeChild(p.Key)
@@ -545,8 +564,17 @@ func (e *Enricher) parentOf(cur proctree.Proc) (proctree.Proc, bool) {
 // read from /proc on the spot. The kernel's single ring buffer preserves the
 // order in which events were produced, so a fork that has not arrived yet
 // was produced before the agent attached, and waiting would not bring it.
-func (e *Enricher) ancestry(rec *export.Record, p proctree.Proc) {
+//
+// It also names the process's tree: the topmost ancestor still in the
+// subject's cgroup. The walk leaves a container's cgroup at the runtime
+// (the shim, or runc for an exec into the container), so that ancestor is
+// the container's first process or the process an exec into it started.
+func (e *Enricher) ancestry(rec *export.Record, p proctree.Proc, cgroupID uint64) {
 	cur := p
+	root, inTree := p.Key, true
+	defer func() {
+		rec.Process.Tree = fmt.Sprintf("%d.%d", root.PID, root.StartNS)
+	}()
 	for i := 0; i < proctree.MaxAncestors; i++ {
 		if cur.Parent.PID == 0 {
 			break
@@ -564,8 +592,23 @@ func (e *Enricher) ancestry(rec *export.Record, p proctree.Proc) {
 			}
 		}
 		rec.Ancestors = append(rec.Ancestors, parent.Image)
+		if inTree && sameGroup(parent, p, cgroupID) && !e.isRuntime(parent) {
+			root = parent.Key
+		} else {
+			inTree = false
+		}
 		cur = parent
 	}
+}
+
+// sameGroup reports whether an ancestor is in the subject's cgroup. An
+// ancestor seeded from /proc that has produced no event yet has no cgroup ID,
+// and is compared by container.
+func sameGroup(ancestor, subject proctree.Proc, cgroupID uint64) bool {
+	if ancestor.CgroupID != 0 && cgroupID != 0 {
+		return ancestor.CgroupID == cgroupID
+	}
+	return ancestor.ContainerID != "" && ancestor.ContainerID == subject.ContainerID
 }
 
 // attribute fills container and k8s.

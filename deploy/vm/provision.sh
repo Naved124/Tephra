@@ -66,4 +66,21 @@ sysctl -q --system
 
 systemctl enable --now docker
 
+# Enforcement needs BPF LSM programs to be called. Ubuntu builds them in but
+# leaves "bpf" out of the list of active security modules, which is fixed at
+# boot. Append it to the list the kernel is running with and ask for a
+# reboot; vm.sh and lab.sh do that when they see the marker.
+lsm_list=/sys/kernel/security/lsm
+if [ -r "$lsm_list" ] && ! tr ',' '\n' <"$lsm_list" | grep -qx bpf; then
+	if grep -q 'CONFIG_BPF_LSM=y' "/boot/config-$(uname -r)" 2>/dev/null; then
+		# shellcheck disable=SC2016 # grub expands the variable, not this shell
+		printf 'GRUB_CMDLINE_LINUX_DEFAULT="$GRUB_CMDLINE_LINUX_DEFAULT lsm=%s,bpf"\n' "$(cat "$lsm_list")" \
+			>/etc/default/grub.d/90-tephra-lsm.cfg
+		update-grub 2>/dev/null
+		touch /run/tephra-reboot-needed
+	else
+		echo "this kernel is built without BPF LSM; enforcement will not be available"
+	fi
+fi
+
 echo "provisioned: $(/usr/local/go/bin/go version | cut -d' ' -f3), kind ${KIND_VERSION}, kubectl ${KUBECTL_VERSION}, helm ${HELM_VERSION}, kernel $(uname -r)"

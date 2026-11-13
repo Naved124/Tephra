@@ -1,0 +1,8 @@
+id: E02
+title: Interactive session implemented inside Python, no shell executed
+tags: [attack.execution, attack.t1059.006]
+expect: [R001]
+predicted: missed
+run:
+  pod: victim
+note: The session lists a directory and reads /etc/hostname with Python calls; nothing is executed.

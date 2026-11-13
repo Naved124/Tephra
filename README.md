@@ -27,14 +27,16 @@ Milestones follow section 10 of the design.
 | M7 Harness and first coverage report | Done |
 | M8 Remaining hooks | Done |
 | After M8: refused opens, deletes and renames, runtime by file identity | Done |
-| M9 Evasion work | Not started |
+| M9 Evasion work | Done: 8 scenarios, results in [docs/evasion.md](docs/evasion.md) |
+| M12 Enforcement | Done on kernels 6.8 and 7.0; 5.15 not yet tested |
+| M13 Correlation rules | Done on kernels 6.8 and 7.0; 5.15 not yet tested |
 
 What works today: the agent watches process starts and exits, connections
 (IPv4, IPv6 and Unix sockets), opens of watched files, opens of those files
 that the kernel refused, watched files being deleted, renamed, replaced or
 linked, ptrace attach, credential changes, mounts, namespace switches, kernel
 module loads, BPF program loads and memfd creation on its node. It attributes
-each event to a pod, evaluates the 24 detection rules in [rules/](rules/), and writes events
+each event to a pod, evaluates the 26 detection rules in [rules/](rules/), and writes events
 and alerts as JSON lines on stdout. A collector forwards both to Loki, and a
 Grafana dashboard shows the alerts and the sensor's own health.
 
@@ -51,9 +53,19 @@ or a command line, which a process in a container could copy.
 run for real in the lab cluster, each with the rule that caught it, and a
 30-minute run of ordinary workloads listing every alert that fired.
 
-Not built yet: the evasion scenarios and their write-ups, benchmarks against
-Falco and Tetragon, the EKS demo, blocking (the sensor only detects), and
-rules that correlate several events.
+Two rules correlate events: a file fetched into a container and then
+executed (R025), and a service account token read followed by a connection
+to the Kubernetes API (R026), each within 60 seconds in the same pod.
+
+Six rules can also block, off by default (see Enforcement below).
+
+[docs/evasion.md](docs/evasion.md) is the other side: eight attempts to get
+past the sensor, with what was predicted and what was measured, and a
+write-up per finding in [docs/evasions/](docs/evasions/). Three get past it
+today: a renamed shell (E01), a session inside an interpreter (E02), and
+acting while the agent is killed (E07).
+
+Not built yet: benchmarks against Falco and Tetragon, and the EKS demo.
 
 An alert, as `kubectl logs` shows it: the event that matched, with the rule
 in front. This one is a bind shell started with `nc -l -p 4445 -e /bin/sh` in
@@ -91,8 +103,9 @@ export queue are on `/metrics`, port 9090 of each agent pod.
 ## Rules
 
 A rule is a YAML file: one event type, named blocks of field tests, and a
-condition that combines the blocks. [rules/](rules/) holds R001 to R024;
-section 6 of the design describes the schema.
+condition that combines the blocks, or a `sequence:` of two to four such
+steps in one process tree or pod within a time window. [rules/](rules/) holds
+R001 to R026; section 6 of the design describes the schema.
 
 ```sh
 bin/tephrad rules validate rules/                 # check every rule, errors carry file and line
@@ -111,6 +124,36 @@ loaded.
 The agent re-reads its configuration and rules on SIGHUP. If either is
 invalid it keeps running on what it had and logs why.
 
+## Enforcement
+
+Rules with `action: block` (R003, R007, R011, R015, R016, R017) can also
+refuse what they detect, in the kernel, before it happens: running a file
+with no name on disk, writing to `/etc/ld.so.preload`, `release_agent` or
+`core_pattern`, ptrace attach, kernel module loads, and mounts. It needs a
+kernel with BPF LSM active (`bpf` in `/sys/kernel/security/lsm`); elsewhere
+the agent says so and only detects.
+
+```yaml
+agent:
+  enforcement:
+    enabled: true     # off by default
+    dryRun: true      # report what would be refused; refuse nothing
+```
+
+Only pods labelled `tephra.dev/enforce=true` are refused anything, never
+pods in kube-system or the agent's namespace, never host processes, and
+never the container runtime. Refusals are pinned under `/sys/fs/bpf/tephra`
+and stay in force while the agent restarts. To turn all of it off at once:
+
+```sh
+kubectl -n tephra exec <agent pod> -- /tephrad enforce off
+```
+
+`harness run --enforce dry-run|on` runs the six blockable scenarios in
+labelled pods and checks the refusal; `harness fp --enforce on` checks that
+ordinary workloads are refused nothing. Section 9 of the design has the
+details.
+
 ## Attack harness
 
 > **Lab use only.** The harness runs real attack techniques: it opens a
@@ -124,6 +167,7 @@ bin/harness list                     # the scenarios and the rules each must tri
 bin/harness run A01 A04              # run two scenarios
 make coverage                        # run all of them, rewrite docs/coverage.md
 make false-positives                 # 30 minutes of ordinary workloads, list every alert
+make evasions                        # the evasion scenarios, rewrite docs/evasion.md
 ```
 
 Each scenario is a directory under [attacks/](attacks/): the victim workload

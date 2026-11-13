@@ -9,7 +9,7 @@ detection:
   host:
     k8s.namespace: host
   condition: selection and not host
-action: alert
+action: block
 description: >-
   A process in a container asked the kernel for attach-level access to
   another process: ptrace attach, or reading and writing its memory. That is

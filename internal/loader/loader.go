@@ -33,6 +33,16 @@ type Options struct {
 	Enabled []events.Type
 	// Filters are written before anything attaches.
 	Filters filter.Set
+	// Enforce loads and attaches the enforcement programs. They start
+	// switched off; SetEnforcement turns them on.
+	Enforce bool
+	// PinDir is a directory on a BPF filesystem. With Enforce and Pin,
+	// the enforcement links and policy maps are pinned there, so that
+	// refusals outlive the agent; a later Load adopts the policy maps
+	// and replaces the links. Otherwise anything pinned there by an
+	// earlier agent is removed.
+	PinDir string
+	Pin    bool
 }
 
 // Attachment describes one attached program.
@@ -82,11 +92,17 @@ type hook struct {
 	// group names hooks that deliver the same events. Only the first of
 	// a group that the kernel takes is attached.
 	group string
+	// lsm marks an enforcement program: loaded only when enforcement is
+	// asked for and the kernel runs BPF LSM programs.
+	lsm bool
 }
 
 var hooks = []hook{
 	{program: "tephra_fork", section: "tp_btf/sched_process_fork", required: true, types: []events.Type{events.TypeFork}},
 	{program: "tephra_exec", section: "tp_btf/sched_process_exec", required: true, types: []events.Type{events.TypeExec}},
+	// Not an event of its own: it gives the exec event the change time
+	// of the file that was executed when that file is a script.
+	{program: "tephra_exec_file", section: "fentry/security_bprm_creds_for_exec", kfunc: "security_bprm_creds_for_exec"},
 	{program: "tephra_exit", section: "tp_btf/sched_process_exit", required: true, types: []events.Type{events.TypeExit}},
 	{program: "tephra_connect", section: "fentry/security_socket_connect", kfunc: "security_socket_connect",
 		types: []events.Type{events.TypeConnect, events.TypeUnixConnect}},
@@ -131,6 +147,21 @@ var hooks = []hook{
 		types: []events.Type{events.TypeMount}},
 	{program: "tephra_setns", section: "fentry/switch_task_namespaces", kfunc: "switch_task_namespaces",
 		types: []events.Type{events.TypeSetns}},
+
+	// Enforcement. kfunc is the stub the kernel calls each LSM program
+	// through.
+	{program: "tephra_lsm_exec", section: "lsm/bprm_check_security", kfunc: "bpf_lsm_bprm_check_security", lsm: true,
+		types: []events.Type{events.TypeEnforce}},
+	{program: "tephra_lsm_file_open", section: "lsm/file_open", kfunc: "bpf_lsm_file_open", lsm: true,
+		types: []events.Type{events.TypeEnforce}},
+	{program: "tephra_lsm_ptrace", section: "lsm/ptrace_access_check", kfunc: "bpf_lsm_ptrace_access_check", lsm: true,
+		types: []events.Type{events.TypeEnforce}},
+	{program: "tephra_lsm_mount", section: "lsm/sb_mount", kfunc: "bpf_lsm_sb_mount", lsm: true,
+		types: []events.Type{events.TypeEnforce}},
+	{program: "tephra_lsm_read_file", section: "lsm/kernel_read_file", kfunc: "bpf_lsm_kernel_read_file", lsm: true,
+		types: []events.Type{events.TypeEnforce}},
+	{program: "tephra_lsm_load_data", section: "lsm/kernel_load_data", kfunc: "bpf_lsm_kernel_load_data", lsm: true,
+		types: []events.Type{events.TypeEnforce}},
 }
 
 // brokenHook, when set by a test, names a program whose kernel function is
@@ -147,6 +178,12 @@ type Sensor struct {
 	available   map[events.Type]bool
 	self        Self
 	reader      *ringbuf.Reader
+	// enforceOff says why the enforcement programs are not attached;
+	// empty when they are.
+	enforceOff string
+	// enforcing lists the enforce actions whose program is attached.
+	enforcing map[uint32]bool
+	pinDir    string
 }
 
 // Spec returns the embedded collection spec, for tests that check layouts.
@@ -177,7 +214,18 @@ func Load(opts Options) (*Sensor, error) {
 	}
 	spec.Maps["events"].MaxEntries = size
 
-	s := &Sensor{available: map[events.Type]bool{}}
+	s := &Sensor{available: map[events.Type]bool{}, enforcing: map[uint32]bool{}}
+	if !opts.Enforce {
+		s.enforceOff = "enforcement is not enabled"
+	} else if ok, why := LSMActive(); !ok {
+		s.enforceOff = why
+	}
+	if s.enforceOff == "" && opts.Pin {
+		s.pinDir = opts.PinDir
+	} else if opts.PinDir != "" {
+		// Whatever an earlier agent left pinned would go on refusing.
+		unpinAll(opts.PinDir)
+	}
 	keep := s.precheck(spec)
 	if s.coll, keep, err = s.load(spec, keep); err != nil {
 		return nil, err
@@ -207,7 +255,15 @@ func Load(opts Options) (*Sensor, error) {
 			s.skipped = append(s.skipped, Skipped{Program: h.program, Hook: h.section, Reason: "fallback not needed: " + by + " is attached"})
 			continue
 		}
-		l, err := link.AttachTracing(link.TracingOptions{Program: s.coll.Programs[h.program]})
+		var l link.Link
+		if h.lsm {
+			l, err = link.AttachLSM(link.LSMOptions{Program: s.coll.Programs[h.program]})
+			if err == nil {
+				err = s.pinLink(h, l)
+			}
+		} else {
+			l, err = link.AttachTracing(link.TracingOptions{Program: s.coll.Programs[h.program]})
+		}
 		if err != nil {
 			if h.required {
 				_ = s.Close()
@@ -219,6 +275,12 @@ func Load(opts Options) (*Sensor, error) {
 		s.links = append(s.links, l)
 		s.attachments = append(s.attachments, Attachment{Program: h.program, Hook: h.section})
 		served[h.group] = h.program
+		for _, a := range lsmActions[h.program] {
+			s.enforcing[a] = true
+		}
+	}
+	if s.enforceOff == "" && len(s.enforcing) == 0 {
+		s.enforceOff = "no enforcement program could be attached"
 	}
 	// A type whose hook failed to attach is off; rewrite the bitmask.
 	s.settle()
@@ -254,6 +316,10 @@ func (s *Sensor) precheck(spec *ebpf.CollectionSpec) []hook {
 	kernel, err := btf.LoadKernelSpec()
 	var keep []hook
 	for _, h := range hooks {
+		if h.lsm && s.enforceOff != "" {
+			s.drop(spec, h, s.enforceOff)
+			continue
+		}
 		if h.kfunc == "" || err != nil {
 			keep = append(keep, h)
 			continue
@@ -285,7 +351,7 @@ func (s *Sensor) drop(spec *ebpf.CollectionSpec, h hook, reason string) {
 // unusable hook costs only its own event type.
 func (s *Sensor) load(spec *ebpf.CollectionSpec, keep []hook) (*ebpf.Collection, []hook, error) {
 	for {
-		coll, err := ebpf.NewCollection(spec)
+		coll, err := s.newCollection(spec)
 		if err == nil {
 			return coll, keep, nil
 		}

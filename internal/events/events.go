@@ -35,13 +35,16 @@ const (
 	// created as a link; TypeFileDenied an open the kernel refused.
 	TypeFileChange Type = 15
 	TypeFileDenied Type = 16
+	// TypeEnforce is an action an enforcement program refused, or in
+	// dry-run mode would have refused.
+	TypeEnforce Type = 17
 )
 
 // Types lists every event type the agent knows.
 var Types = []Type{
 	TypeExec, TypeFork, TypeExit, TypeConnect, TypeAccept, TypeUnixConnect, TypeFileOpen,
 	TypePtrace, TypeMemfd, TypeModuleLoad, TypeBPFLoad, TypeCredChange, TypeMount, TypeSetns,
-	TypeFileChange, TypeFileDenied,
+	TypeFileChange, TypeFileDenied, TypeEnforce,
 }
 
 // ParseType is the inverse of Type.String.
@@ -88,6 +91,8 @@ func (t Type) String() string {
 		return "file_change"
 	case TypeFileDenied:
 		return "file_denied"
+	case TypeEnforce:
+		return "enforce"
 	}
 	return fmt.Sprintf("unknown(%d)", uint32(t))
 }
@@ -177,8 +182,11 @@ type Exec struct {
 	Inode        uint64
 	Dev          uint32
 	CapEffective uint64
-	Path         string
-	Argv         []string
+	// CtimeNS is when the executable's inode last changed, in
+	// nanoseconds since the epoch; 0 if unknown.
+	CtimeNS uint64
+	Path    string
+	Argv    []string
 	// Env holds only the variables on the kernel's allowlist, as
 	// NAME=value.
 	Env []string
@@ -222,6 +230,29 @@ type FileChange struct {
 	Op   string
 	Path string
 }
+
+// Enforce flag bits in Header.Flags, ENFORCE_F_* in bpf/common.h.
+const (
+	EnforceDenied = 1 << 0
+	EnforceNoPath = 1 << 1
+)
+
+// EnforceActions names enum enforce_action in bpf/common.h, by value.
+var EnforceActions = []string{"", "exec_unlinked", "file_write", "ptrace", "module_load", "mount"}
+
+// Enforce is struct enforce_event: an action an enforcement program refused
+// (Denied) or would have refused in dry-run mode.
+type Enforce struct {
+	Header
+	Action string
+	Inode  uint64
+	Dev    uint32
+	// Path is set for file_write.
+	Path string
+}
+
+// Denied reports whether the action was refused, as opposed to reported.
+func (e *Enforce) Denied() bool { return e.Flags&EnforceDenied != 0 }
 
 // FileDenied is struct denied_event: an open the kernel refused.
 type FileDenied struct {
@@ -432,6 +463,25 @@ func Decode(raw []byte) (Event, error) {
 			d.Cwd = cstr(raw[deniedCwd : deniedCwd+n])
 		}
 		return d, nil
+	case TypeEnforce:
+		if len(raw) < enforcePath {
+			return nil, short(h, raw, enforcePath)
+		}
+		n := int(le.Uint32(raw[enforcePathLen:]))
+		if n > pathLen || enforcePath+n > len(raw) {
+			return nil, fmt.Errorf("enforce record of %d bytes cannot hold path_len %d", len(raw), n)
+		}
+		action := le.Uint32(raw[enforceAction:])
+		if action == 0 || int(action) >= len(EnforceActions) {
+			return nil, fmt.Errorf("enforce record with unknown action %d", action)
+		}
+		return &Enforce{
+			Header: h,
+			Action: EnforceActions[action],
+			Inode:  le.Uint64(raw[enforceInode:]),
+			Dev:    le.Uint32(raw[enforceDev:]),
+			Path:   cstr(raw[enforcePath : enforcePath+n]),
+		}, nil
 	case TypePtrace:
 		if len(raw) < ptraceSize {
 			return nil, short(h, raw, ptraceSize)
@@ -507,6 +557,7 @@ func decodeExec(h Header, raw []byte) (Event, error) {
 		Inode:        le.Uint64(raw[execInode:]),
 		Dev:          le.Uint32(raw[execDev:]),
 		CapEffective: le.Uint64(raw[execCapEff:]),
+		CtimeNS:      le.Uint64(raw[execCtime:]),
 		Path:         cstr(raw[execPath : execPath+pathLen]),
 		Argv:         splitArgv(raw[execArgv : execArgv+n]),
 	}, nil

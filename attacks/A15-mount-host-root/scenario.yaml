@@ -4,3 +4,7 @@ tags: [attack.privilege_escalation, attack.t1611]
 expect: [R017]
 run:
   pod: victim
+enforce:
+  dry_run: [R017]
+  on: [R017]
+  effect: grep -q " /mnt/host " /proc/mounts

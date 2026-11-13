@@ -193,6 +193,11 @@ type Alert struct {
 		Namespace string `json:"namespace"`
 		Pod       string `json:"pod"`
 	} `json:"k8s"`
+	// Enforce is set on the alert of a refusal, or of a would-be refusal.
+	Enforce *struct {
+		Action string `json:"action"`
+		Denied bool   `json:"denied"`
+	} `json:"enforce"`
 	// Line is the whole record as stored.
 	Line string `json:"-"`
 }
@@ -238,31 +243,104 @@ func (c *Cluster) Alerts(ctx context.Context, selector string, since time.Time) 
 	return out, nil
 }
 
-// Drops is the number of events the kernel side dropped, summed over every
-// agent and event type.
-func (c *Cluster) Drops(ctx context.Context) (uint64, error) {
+// metric returns, per running agent, the sum of the samples of a metric
+// whose line contains every one of the given label matchers.
+func (c *Cluster) metric(ctx context.Context, name string, labels ...string) ([]uint64, error) {
 	pods, err := c.kubectl(ctx, nil, "-n", c.Namespace, "get", "pods",
 		"-l", "app.kubernetes.io/component=agent,app.kubernetes.io/instance="+c.Release,
 		"--field-selector", "status.phase=Running", "-o", "jsonpath={.items[*].metadata.name}")
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	var total uint64
+	var out []uint64
 	for _, pod := range strings.Fields(string(pods)) {
 		metrics, err := c.kubectl(ctx, nil, "get", "--raw", "/api/v1/namespaces/"+c.Namespace+"/pods/"+pod+":9090/proxy/metrics")
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
-		for _, line := range strings.Split(string(metrics), "\n") {
-			if strings.HasPrefix(line, "tephra_kernel_events_total") && strings.Contains(line, `outcome="dropped"`) {
-				if i := strings.LastIndexByte(line, ' '); i > 0 {
-					n, _ := strconv.ParseUint(line[i+1:], 10, 64)
-					total += n
-				}
+		out = append(out, sumSamples(string(metrics), name, labels...))
+	}
+	return out, nil
+}
+
+// sumSamples adds up the samples of one metric in a Prometheus text page.
+func sumSamples(page, name string, labels ...string) uint64 {
+	var total uint64
+lines:
+	for _, line := range strings.Split(page, "\n") {
+		rest, ok := strings.CutPrefix(line, name)
+		if !ok || (rest != "" && rest[0] != ' ' && rest[0] != '{') {
+			continue
+		}
+		for _, l := range labels {
+			if !strings.Contains(rest, l) {
+				continue lines
 			}
 		}
+		if i := strings.LastIndexByte(rest, ' '); i >= 0 {
+			n, _ := strconv.ParseUint(rest[i+1:], 10, 64)
+			total += n
+		}
+	}
+	return total
+}
+
+func sum(xs []uint64) uint64 {
+	var t uint64
+	for _, x := range xs {
+		t += x
+	}
+	return t
+}
+
+// Drops is the number of events the kernel side dropped, summed over every
+// agent and event type.
+func (c *Cluster) Drops(ctx context.Context) (uint64, error) {
+	per, err := c.metric(ctx, "tephra_kernel_events_total", `outcome="dropped"`)
+	return sum(per), err
+}
+
+// AgentRestarts is the sum of the restart counts of the agent containers.
+func (c *Cluster) AgentRestarts(ctx context.Context) (int, error) {
+	out, err := c.kubectl(ctx, nil, "-n", c.Namespace, "get", "pods",
+		"-l", "app.kubernetes.io/component=agent,app.kubernetes.io/instance="+c.Release,
+		"-o", "jsonpath={.items[*].status.containerStatuses[*].restartCount}")
+	if err != nil {
+		return 0, err
+	}
+	total := 0
+	for _, f := range strings.Fields(string(out)) {
+		n, _ := strconv.Atoi(f)
+		total += n
 	}
 	return total, nil
+}
+
+// EnforceMode checks that every agent runs enforcement in the given mode:
+// 1 dry-run, 2 on.
+func (c *Cluster) EnforceMode(ctx context.Context, want uint64) error {
+	per, err := c.metric(ctx, "tephra_enforce_mode")
+	if err != nil {
+		return err
+	}
+	if len(per) == 0 {
+		return fmt.Errorf("no running agent")
+	}
+	for i, m := range per {
+		if m != want {
+			return fmt.Errorf("agent %d of %d has enforcement mode %d, want %d (0 off, 1 dry-run, 2 on); set agent.enforcement in the chart values", i+1, len(per), m, want)
+		}
+	}
+	return nil
+}
+
+// execCommand runs one shell command in a container.
+func (c *Cluster) execCommand(ctx context.Context, namespace string, t Target, command string) ([]byte, error) {
+	args := []string{"-n", namespace, "exec", t.Pod}
+	if t.Container != "" {
+		args = append(args, "-c", t.Container)
+	}
+	return c.kubectl(ctx, nil, append(args, "--", "sh", "-c", command)...)
 }
 
 // SensorVersion is the version the agents report about themselves, with the

@@ -8,7 +8,7 @@ detection:
     file.path|endswith: [/release_agent, /core_pattern]
     file.write: true
   condition: selection
-action: alert
+action: block
 description: >-
   Both files name a program that the kernel runs on the host, as root,
   outside every container. Writing them from a container is a known escape.

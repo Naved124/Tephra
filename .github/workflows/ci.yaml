@@ -31,7 +31,7 @@ jobs:
       - name: clang-format
         run: clang-format --dry-run --Werror bpf/*.bpf.c bpf/common.h
       - name: shellcheck
-        run: shellcheck -x hack/*.sh deploy/vm/*.sh attacks/*/*.sh
+        run: shellcheck -x hack/*.sh deploy/vm/*.sh deploy/aws/*.sh attacks/*/*.sh evasions/*/*.sh
 
   build-test:
     runs-on: ubuntu-24.04

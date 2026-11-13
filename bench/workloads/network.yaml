@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: Apache-2.0
+# Network-heavy: ApacheBench against nginx, a new connection per request,
+# client and server on the same node. ab reports requests per second and the
+# 99th percentile. The server, network-server.yaml, is started and ready first.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bench
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: tephra-worker
+  containers:
+    - name: bench
+      image: httpd:2.4.65-alpine
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          out=$(taskset -c 2 /usr/local/apache2/bin/ab -q -n 30000 -c 32 http://bench-server/ 2>&1)
+          echo "$out" | grep -E "Requests per second|Failed requests|  99%"
+          rps=$(echo "$out" | awk '/Requests per second/ {print $4}')
+          p99=$(echo "$out" | awk '$1 == "99%" {print $2}')
+          echo "RESULT ops=30000 rps=$rps p99_ms=$p99"
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}

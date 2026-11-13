@@ -79,10 +79,14 @@ func TestLoadAndObserve(t *testing.T) {
 	// Three lifecycle hooks, connect, accept, file_open, the five
 	// file_change hooks, refused opens and the seven privilege and tamper
 	// hooks.
-	if got := len(s.Attachments()); got != 19 {
-		t.Fatalf("attachments = %d, want 19: %+v, skipped %+v", got, s.Attachments(), s.Skipped())
+	if got := len(s.Attachments()); got != 20 {
+		t.Fatalf("attachments = %d, want 20: %+v, skipped %+v", got, s.Attachments(), s.Skipped())
 	}
 	for _, typ := range events.Types {
+		if typ == events.TypeEnforce {
+			// Only with Options.Enforce; enforce_test.go.
+			continue
+		}
 		if !s.Available(typ) || !s.Enabled(typ) {
 			t.Errorf("%s: available %v, enabled %v", typ, s.Available(typ), s.Enabled(typ))
 		}
@@ -225,6 +229,11 @@ func TestScriptExecReportsInterpreter(t *testing.T) {
 		}
 		if want := []string{"/bin/sh", script, "arg"}; !reflect.DeepEqual(e.Argv, want) {
 			t.Errorf("argv = %q, want %q", e.Argv, want)
+		}
+		// The change time is the script's, written a moment ago, and
+		// not the interpreter's.
+		if age := time.Since(time.Unix(0, int64(e.CtimeNS))); age < -time.Minute || age > time.Minute {
+			t.Errorf("change time is %s old, want that of the script just written", age)
 		}
 		return
 	}

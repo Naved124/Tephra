@@ -1,0 +1,8 @@
+id: E01
+title: Reverse shell through a copy of the shell under another name
+tags: [attack.execution, attack.t1059.004, attack.defense_evasion, attack.t1036.003]
+expect: [R001]
+predicted: missed
+run:
+  pod: victim
+note: The copy is dash under /tmp/kworker; R001 matches on the name of the binary.

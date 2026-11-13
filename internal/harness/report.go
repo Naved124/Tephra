@@ -30,6 +30,10 @@ type FPResult struct {
 	// Alerts counts what fired, by rule, level and namespace.
 	Alerts []FPAlert `json:"alerts"`
 	Drops  uint64    `json:"ring_buffer_drops"`
+	// Enforce is the enforcement mode the workloads ran under, if any,
+	// and Denied the actions refused meanwhile.
+	Enforce string `json:"enforce,omitempty"`
+	Denied  uint64 `json:"denied,omitempty"`
 }
 
 // FPAlert is one row of a false-positive run.

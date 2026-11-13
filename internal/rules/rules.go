@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -47,9 +48,21 @@ type Rule struct {
 	File string
 	Line int
 
+	// A sequence rule has Steps and no Event: it fires when the steps
+	// match in order, on events that share the By key, inside Window.
+	Steps  []*Rule
+	By     string
+	Window time.Duration
+	// ExeChanged is set on a step of a sequence: the step also needs the
+	// executable to have changed since the sequence began.
+	ExeChanged bool
+
 	blocks  []block
 	cond    expr
 	watches []filter.Watch
+	// blockAction is what the kernel refuses for a rule with action
+	// block; 0 otherwise.
+	blockAction uint32
 }
 
 type block struct {
@@ -147,7 +160,8 @@ func parseRule(file string, n *yaml.Node) (*Rule, error) {
 		return nil, fail(n, "a rule must be a mapping")
 	}
 	r := &Rule{File: file, Line: n.Line, Action: "alert"}
-	var detection *yaml.Node
+	var detection, sequence *yaml.Node
+	actionAt := n
 	seen := map[string]bool{}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		k, v := n.Content[i], n.Content[i+1]
@@ -167,6 +181,7 @@ func parseRule(file string, n *yaml.Node) (*Rule, error) {
 			r.Event, err = scalarString(v)
 		case "action":
 			r.Action, err = scalarString(v)
+			actionAt = v
 		case "description":
 			r.Description, err = scalarString(v)
 		case "tags":
@@ -177,6 +192,8 @@ func parseRule(file string, n *yaml.Node) (*Rule, error) {
 			_, err = stringList(v)
 		case "detection":
 			detection = v
+		case "sequence":
+			sequence = v
 		default:
 			return nil, fail(k, "unknown key %q", k.Value)
 		}
@@ -185,6 +202,9 @@ func parseRule(file string, n *yaml.Node) (*Rule, error) {
 		}
 	}
 
+	if sequence != nil && (r.Event != "" || detection != nil) {
+		return nil, fail(sequence, "rule %s: a rule has either sequence, or event and detection", r.ID)
+	}
 	switch {
 	case !idRE.MatchString(r.ID):
 		return nil, fail(n, "id is missing or not a plain identifier: %q", r.ID)
@@ -192,13 +212,13 @@ func parseRule(file string, n *yaml.Node) (*Rule, error) {
 		return nil, fail(n, "rule %s: title is missing", r.ID)
 	case !levels[r.Level]:
 		return nil, fail(n, "rule %s: level %q is not one of info, low, medium, high, critical", r.ID, r.Level)
-	case ruleEvents[r.Event] == nil:
+	case sequence == nil && ruleEvents[r.Event] == nil:
 		return nil, fail(n, "rule %s: event %q is not a known event type (exec, fork, exit, connect, accept, file_open, file_change, file_denied, ptrace, memfd, module_load, bpf_load, cred_change, mount, setns)", r.ID, r.Event)
-	case r.Action == "block":
-		return nil, fail(n, "rule %s: action block needs the enforcement programs, which are not part of this version", r.ID)
-	case r.Action != "alert":
-		return nil, fail(n, "rule %s: action %q is not alert", r.ID, r.Action)
-	case detection == nil:
+	case r.Action != "alert" && r.Action != "block":
+		return nil, fail(actionAt, "rule %s: action %q is not alert or block", r.ID, r.Action)
+	case r.Action == "block" && sequence != nil:
+		return nil, fail(actionAt, "rule %s: a sequence cannot block: the kernel decides on one action, with no memory of earlier ones", r.ID)
+	case sequence == nil && detection == nil:
 		return nil, fail(n, "rule %s: detection is missing", r.ID)
 	}
 	for _, tag := range r.Tags {
@@ -207,11 +227,20 @@ func parseRule(file string, n *yaml.Node) (*Rule, error) {
 		}
 	}
 
+	if sequence != nil {
+		if err := r.parseSequence(file, sequence); err != nil {
+			return nil, err
+		}
+		return r, nil
+	}
 	if err := r.parseDetection(file, detection); err != nil {
 		return nil, err
 	}
 	if err := r.compileWatches(); err != nil {
 		return nil, fail(detection, "rule %s: %v", r.ID, err)
+	}
+	if err := r.compileBlock(); err != nil {
+		return nil, fail(detection, "rule %s: action block: %v", r.ID, err)
 	}
 	return r, nil
 }
@@ -513,6 +542,10 @@ func (r *Rule) parseTest(key string, v *yaml.Node) (test, error) {
 
 // Matches reports whether the rule fires on a record of its event type.
 func (r *Rule) Matches(rec *export.Record) bool {
+	if r.cond == nil {
+		// A sequence rule: no single record satisfies it.
+		return false
+	}
 	results := make(map[string]bool, len(r.blocks))
 	for _, b := range r.blocks {
 		ok := true
@@ -538,11 +571,14 @@ func (r *Rule) Alert(rec *export.Record) *export.Record {
 type Set struct {
 	Rules   []*Rule
 	byEvent map[string][]*Rule
+	// seqByEvent lists the sequence rules with a step on an event type.
+	seqByEvent map[string][]*Rule
+	seq        *sequencer
 }
 
 // NewSet indexes rules by event type. Rule IDs must be unique.
 func NewSet(rules []*Rule) (*Set, error) {
-	s := &Set{byEvent: map[string][]*Rule{}}
+	s := &Set{byEvent: map[string][]*Rule{}, seqByEvent: map[string][]*Rule{}, seq: newSequencer(DefaultSequenceCap)}
 	ids := map[string]*Rule{}
 	for _, r := range rules {
 		if prev, dup := ids[r.ID]; dup {
@@ -550,7 +586,17 @@ func NewSet(rules []*Rule) (*Set, error) {
 		}
 		ids[r.ID] = r
 		s.Rules = append(s.Rules, r)
-		s.byEvent[r.Event] = append(s.byEvent[r.Event], r)
+		if len(r.Steps) == 0 {
+			s.byEvent[r.Event] = append(s.byEvent[r.Event], r)
+			continue
+		}
+		listed := map[string]bool{}
+		for _, step := range r.Steps {
+			if !listed[step.Event] {
+				listed[step.Event] = true
+				s.seqByEvent[step.Event] = append(s.seqByEvent[step.Event], r)
+			}
+		}
 	}
 	return s, nil
 }
@@ -622,6 +668,9 @@ func (s *Set) Match(rec *export.Record) []*Rule {
 			out = append(out, r)
 		}
 	}
+	if seq := s.seqByEvent[rec.Type]; len(seq) > 0 {
+		out = append(out, s.seq.match(seq, rec)...)
+	}
 	return out
 }
 
@@ -629,11 +678,13 @@ func (s *Set) Match(rec *export.Record) []*Rule {
 func (s *Set) EventTypes() []events.Type {
 	seen := map[events.Type]bool{}
 	out := []events.Type{}
-	for event := range s.byEvent {
-		for _, t := range ruleEvents[event] {
-			if !seen[t] {
-				seen[t] = true
-				out = append(out, t)
+	for _, index := range []map[string][]*Rule{s.byEvent, s.seqByEvent} {
+		for event := range index {
+			for _, t := range ruleEvents[event] {
+				if !seen[t] {
+					seen[t] = true
+					out = append(out, t)
+				}
 			}
 		}
 	}
@@ -646,6 +697,9 @@ func (s *Set) Watches() []filter.Watch {
 	var out []filter.Watch
 	for _, r := range s.Rules {
 		out = append(out, r.watches...)
+		for _, step := range r.Steps {
+			out = append(out, step.watches...)
+		}
 	}
 	return out
 }

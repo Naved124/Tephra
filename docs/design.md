@@ -390,7 +390,7 @@ detection:
   filter:
     k8s.namespace: kube-system
   condition: selection and not filter
-action: alert                    # v2 adds: block
+action: alert                    # or block (section 9)
 description: An interactive shell wired to a socket is the shape of a reverse or bind shell.
 falsepositives:
   - Remote-exec tooling that attaches shells over raw sockets
@@ -402,7 +402,37 @@ falsepositives:
 - Modifiers after |: equals (default), startswith, endswith, contains, in, cidr, re, gt, lt. A list value means any-of.
 - Named blocks (selection, filter, or any name) are AND across their fields. condition combines block names with and, or, not and parentheses.
 - Ancestry: ancestors|contains matches against the list of ancestor binary paths, which is how "spawned somewhere under a web server" is expressed.
-- One event type per rule. Correlation across events (sequence, count over time) is not part of the first rule engine and arrives in M13: a rule can then require an ordered sequence of single-event matches from the same process tree or pod inside a time window.
+- One event type per rule, except for sequence rules (M13).
+
+### Sequence rules
+
+A rule may have `sequence:` in place of `event:` and `detection:`. It fires when two to four steps, each an ordinary single-event match, happen in order in the same process tree or the same pod within a window.
+
+```
+id: R025
+title: File fetched into a container and then executed
+level: high
+sequence:
+  by: pod                          # or: process_tree
+  window: 60s                      # 1s to 10m
+  steps:
+    - event: exec
+      detection:
+        tool:
+          process.Image|endswith: [/curl, /wget]
+        condition: tool
+    - event: exec
+      exe_changed: true            # the file was changed after the previous step
+      detection:
+        any:
+          process.Image|startswith: /
+        condition: any
+```
+
+- `process_tree` is the topmost ancestor still in the same cgroup, the container's runtime left out; each record carries it as `process.tree`. `pod` is the pod UID.
+- A step's `exe_changed: true` compares the inode change time of the executed file, read in the kernel at the exec, with the time the previous step matched. For a script that is the script's own file, not the interpreter's. This is what turns "a download, then any exec" into "a download, then running what was downloaded"; without it the rule fires on ordinary package installs.
+- The window runs from the latest match of the first step. State is bounded: at most 4096 partial sequences per rule (`DefaultSequenceCap`), oldest dropped first, both reported as metrics (`tephra_rule_sequences`, `tephra_rule_sequences_evicted_total`).
+- A sequence rule alerts with the record of its last step. It cannot block.
 
 ### Compilation
 
@@ -446,6 +476,8 @@ The loader validates every rule (unknown field, wrong type for a modifier, bad A
 | R022 | Shell history removed or replaced | file_change | T1070.003 | Low |
 | R023 | Sensitive file put in place without being opened (rename, link, symlink onto the names of R007 to R009) | file_change | T1574.006 | High |
 | R024 | Refused attempt to open a sensitive file | file_denied | T1003.008 | Medium |
+| R025 | A download tool runs, then the same pod executes a file changed after that, within 60 s | sequence: exec, exec | T1105 | High |
+| R026 | Service account token read, then a connection to the Kubernetes API from the same pod, within 60 s | sequence: file_open, connect | T1528 | High |
 
 R001 to R014 use only M1 and M3 hooks and form the first rule milestone. R015 to R020 arrive with the M8 hooks.
 
@@ -628,53 +660,62 @@ LSM hooks run after the kernel has copied and resolved its arguments. The progra
 
 | Action to deny | LSM hook | Program section |
 |---|---|---|
-| Executing a binary | bprm_check_security | lsm/bprm_check_security |
-| Opening a file | file_open | lsm/file_open |
-| Connecting a socket | socket_connect | lsm/socket_connect |
+| Executing a file with no name on disk | bprm_check_security | lsm/bprm_check_security |
+| Opening a file for writing | file_open | lsm/file_open |
 | Attaching with ptrace | ptrace_access_check | lsm/ptrace_access_check |
 | Mounting | sb_mount | lsm/sb_mount |
 | Loading a kernel module | kernel_read_file, kernel_load_data | lsm/kernel_read_file, lsm/kernel_load_data |
 
-Rules for every LSM program:
+socket_connect was in the first version of this table. No rule of the first blockable set needs it, so it is not attached.
+
+Rules for every LSM program (`bpf/enforce.bpf.c`):
 
 - If the incoming ret argument is already non-zero, return it unchanged. Another LSM has denied the action and that decision stands.
-- Check cfg.enforce first. When it is 0 the program returns 0 immediately.
-- Emit an event for every deny and every would-deny, with h.flags marking which.
-- Return -EPERM only when a policy map lookup says so. No policy logic lives in userspace on this path.
+- Read `enforce_cfg` first. When its mode is off, or the action's bit is not set, the program returns 0 at once.
+- Apply only when the task's cgroup, or one of up to twelve above it, is in `enforce_cgroups`, and none of them is in `protect_cgroups`.
+- Emit an `enforce` event (type 17) for every deny and every would-deny; a flag says which.
+- Return -EPERM only when the maps say so. No policy logic lives in userspace on this path. A refusal is returned even when the event could not be sent.
 
-Requirements: CONFIG_BPF_LSM=y and bpf present in the active LSM list. Where either is missing, the loader logs that enforcement is unavailable and the sensor keeps running in detect-only mode.
+Requirements: CONFIG_BPF_LSM=y and bpf present in the active LSM list. Where either is missing, the loader does not load the programs, logs why, and the sensor keeps running in detect-only mode. Attaching succeeds even when bpf is not in the list, so the list (`/sys/kernel/security/lsm`) is the only evidence the loader goes by.
 
 ### Policy maps
 
 | Map | Type | Meaning |
 |---|---|---|
-| deny_path | LPM_TRIE | Path prefix to deny bits (read, write, exec) |
-| deny_flags | ARRAY | Per-hook switches: deny memfd exec, deny ptrace attach, deny mount, deny module load |
-| enforce_cgroups | HASH | cgroup IDs where enforcement applies |
-| protect_cgroups | HASH | cgroup IDs that are never denied anything |
+| enforce_cfg | ARRAY, one entry | Mode (off, dry-run, on) and one bit per action |
+| enforce_cgroups | HASH | Pod cgroup IDs where enforcement applies, and everything below them |
+| protect_cgroups | HASH | Cgroup IDs that are never denied anything: the protected namespaces' pods and the agent |
+| runtime_inodes | HASH | Device and inode of the container runtime's binaries |
+| runtime_tasks | LRU HASH | Tasks that are the runtime's copy of itself setting a container up |
+| file watch maps | existing | A watch bit, block, marks the files whose opens for writing are refused |
 
-A rule opts in with action: block. The compiler accepts block only on rules whose whole condition can be expressed in these maps; anything needing ancestry or regular expressions is rejected with an explanation, because that information does not exist in the kernel at decision time.
+The deny_path and deny_flags maps of the first version are not needed. A refused write reuses the watch maps of the file events (exact path, path prefix, file name and inode), with one more bit, so a hard link does not get round it. The per-action switches are the action bits in enforce_cfg.
+
+A rule opts in with action: block. Each blockable event type has one fixed refusal, and the compiler (`internal/rules/block.go`) accepts block only if the rule says the same thing: it uses only fields the kernel can judge at that moment, and it fires on every sample event the kernel would refuse and on none it lets through. Anything else is rejected with the reason. A sequence rule cannot block. A refused action never produces the event the rule matches on, so the agent turns the enforce event into the alert of the blocking rule.
 
 ### First blockable set
 
 | Rule | Deny |
 |---|---|
-| R003 | Exec of a memfd or unlinked binary inside a container |
-| R007 | Write to /etc/ld.so.preload |
-| R011 | Write to a cgroup release_agent or core_pattern from a container |
-| R015 | ptrace attach inside a container |
-| R016 | Module load while a container process is current |
-| R017 | mount from a container not on an allowlist |
+| R003 | Exec of a memfd or unlinked binary inside a container, except by the container runtime |
+| R007 | Open for writing of /etc/ld.so.preload |
+| R011 | Open for writing of a file named release_agent or core_pattern |
+| R015 | Attach-level access to another process |
+| R016 | Module load |
+| R017 | Mount, except by the container runtime |
+
+All six refuse only inside pods that opted in, as below.
 
 ### Safety design
 
 A blocking bug on a node can stop workloads or the node itself, so the defaults are conservative.
 
-- Containers only. Enforcement applies to cgroups in enforce_cgroups, which the agent fills from pods carrying an opt-in label. Host processes are never denied.
-- Protected cgroups. The kubelet, the container runtime and the sensor are written to protect_cgroups at start-up.
-- Dry-run first. A rule with action: block runs as would-deny until enforce: true is set in the config. The harness has a mode that asserts would-deny events before any real deny is enabled.
-- Kill switch. Setting cfg.enforce to 0 disables every deny in one map write, without unloading anything.
-- Fail closed by default, configurable. The setting enforcement.onAgentExit takes pinned or detach, and the default is pinned. In pinned mode the LSM program links and policy maps are pinned under /sys/fs/bpf/tephra, so denies keep applying while the agent is down or being killed, and a restarted agent re-adopts the pins instead of reloading. This closes the blocking half of E07; events are still lost while the agent is down. The cost is that a wrong deny also survives an agent restart, so recovery must not depend on the agent: the pinned kill switch can be cleared with bpftool from the host, and removing the pin directory detaches everything. In detach mode nothing is pinned and enforcement stops when the agent exits. Strict is the v2 default, on the principle that enforcement which an attacker can switch off by killing a process is not enforcement; the trade-off goes in the write-up.
+- Containers only, by opt-in. The agent writes to enforce_cgroups the pod-level cgroup of every pod on its node that carries the label `tephra.dev/enforce=true`, every 250 ms when something changed. Host processes are never denied.
+- Protected namespaces. Pods in kube-system and in the agent's own namespace go into protect_cgroups, label or not; the list is configurable. The agent's own cgroup is always there.
+- The container runtime is let through by file identity (runtime_inodes), as in detection, and its copy of itself that sets a container up is marked in runtime_tasks until it executes the container's program.
+- Off and dry-run by default. `enforcement.enabled` is false; with it true, `enforcement.dry_run` is true until set otherwise, and nothing is refused, only reported. The harness asserts would-deny events before any real deny is enabled.
+- Kill switch. `/tephrad enforce off` in the agent pod (`kubectl exec <agent pod> -- /tephrad enforce off`) sets the mode in the pinned enforce_cfg map to off in one write, with or without a running agent. The same map can be written with bpftool from the node. The mode metric is read back from the kernel, so the switch shows at once.
+- Fail closed by default, configurable. `enforcement.on_agent_exit` takes pinned or detach, and the default is pinned. In pinned mode the six LSM links and the five policy maps are pinned under /sys/fs/bpf/tephra, so denies keep applying while the agent is down or being killed; a restarted agent adopts the pinned maps, attaches its own programs and only then replaces the pinned links, so the hook is never left empty. If the pinned maps no longer fit the new programs, everything is unpinned and the new agent starts from its configuration. In detach mode nothing is pinned, anything an earlier agent pinned is removed, and enforcement stops when the agent exits. Strict is the v2 default, on the principle that enforcement which an attacker can switch off by killing a process is not enforcement; the trade-off goes in the write-up.
 
 ### Fallback where BPF LSM is unavailable
 
@@ -892,3 +933,36 @@ Ubuntu 22.04 (kernel 5.15.0-203), freshly created kind cluster, agents without p
 Dev VM (Ubuntu 24.04, kernel 6.8.0-147), existing kind cluster upgraded in place: the same 21 load tests and the acceptance tests M0 to M6 pass, A01 to A22 are detected with zero ring buffer drops, and `hack/check-dashboard.sh` finds every dashboard query accepted and returning data. The 30-minute false-positive run was made twice. The first reported R003, high, three times for systemd's executor on a node (see above); after the fix the second reported no high or critical alert, zero drops, and the one known low alert (R004, 11 times, nginx's entrypoint). The fix was also checked directly by starting a systemd unit on a node: its exec carries `process.runtime` and raises no alert. The 22 scenarios were run on the build before that one-line change to the default configuration and not again after it.
 
 Not verified: the release workflow, which has not run; the dashboard as rendered in a browser; any kernel without CONFIG_SECURITY_PATH; any fully preemptible kernel. CI has not run on this work.
+
+### M13
+
+- **Schema.** A rule has either `event` and `detection` or `sequence` (section 6). Each step is parsed and compiled like a single-event rule, so file watches and event types are derived per step and the kernel still reports everything a step needs.
+- **Key.** `process_tree` is the topmost ancestor in the same cgroup with the container runtime left out, as `<pid>.<start time>`; it is carried on every record as `process.tree`. R025 and R026 key by pod, because a download and the run of the downloaded file often come from two separate `kubectl exec` sessions, which are separate trees.
+- **"The downloaded file".** The exec event carries the inode change time of the executed file (`process.exe_ctime_ns`; the exec event grew by 8 bytes). For a script the exec event reports the interpreter, so a second hook, at `security_bprm_creds_for_exec`, records the change time of the file execve was asked for, keyed by the task's thread-group ID in the root pid namespace, and the exec program picks it up. The first cluster run missed R025 because the two hooks used different pid namespaces for the key.
+- **Inode change time on three kernel layouts.** `i_ctime_sec`/`i_ctime_nsec` (6.11 and later, with the top bit of the nanoseconds used for multigrain timestamps and masked off), `__i_ctime` (6.6 to 6.10), `i_ctime` (earlier), chosen with CO-RE.
+- **Bounded state.** 4096 partial sequences per rule, oldest dropped first; the window runs from the latest match of the first step, and a step's "changed since" time is never more than one window old, with one second of slack for clock granularity.
+
+### M12
+
+- **Built as section 9 now describes**, which differs from the first version: no socket_connect program, no deny_path or deny_flags map (the watch maps and action bits do that work), runtime exemption by file identity, scope by pod-level cgroup with its ancestors checked up to twelve levels.
+- **Rules.** `action: block` is accepted by checking the rule against sample events per blockable event type (`internal/rules/block.go`): only fields the kernel can judge at that moment, firing on what the kernel refuses and not on what it lets through. The six rules of the first set pass; a sequence rule cannot block.
+- **A refused action has no ordinary event.** The enforce event becomes the alert of the rule that asked for the refusal; if none does (for a moment around a reload), rule E000.
+- **Chart.** `agent.enforcement` in the values. With pinned mode the node's /sys/fs/bpf is mounted into the agent pod. `agent.enforcement.extraCapabilities` exists for runtimes or kernels that turn out to need more; none was needed on the lab cluster.
+- **Kill switch.** `tephrad enforce off|status`; the `tephra_enforce_mode` metric is read back from the kernel so it shows the switch at once.
+- **Boot line.** `deploy/vm/provision.sh` appends `bpf` to the active LSM list in the GRUB configuration and the lab scripts reboot once. Ubuntu 24.04's 6.8 kernel and the 7.0 AWS kernel both came up with `bpf` active after it.
+- **Harness.** Scenarios have an `enforce:` section: the rules that must report a would-be refusal in dry-run and a refusal when on, and an `effect` command that succeeds only if the technique went through. A10's mount is refused (R017) and so is its write to a file named release_agent (R011), whether the mount went through or not.
+- **Compressed modules got through.** The first cluster run with enforcement on found A14's module load not refused on kernel 7.0. Kernels that decompress modules themselves (6.4 and later) read a compressed module under its own ID, `READING_MODULE_COMPRESSED`, which the program did not check; the node's modules are `.ko.zst`. Both module programs now also match the compressed IDs where the kernel has them, and the kernel test loads a file both ways. The detection side (module_load, R016) was not affected.
+- **kind nodes have neither securityfs nor a BPF filesystem.** The first cluster run had the enforcement programs unattached: the agent could not read the active LSM list. `make kind-up` now mounts securityfs and a BPF filesystem of its own in each node; a real node has both. No capability beyond the four of M6 was needed: the six programs load, attach and pin in the unprivileged agent pod.
+- **One alert per judged action.** File writes, ptrace and mounts are observed by fentry programs at the entry of the LSM hook, before the kernel decides, so a refused action still produced its ordinary event and the blocking rule alerted twice, once looking like an action that succeeded. Where enforcement covers the pod and the kernel has the rule's action switched on, the agent now leaves the ordinary match of a blocking rule out; the kernel's report is the alert, refused or would-be refused. R024 still reports the refused open, as it reports any refused open of a sensitive file.
+- **A refused write through a hard link names the protected file** (`file.target`), as a file_open record does.
+- **The BPF filesystem is always mounted in the agent pod.** First it was mounted only while pinned enforcement was enabled; an agent started after enforcement was switched off then could not find and remove the pins the earlier agent left, and those went on refusing. The stronger option is to mount it always, so the cleanup and the kill switch always reach the pins.
+- **Chart upgrades with `--reuse-values`** keep the values of the older release, without the defaults this version adds. The templates now read a missing `agent.enabled` as true and give the enforcement settings their defaults; the Makefile and benchmark scripts use `--reset-then-reuse-values`.
+- **The false-positive run counts refusals from the stored alerts**, not from the agents' counters, which restart from zero with an agent.
+- **Pods would not start under enforcement.** The first false-positive run with enforcement on never got its workloads running: every new labelled pod failed with `runc create failed: ... mount dst=/, flags=MS_REC|MS_SLAVE: operation not permitted`, and R017 reported a refused mount by `runc init`. The kernel marked the task in which runc executes its own copy as the runtime at work, but runc's init forks the stages that build the container's namespaces and prepare its root filesystem, and those were new processes without the mark. The mark now passes from parent to child at fork, only while enforcement is not off, and is still cleared by the child's own exec of the container's program. Walking up the ancestors instead was rejected: every process in a container descends from the runtime's shim. A kernel test has a stand-in runtime execute a program that forks and mounts (let through), the same program without the runtime (refused), and the runtime's child after it executed another program (refused). The agent had recognised `runc init` as the runtime all along; only the kernel's decision was wrong, which is the case the compiler's sample-event check cannot see.
+
+### M9
+
+- **Scenarios** live under `evasions/` with the layout of `attacks/`, plus `predicted:` and `expect_drops:`. `harness run --evasions` writes `docs/evasion.md` and `docs/evasion.json`; a result different from the prediction is reported as a corrected prediction and the command exits 0. The write-up of each finding is in `docs/evasions/`.
+- **Results on kernel 7.0** (EC2, kind): E01, E02 and E07 missed as predicted; E03, E04, E05 and E06 detected as predicted; E08 detected where partial was predicted, because no shipped rule matches on the command line. E05's flood (32,000 execs) caused no drops.
+- **Two scenarios were wrong the first time.** E03 made its hard link inside the judged window, and the alert counted was `ln` opening `/etc/shadow`, not the read through the link; the link is now made at pod start. E07 never killed the agent (busybox's `pgrep` did not find it) and was reported as missed. A scenario now exits 99 when it cannot carry out its technique, and the harness records that as not run instead of judging it. Every `run.sh` is also bounded to five minutes: E02's first version never closed its socket and held the run.
+- **Not changed in this milestone:** the sensor. Each write-up proposes fixes; none is applied here, so the write-ups describe the sensor as measured.

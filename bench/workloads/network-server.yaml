@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# nginx on one pinned CPU, for the network workload.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bench-server
+  labels: {app: bench-server}
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: tephra-worker
+  containers:
+    - name: nginx
+      image: nginx:1.27-alpine
+      command: ["taskset", "-c", "3", "nginx", "-g", "daemon off; worker_processes 1;"]
+      resources:
+        requests: {cpu: 10m, memory: 32Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bench-server
+spec:
+  selector: {app: bench-server}
+  ports: [{port: 80}]

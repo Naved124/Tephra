@@ -4,3 +4,11 @@ tags: [attack.privilege_escalation, attack.t1611]
 expect: [R011]
 run:
   pod: victim
+enforce:
+  # The mount is refused (R017), and so is the write to a file named
+  # release_agent (R011), whether or not the mount went through: on some
+  # kernels a named cgroup v1 hierarchy cannot be mounted at all, and the
+  # name is then a plain file.
+  dry_run: [R017, R011]
+  on: [R017, R011]
+  effect: grep -qx /bin/true /tmp/cgrp/release_agent

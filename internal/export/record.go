@@ -31,6 +31,10 @@ type Record struct {
 	Cred       *Cred       `json:"cred,omitempty"`
 	Mount      *Mount      `json:"mount,omitempty"`
 	Namespaces *Namespaces `json:"namespaces,omitempty"`
+	// Enforce is set on records of type enforce: an action the kernel
+	// refused, or in dry-run mode would have refused. A file it concerns
+	// is in File.
+	Enforce *Enforce `json:"enforce,omitempty"`
 	// Health is set on records of type TypeHealth only. They go to the
 	// collector and are not printed on stdout.
 	Health map[string]uint64 `json:"health,omitempty"`
@@ -68,6 +72,11 @@ type Process struct {
 	// binaries, recognised by the identity of the file and not by its
 	// name.
 	Runtime bool `json:"runtime,omitempty"`
+	// Tree names the tree of processes this one belongs to: its topmost
+	// ancestor in the same cgroup, as "<pid>.<start time>". In a container
+	// that is the container's first process, or the process an exec into
+	// the container started.
+	Tree string `json:"tree,omitempty"`
 	// Exec is set on exec events only; its fields appear inline.
 	*Exec
 }
@@ -82,6 +91,9 @@ type Exec struct {
 	Inode          uint64 `json:"inode"`
 	Dev            uint32 `json:"dev"`
 	CapEffective   uint64 `json:"cap_effective"`
+	// ExeCtimeNS is when the executable's inode last changed (written,
+	// renamed, chmod), in nanoseconds since the epoch.
+	ExeCtimeNS uint64 `json:"exe_ctime_ns,omitempty"`
 	// Env holds only the dynamic loader variables the kernel side
 	// captures (LD_PRELOAD, LD_AUDIT, LD_LIBRARY_PATH). The rest of the
 	// environment never leaves the kernel.
@@ -192,6 +204,16 @@ type Ptrace struct {
 	TargetImage       string `json:"target_image,omitempty"`
 	TargetCommandLine string `json:"target_command_line,omitempty"`
 	Mode              uint32 `json:"mode"`
+}
+
+// Enforce is set on enforce events.
+type Enforce struct {
+	// Action is what was judged: exec_unlinked, file_write, ptrace,
+	// module_load or mount.
+	Action string `json:"action"`
+	// Denied is true when the action was refused, false when
+	// enforcement is in dry-run mode and it went ahead.
+	Denied bool `json:"denied"`
 }
 
 // Memfd is set on memfd events.

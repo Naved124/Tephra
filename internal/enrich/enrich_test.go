@@ -143,6 +143,9 @@ func TestExecInPod(t *testing.T) {
 		Process: export.Process{
 			PID: 48211, StartTimeNS: 91822330114, Image: "/bin/sh", CommandLine: "sh -i",
 			User: "www-data", UID: 33, GID: 33, CgroupID: cg,
+			// The nginx worker: the shim above it is not in the
+			// container's cgroup.
+			Tree: "48190.20000000000",
 			Exec: &export.Exec{StdinIsSocket: true, StdoutIsSocket: true, Inode: 77},
 		},
 		Parent:    &export.Parent{PID: 48190, Image: "/usr/sbin/nginx", CommandLine: "nginx: worker process"},
@@ -464,6 +467,20 @@ func TestFileRecord(t *testing.T) {
 	}
 	if rec.Type != "file_open" || rec.Process.Image != "/bin/cat" || rec.Container == nil {
 		t.Errorf("file record: %s", toJSON(t, rec))
+	}
+}
+
+// A write refused through a hard link names the protected file.
+func TestEnforceRecordTarget(t *testing.T) {
+	f := newFixture(t)
+	f.e.ObserveRoots(&fakeObserver{})
+	h := f.webShell("/bin/sh", "sh")
+	h.Type = events.TypeEnforce
+	h.Flags = events.EnforceDenied
+	rec := f.e.Handle(&events.Enforce{Header: h, Action: "file_write", Inode: 9, Dev: 0x100002, Path: "/tmp/link"}, time.Now())
+	want := &export.File{Path: "/tmp/link", Target: "/etc/shadow", Write: true, Inode: 9, Dev: 0x100002, MatchedBy: "block"}
+	if !reflect.DeepEqual(rec.File, want) || rec.Enforce == nil || !rec.Enforce.Denied {
+		t.Errorf("got %s", toJSON(t, rec))
 	}
 }
 

@@ -1,0 +1,8 @@
+id: E06
+title: Rewrite the path argument from a second thread while openat runs
+tags: [attack.credential_access, attack.t1003.008, attack.defense_evasion]
+expect: [R005]
+predicted: detected
+run:
+  pod: victim
+note: One thread opens the name in a shared buffer in a loop; another flips the buffer between /etc/shadow and /etc/hostx, which does not exist. The sensor reads the name the kernel resolved, not the buffer.

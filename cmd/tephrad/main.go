@@ -61,11 +61,20 @@ type counters struct {
 	nestedOpens  atomic.Uint64
 	// deniedUnwatched counts refused opens of files no watch covers.
 	deniedUnwatched atomic.Uint64
-	exported        atomic.Uint64
-	exportErrors    atomic.Uint64
-	reloads         atomic.Uint64
-	reloadErrors    atomic.Uint64
-	rulesLoaded     atomic.Int64
+	// seqHeld is the number of partial rule sequences in memory;
+	// seqEvicted counts those dropped to stay under the cap.
+	seqHeld    atomic.Uint64
+	seqEvicted atomic.Uint64
+	// Enforcement: the mode in force (0 off, 1 dry-run, 2 on), the pods
+	// in scope, and the actions refused or reported.
+	enforcePods      atomic.Uint64
+	enforceDenied    atomic.Uint64
+	enforceWouldDeny atomic.Uint64
+	exported         atomic.Uint64
+	exportErrors     atomic.Uint64
+	reloads          atomic.Uint64
+	reloadErrors     atomic.Uint64
+	rulesLoaded      atomic.Int64
 
 	mu     sync.Mutex
 	alerts map[alertKey]uint64
@@ -86,6 +95,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "rules" {
 		os.Exit(rulesCmd(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "enforce" {
+		os.Exit(enforceCmd(os.Args[2:], os.Stdout, os.Stderr))
+	}
 
 	o := options{set: map[string]bool{}}
 	flag.StringVar(&o.configPath, "config", "", "configuration file; empty uses the defaults")
@@ -97,7 +109,7 @@ func main() {
 	flag.StringVar(&o.cgroupRoot, "cgroup-root", "/sys/fs/cgroup", "cgroup v2 mount showing the node's hierarchy")
 	flag.IntVar(&o.queueLen, "queue", 8192, "decoded events buffered between the reader and enrichment")
 	flag.Usage = func() {
-		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "usage: tephrad [flags]\n       tephrad rules validate|test ...\n\n")
+		_, _ = fmt.Fprintf(flag.CommandLine.Output(), "usage: tephrad [flags]\n       tephrad rules validate|test ...\n       tephrad enforce off|status\n\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -191,17 +203,21 @@ func netJoin(host, port string) string {
 // agent is the running pipeline's state. It is touched only by the main
 // loop.
 type agent struct {
-	log      *slog.Logger
-	o        options
-	cur      *settings
-	sensor   *loader.Sensor
-	tree     *proctree.Tree
-	tracker  *inodewatch.Tracker
-	runtimes *runtimeid.Set
-	enricher *enrich.Enricher
-	stdout   *export.JSONLines
-	grpc     *export.GRPC
-	c        *counters
+	// ownNamespace is the agent's own namespace, never under enforcement.
+	ownNamespace string
+	log          *slog.Logger
+	o            options
+	cur          *settings
+	sensor       *loader.Sensor
+	tree         *proctree.Tree
+	tracker      *inodewatch.Tracker
+	runtimes     *runtimeid.Set
+	enricher     *enrich.Enricher
+	stdout       *export.JSONLines
+	grpc         *export.GRPC
+	c            *counters
+	// seqEvicted is the eviction count last read from the rule set.
+	seqEvicted uint64
 }
 
 // apply makes the kernel filters, the inode watches and the matcher follow
@@ -224,6 +240,9 @@ func (a *agent) apply(s *settings) error {
 		a.log.Warn("none of runtime_binaries was found on the node; rules that let the container runtime through will report it")
 	}
 	a.enricher.SetAPIServers(s.apiServers())
+	if err := a.applyEnforcement(s); err != nil {
+		return err
+	}
 	a.cur = s
 	a.c.rulesLoaded.Store(int64(len(s.rules.Rules)))
 
@@ -284,10 +303,25 @@ func (a *agent) handle(ev events.Event) {
 	if a.cur.cfg.Export.RawEvents {
 		a.emit(rec)
 	}
+	if rec.Enforce != nil {
+		a.handleEnforce(rec)
+		return
+	}
 	for _, r := range a.cur.rules.Match(rec) {
+		if a.judgedByKernel(r, rec) {
+			continue
+		}
 		a.c.alert(r)
 		a.emit(r.Alert(rec))
 	}
+	held, evicted := a.cur.rules.SequenceStats()
+	a.c.seqHeld.Store(uint64(held))
+	if evicted < a.seqEvicted {
+		// A reload started a new rule set, which counts from zero.
+		a.seqEvicted = 0
+	}
+	a.c.seqEvicted.Add(evicted - a.seqEvicted)
+	a.seqEvicted = evicted
 }
 
 func (a *agent) emit(rec *export.Record) {
@@ -387,7 +421,12 @@ func run(log *slog.Logger, o options) error {
 		return fmt.Errorf("pod informer: %w", err)
 	}
 
-	sensor, err := loader.Load(loader.Options{RingBufSize: s.cfg.RingBufferSize, Enabled: s.enabled(), Filters: s.filters()})
+	sensor, err := loader.Load(loader.Options{
+		RingBufSize: s.cfg.RingBufferSize, Enabled: s.enabled(), Filters: s.filters(),
+		Enforce: s.cfg.Enforcement.Enabled,
+		PinDir:  s.cfg.Enforcement.PinDir,
+		Pin:     s.cfg.Enforcement.OnAgentExit == config.OnExitPinned,
+	})
 	if err != nil {
 		return err
 	}
@@ -407,7 +446,9 @@ func run(log *slog.Logger, o options) error {
 		log.Warn("program not attached", "program", sk.Program, "hook", sk.Hook, "reason", sk.Reason)
 	}
 	for _, t := range events.Types {
-		if !sensor.Available(t) {
+		// Enforce events exist only with enforcement, which reports
+		// its own state.
+		if !sensor.Available(t) && t != events.TypeEnforce {
 			log.Warn("event type unavailable on this kernel", "type", t.String())
 		}
 	}
@@ -425,20 +466,24 @@ func run(log *slog.Logger, o options) error {
 
 	c := &counters{}
 	a := &agent{
-		log:      log,
-		o:        o,
-		sensor:   sensor,
-		tree:     tree,
-		tracker:  inodewatch.New(o.procRoot, sensor),
-		runtimes: runtimeid.New(o.procRoot, nil),
-		enricher: enrich.New(node, tree, procfs, k8s.NewCgroupResolver(o.cgroupRoot), pods),
-		stdout:   export.NewJSONLines(os.Stdout),
-		c:        c,
+		ownNamespace: os.Getenv("POD_NAMESPACE"),
+		log:          log,
+		o:            o,
+		sensor:       sensor,
+		tree:         tree,
+		tracker:      inodewatch.New(o.procRoot, sensor),
+		runtimes:     runtimeid.New(o.procRoot, nil),
+		enricher:     enrich.New(node, tree, procfs, k8s.NewCgroupResolver(o.cgroupRoot), pods),
+		stdout:       export.NewJSONLines(os.Stdout),
+		c:            c,
 	}
 	a.enricher.ObserveRoots(a.tracker)
 	a.enricher.SetRuntimes(a.runtimes)
 	if err := a.apply(s); err != nil {
 		return err
+	}
+	if ok, _ := sensor.EnforcementAvailable(); ok && pods != nil {
+		go a.enforceScope(ctx, pods, s.cfg.Enforcement, os.Getenv("POD_NAMESPACE"))
 	}
 
 	var exporting sync.WaitGroup

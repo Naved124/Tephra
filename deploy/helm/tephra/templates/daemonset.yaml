@@ -1,3 +1,5 @@
+{{- /* A release from before agent.enabled existed has no value: that means enabled. */ -}}
+{{- if ne (toString .Values.agent.enabled) "false" }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -61,6 +63,10 @@ spec:
               drop: ["ALL"]
               add:
                 {{- toYaml .Values.agent.capabilities | nindent 16 }}
+                {{- $extra := dig "enforcement" "extraCapabilities" list .Values.agent }}
+                {{- if and (dig "enforcement" "enabled" false .Values.agent) $extra }}
+                {{- toYaml $extra | nindent 16 }}
+                {{- end }}
             {{- end }}
           resources:
             {{- toYaml .Values.agent.resources | nindent 12 }}
@@ -81,6 +87,12 @@ spec:
             - name: security
               mountPath: /sys/kernel/security
               readOnly: true
+            # Pins outlive the pod only on the node's own BPF filesystem. It
+            # is mounted whether or not enforcement is enabled, so that an
+            # agent can always find and remove pins an earlier one left, and
+            # the kill switch always reaches them.
+            - name: bpffs
+              mountPath: /sys/fs/bpf
       volumes:
         - name: config
           configMap:
@@ -100,3 +112,8 @@ spec:
           hostPath:
             path: /sys/kernel/security
             type: Directory
+        - name: bpffs
+          hostPath:
+            path: /sys/fs/bpf
+            type: Directory
+{{- end }}

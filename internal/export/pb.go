@@ -26,6 +26,7 @@ func ToProto(r *Record) *tephrav1.Record {
 			CgroupId:     r.Process.CgroupID,
 			IsMainBinary: r.Process.IsMainBinary,
 			Runtime:      r.Process.Runtime,
+			Tree:         r.Process.Tree,
 		},
 		K8S: &tephrav1.K8S{Namespace: r.K8s.Namespace, Pod: r.K8s.Pod, Labels: r.K8s.Labels},
 	}
@@ -37,7 +38,7 @@ func ToProto(r *Record) *tephrav1.Record {
 			StdinIsSocket: x.StdinIsSocket, StdoutIsSocket: x.StdoutIsSocket,
 			Unlinked: x.Unlinked, Setuid: x.Setuid, ArgvTruncated: x.ArgvTruncated,
 			Inode: x.Inode, Dev: x.Dev, CapEffective: x.CapEffective,
-			Env: x.Env, EnvTruncated: x.EnvTruncated,
+			Env: x.Env, EnvTruncated: x.EnvTruncated, ExeCtimeNs: x.ExeCtimeNS,
 		}
 	}
 	if x := r.Parent; x != nil {
@@ -87,6 +88,9 @@ func ToProto(r *Record) *tephrav1.Record {
 	if x := r.Namespaces; x != nil {
 		p.Namespaces = &tephrav1.Namespaces{Changed: x.Changed, Host: x.Host}
 	}
+	if x := r.Enforce; x != nil {
+		p.Enforce = &tephrav1.Enforce{Action: x.Action, Denied: x.Denied}
+	}
 	return p
 }
 
@@ -110,14 +114,14 @@ func FromProto(p *tephrav1.Record) *Record {
 	if x := p.GetProcess(); x != nil {
 		r.Process = Process{
 			PID: x.GetPid(), StartTimeNS: x.GetStartTimeNs(), Image: x.GetImage(), CommandLine: x.GetCommandLine(),
-			User: x.GetUser(), UID: x.GetUid(), GID: x.GetGid(), CgroupID: x.GetCgroupId(), IsMainBinary: x.GetIsMainBinary(), Runtime: x.GetRuntime(),
+			User: x.GetUser(), UID: x.GetUid(), GID: x.GetGid(), CgroupID: x.GetCgroupId(), IsMainBinary: x.GetIsMainBinary(), Runtime: x.GetRuntime(), Tree: x.GetTree(),
 		}
 		if e := x.GetExec(); e != nil {
 			r.Process.Exec = &Exec{
 				StdinIsSocket: e.GetStdinIsSocket(), StdoutIsSocket: e.GetStdoutIsSocket(),
 				Unlinked: e.GetUnlinked(), Setuid: e.GetSetuid(), ArgvTruncated: e.GetArgvTruncated(),
 				Inode: e.GetInode(), Dev: e.GetDev(), CapEffective: e.GetCapEffective(),
-				EnvTruncated: e.GetEnvTruncated(),
+				EnvTruncated: e.GetEnvTruncated(), ExeCtimeNS: e.GetExeCtimeNs(),
 			}
 			if len(e.GetEnv()) > 0 {
 				r.Process.Env = e.GetEnv()
@@ -182,6 +186,9 @@ func FromProto(p *tephrav1.Record) *Record {
 		if len(x.GetHost()) > 0 {
 			r.Namespaces.Host = x.GetHost()
 		}
+	}
+	if x := p.GetEnforce(); x != nil {
+		r.Enforce = &Enforce{Action: x.GetAction(), Denied: x.GetDenied()}
 	}
 	return r
 }

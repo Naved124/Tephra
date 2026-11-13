@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+# Idle: nothing for 60 seconds. What is measured is the sensor's own cost.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bench
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: tephra-worker
+  containers:
+    - name: bench
+      image: busybox:1.37
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          t() { awk '{printf "%.0f", $1 * 1000000000}' /proc/uptime; }
+          start=$(t)
+          sleep 60
+          end=$(t)
+          echo "RESULT ops=0 ns=$((end - start))"
+      resources:
+        requests: {cpu: 10m, memory: 16Mi}

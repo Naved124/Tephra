@@ -108,6 +108,7 @@ type Record struct {
 	Cred          *Cred             `protobuf:"bytes,18,opt,name=cred,proto3" json:"cred,omitempty"`
 	Mount         *Mount            `protobuf:"bytes,19,opt,name=mount,proto3" json:"mount,omitempty"`
 	Namespaces    *Namespaces       `protobuf:"bytes,20,opt,name=namespaces,proto3" json:"namespaces,omitempty"`
+	Enforce       *Enforce          `protobuf:"bytes,21,opt,name=enforce,proto3" json:"enforce,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -282,6 +283,66 @@ func (x *Record) GetNamespaces() *Namespaces {
 	return nil
 }
 
+func (x *Record) GetEnforce() *Enforce {
+	if x != nil {
+		return x.Enforce
+	}
+	return nil
+}
+
+// An action the kernel refused (denied), or in dry-run mode would have.
+type Enforce struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Action        string                 `protobuf:"bytes,1,opt,name=action,proto3" json:"action,omitempty"`
+	Denied        bool                   `protobuf:"varint,2,opt,name=denied,proto3" json:"denied,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Enforce) Reset() {
+	*x = Enforce{}
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Enforce) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Enforce) ProtoMessage() {}
+
+func (x *Enforce) ProtoReflect() protoreflect.Message {
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Enforce.ProtoReflect.Descriptor instead.
+func (*Enforce) Descriptor() ([]byte, []int) {
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Enforce) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *Enforce) GetDenied() bool {
+	if x != nil {
+		return x.Denied
+	}
+	return false
+}
+
 type Ptrace struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	TargetPid         uint32                 `protobuf:"varint,1,opt,name=target_pid,json=targetPid,proto3" json:"target_pid,omitempty"`
@@ -294,7 +355,7 @@ type Ptrace struct {
 
 func (x *Ptrace) Reset() {
 	*x = Ptrace{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[2]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -306,7 +367,7 @@ func (x *Ptrace) String() string {
 func (*Ptrace) ProtoMessage() {}
 
 func (x *Ptrace) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[2]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -319,7 +380,7 @@ func (x *Ptrace) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Ptrace.ProtoReflect.Descriptor instead.
 func (*Ptrace) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{2}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Ptrace) GetTargetPid() uint32 {
@@ -359,7 +420,7 @@ type Memfd struct {
 
 func (x *Memfd) Reset() {
 	*x = Memfd{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[3]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -371,7 +432,7 @@ func (x *Memfd) String() string {
 func (*Memfd) ProtoMessage() {}
 
 func (x *Memfd) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[3]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -384,7 +445,7 @@ func (x *Memfd) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Memfd.ProtoReflect.Descriptor instead.
 func (*Memfd) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{3}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Memfd) GetFlags() uint32 {
@@ -403,7 +464,7 @@ type Module struct {
 
 func (x *Module) Reset() {
 	*x = Module{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[4]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -415,7 +476,7 @@ func (x *Module) String() string {
 func (*Module) ProtoMessage() {}
 
 func (x *Module) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[4]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -428,7 +489,7 @@ func (x *Module) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Module.ProtoReflect.Descriptor instead.
 func (*Module) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{4}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Module) GetName() string {
@@ -448,7 +509,7 @@ type Bpf struct {
 
 func (x *Bpf) Reset() {
 	*x = Bpf{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[5]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -460,7 +521,7 @@ func (x *Bpf) String() string {
 func (*Bpf) ProtoMessage() {}
 
 func (x *Bpf) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[5]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -473,7 +534,7 @@ func (x *Bpf) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Bpf.ProtoReflect.Descriptor instead.
 func (*Bpf) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{5}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Bpf) GetProgType() uint32 {
@@ -508,7 +569,7 @@ type Cred struct {
 
 func (x *Cred) Reset() {
 	*x = Cred{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[6]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -520,7 +581,7 @@ func (x *Cred) String() string {
 func (*Cred) ProtoMessage() {}
 
 func (x *Cred) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[6]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -533,7 +594,7 @@ func (x *Cred) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Cred.ProtoReflect.Descriptor instead.
 func (*Cred) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{6}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Cred) GetOldUid() uint32 {
@@ -617,7 +678,7 @@ type Mount struct {
 
 func (x *Mount) Reset() {
 	*x = Mount{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[7]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -629,7 +690,7 @@ func (x *Mount) String() string {
 func (*Mount) ProtoMessage() {}
 
 func (x *Mount) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[7]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -642,7 +703,7 @@ func (x *Mount) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Mount.ProtoReflect.Descriptor instead.
 func (*Mount) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{7}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Mount) GetFstype() string {
@@ -676,7 +737,7 @@ type Namespaces struct {
 
 func (x *Namespaces) Reset() {
 	*x = Namespaces{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[8]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -688,7 +749,7 @@ func (x *Namespaces) String() string {
 func (*Namespaces) ProtoMessage() {}
 
 func (x *Namespaces) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[8]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -701,7 +762,7 @@ func (x *Namespaces) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Namespaces.ProtoReflect.Descriptor instead.
 func (*Namespaces) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{8}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Namespaces) GetChanged() []string {
@@ -730,7 +791,7 @@ type Rule struct {
 
 func (x *Rule) Reset() {
 	*x = Rule{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[9]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -742,7 +803,7 @@ func (x *Rule) String() string {
 func (*Rule) ProtoMessage() {}
 
 func (x *Rule) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[9]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -755,7 +816,7 @@ func (x *Rule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Rule.ProtoReflect.Descriptor instead.
 func (*Rule) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{9}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Rule) GetId() string {
@@ -800,14 +861,17 @@ type Process struct {
 	// Set on exec events only.
 	Exec *Exec `protobuf:"bytes,10,opt,name=exec,proto3" json:"exec,omitempty"`
 	// The process runs one of the node's container runtime binaries.
-	Runtime       bool `protobuf:"varint,11,opt,name=runtime,proto3" json:"runtime,omitempty"`
+	Runtime bool `protobuf:"varint,11,opt,name=runtime,proto3" json:"runtime,omitempty"`
+	// The tree of processes this one belongs to: "<pid>.<start time>" of
+	// its topmost ancestor in the same cgroup.
+	Tree          string `protobuf:"bytes,12,opt,name=tree,proto3" json:"tree,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Process) Reset() {
 	*x = Process{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[10]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -819,7 +883,7 @@ func (x *Process) String() string {
 func (*Process) ProtoMessage() {}
 
 func (x *Process) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[10]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -832,7 +896,7 @@ func (x *Process) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Process.ProtoReflect.Descriptor instead.
 func (*Process) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{10}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Process) GetPid() uint32 {
@@ -912,6 +976,13 @@ func (x *Process) GetRuntime() bool {
 	return false
 }
 
+func (x *Process) GetTree() string {
+	if x != nil {
+		return x.Tree
+	}
+	return ""
+}
+
 type Exec struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	StdinIsSocket  bool                   `protobuf:"varint,1,opt,name=stdin_is_socket,json=stdinIsSocket,proto3" json:"stdin_is_socket,omitempty"`
@@ -924,13 +995,15 @@ type Exec struct {
 	CapEffective   uint64                 `protobuf:"varint,8,opt,name=cap_effective,json=capEffective,proto3" json:"cap_effective,omitempty"`
 	Env            map[string]string      `protobuf:"bytes,9,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	EnvTruncated   bool                   `protobuf:"varint,10,opt,name=env_truncated,json=envTruncated,proto3" json:"env_truncated,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// When the executable's inode last changed, nanoseconds since the epoch.
+	ExeCtimeNs    uint64 `protobuf:"varint,11,opt,name=exe_ctime_ns,json=exeCtimeNs,proto3" json:"exe_ctime_ns,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Exec) Reset() {
 	*x = Exec{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[11]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -942,7 +1015,7 @@ func (x *Exec) String() string {
 func (*Exec) ProtoMessage() {}
 
 func (x *Exec) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[11]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -955,7 +1028,7 @@ func (x *Exec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Exec.ProtoReflect.Descriptor instead.
 func (*Exec) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{11}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Exec) GetStdinIsSocket() bool {
@@ -1028,6 +1101,13 @@ func (x *Exec) GetEnvTruncated() bool {
 	return false
 }
 
+func (x *Exec) GetExeCtimeNs() uint64 {
+	if x != nil {
+		return x.ExeCtimeNs
+	}
+	return 0
+}
+
 type Parent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Pid           uint32                 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
@@ -1040,7 +1120,7 @@ type Parent struct {
 
 func (x *Parent) Reset() {
 	*x = Parent{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[12]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1052,7 +1132,7 @@ func (x *Parent) String() string {
 func (*Parent) ProtoMessage() {}
 
 func (x *Parent) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[12]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1065,7 +1145,7 @@ func (x *Parent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Parent.ProtoReflect.Descriptor instead.
 func (*Parent) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{12}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Parent) GetPid() uint32 {
@@ -1107,7 +1187,7 @@ type Container struct {
 
 func (x *Container) Reset() {
 	*x = Container{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[13]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1119,7 +1199,7 @@ func (x *Container) String() string {
 func (*Container) ProtoMessage() {}
 
 func (x *Container) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[13]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1132,7 +1212,7 @@ func (x *Container) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Container.ProtoReflect.Descriptor instead.
 func (*Container) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{13}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Container) GetId() string {
@@ -1167,7 +1247,7 @@ type K8S struct {
 
 func (x *K8S) Reset() {
 	*x = K8S{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[14]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1179,7 +1259,7 @@ func (x *K8S) String() string {
 func (*K8S) ProtoMessage() {}
 
 func (x *K8S) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[14]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1192,7 +1272,7 @@ func (x *K8S) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use K8S.ProtoReflect.Descriptor instead.
 func (*K8S) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{14}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *K8S) GetNamespace() string {
@@ -1226,7 +1306,7 @@ type Exit struct {
 
 func (x *Exit) Reset() {
 	*x = Exit{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[15]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1238,7 +1318,7 @@ func (x *Exit) String() string {
 func (*Exit) ProtoMessage() {}
 
 func (x *Exit) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[15]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1251,7 +1331,7 @@ func (x *Exit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Exit.ProtoReflect.Descriptor instead.
 func (*Exit) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{15}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Exit) GetCode() uint32 {
@@ -1285,7 +1365,7 @@ type Network struct {
 
 func (x *Network) Reset() {
 	*x = Network{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[16]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1297,7 +1377,7 @@ func (x *Network) String() string {
 func (*Network) ProtoMessage() {}
 
 func (x *Network) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[16]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1310,7 +1390,7 @@ func (x *Network) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Network.ProtoReflect.Descriptor instead.
 func (*Network) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{16}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *Network) GetDirection() string {
@@ -1397,7 +1477,7 @@ type File struct {
 
 func (x *File) Reset() {
 	*x = File{}
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[17]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1409,7 +1489,7 @@ func (x *File) String() string {
 func (*File) ProtoMessage() {}
 
 func (x *File) ProtoReflect() protoreflect.Message {
-	mi := &file_api_tephra_v1_tephra_proto_msgTypes[17]
+	mi := &file_api_tephra_v1_tephra_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1422,7 +1502,7 @@ func (x *File) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use File.ProtoReflect.Descriptor instead.
 func (*File) Descriptor() ([]byte, []int) {
-	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{17}
+	return file_api_tephra_v1_tephra_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *File) GetPath() string {
@@ -1502,7 +1582,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x1aapi/tephra/v1/tephra.proto\x12\ttephra.v1\"=\n" +
 	"\x03Ack\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\x04R\baccepted\x12\x1a\n" +
-	"\brejected\x18\x02 \x01(\x04R\brejected\"\xc0\x06\n" +
+	"\brejected\x18\x02 \x01(\x04R\brejected\"\xee\x06\n" +
 	"\x06Record\x12\x0e\n" +
 	"\x02ts\x18\x01 \x01(\tR\x02ts\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
@@ -1526,10 +1606,14 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x05mount\x18\x13 \x01(\v2\x10.tephra.v1.MountR\x05mount\x125\n" +
 	"\n" +
 	"namespaces\x18\x14 \x01(\v2\x15.tephra.v1.NamespacesR\n" +
-	"namespaces\x1a9\n" +
+	"namespaces\x12,\n" +
+	"\aenforce\x18\x15 \x01(\v2\x12.tephra.v1.EnforceR\aenforce\x1a9\n" +
 	"\vHealthEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\"\x8e\x01\n" +
+	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\"9\n" +
+	"\aEnforce\x12\x16\n" +
+	"\x06action\x18\x01 \x01(\tR\x06action\x12\x16\n" +
+	"\x06denied\x18\x02 \x01(\bR\x06denied\"\x8e\x01\n" +
 	"\x06Ptrace\x12\x1d\n" +
 	"\n" +
 	"target_pid\x18\x01 \x01(\rR\ttargetPid\x12!\n" +
@@ -1568,7 +1652,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\tR\x05level\x12\x12\n" +
-	"\x04tags\x18\x04 \x03(\tR\x04tags\"\xb2\x02\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\"\xc6\x02\n" +
 	"\aProcess\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\rR\x03pid\x12\"\n" +
 	"\rstart_time_ns\x18\x02 \x01(\x04R\vstartTimeNs\x12\x14\n" +
@@ -1581,7 +1665,8 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x0eis_main_binary\x18\t \x01(\bR\fisMainBinary\x12#\n" +
 	"\x04exec\x18\n" +
 	" \x01(\v2\x0f.tephra.v1.ExecR\x04exec\x12\x18\n" +
-	"\aruntime\x18\v \x01(\bR\aruntime\"\x89\x03\n" +
+	"\aruntime\x18\v \x01(\bR\aruntime\x12\x12\n" +
+	"\x04tree\x18\f \x01(\tR\x04tree\"\xab\x03\n" +
 	"\x04Exec\x12&\n" +
 	"\x0fstdin_is_socket\x18\x01 \x01(\bR\rstdinIsSocket\x12(\n" +
 	"\x10stdout_is_socket\x18\x02 \x01(\bR\x0estdoutIsSocket\x12\x1a\n" +
@@ -1593,7 +1678,9 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\rcap_effective\x18\b \x01(\x04R\fcapEffective\x12*\n" +
 	"\x03env\x18\t \x03(\v2\x18.tephra.v1.Exec.EnvEntryR\x03env\x12#\n" +
 	"\renv_truncated\x18\n" +
-	" \x01(\bR\fenvTruncated\x1a6\n" +
+	" \x01(\bR\fenvTruncated\x12 \n" +
+	"\fexe_ctime_ns\x18\v \x01(\x04R\n" +
+	"exeCtimeNs\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"m\n" +
@@ -1656,57 +1743,59 @@ func file_api_tephra_v1_tephra_proto_rawDescGZIP() []byte {
 	return file_api_tephra_v1_tephra_proto_rawDescData
 }
 
-var file_api_tephra_v1_tephra_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_api_tephra_v1_tephra_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
 var file_api_tephra_v1_tephra_proto_goTypes = []any{
 	(*Ack)(nil),        // 0: tephra.v1.Ack
 	(*Record)(nil),     // 1: tephra.v1.Record
-	(*Ptrace)(nil),     // 2: tephra.v1.Ptrace
-	(*Memfd)(nil),      // 3: tephra.v1.Memfd
-	(*Module)(nil),     // 4: tephra.v1.Module
-	(*Bpf)(nil),        // 5: tephra.v1.Bpf
-	(*Cred)(nil),       // 6: tephra.v1.Cred
-	(*Mount)(nil),      // 7: tephra.v1.Mount
-	(*Namespaces)(nil), // 8: tephra.v1.Namespaces
-	(*Rule)(nil),       // 9: tephra.v1.Rule
-	(*Process)(nil),    // 10: tephra.v1.Process
-	(*Exec)(nil),       // 11: tephra.v1.Exec
-	(*Parent)(nil),     // 12: tephra.v1.Parent
-	(*Container)(nil),  // 13: tephra.v1.Container
-	(*K8S)(nil),        // 14: tephra.v1.K8s
-	(*Exit)(nil),       // 15: tephra.v1.Exit
-	(*Network)(nil),    // 16: tephra.v1.Network
-	(*File)(nil),       // 17: tephra.v1.File
-	nil,                // 18: tephra.v1.Record.HealthEntry
-	nil,                // 19: tephra.v1.Exec.EnvEntry
-	nil,                // 20: tephra.v1.K8s.LabelsEntry
+	(*Enforce)(nil),    // 2: tephra.v1.Enforce
+	(*Ptrace)(nil),     // 3: tephra.v1.Ptrace
+	(*Memfd)(nil),      // 4: tephra.v1.Memfd
+	(*Module)(nil),     // 5: tephra.v1.Module
+	(*Bpf)(nil),        // 6: tephra.v1.Bpf
+	(*Cred)(nil),       // 7: tephra.v1.Cred
+	(*Mount)(nil),      // 8: tephra.v1.Mount
+	(*Namespaces)(nil), // 9: tephra.v1.Namespaces
+	(*Rule)(nil),       // 10: tephra.v1.Rule
+	(*Process)(nil),    // 11: tephra.v1.Process
+	(*Exec)(nil),       // 12: tephra.v1.Exec
+	(*Parent)(nil),     // 13: tephra.v1.Parent
+	(*Container)(nil),  // 14: tephra.v1.Container
+	(*K8S)(nil),        // 15: tephra.v1.K8s
+	(*Exit)(nil),       // 16: tephra.v1.Exit
+	(*Network)(nil),    // 17: tephra.v1.Network
+	(*File)(nil),       // 18: tephra.v1.File
+	nil,                // 19: tephra.v1.Record.HealthEntry
+	nil,                // 20: tephra.v1.Exec.EnvEntry
+	nil,                // 21: tephra.v1.K8s.LabelsEntry
 }
 var file_api_tephra_v1_tephra_proto_depIdxs = []int32{
-	9,  // 0: tephra.v1.Record.rule:type_name -> tephra.v1.Rule
-	10, // 1: tephra.v1.Record.process:type_name -> tephra.v1.Process
-	12, // 2: tephra.v1.Record.parent:type_name -> tephra.v1.Parent
-	13, // 3: tephra.v1.Record.container:type_name -> tephra.v1.Container
-	14, // 4: tephra.v1.Record.k8s:type_name -> tephra.v1.K8s
-	15, // 5: tephra.v1.Record.exit:type_name -> tephra.v1.Exit
-	16, // 6: tephra.v1.Record.network:type_name -> tephra.v1.Network
-	17, // 7: tephra.v1.Record.file:type_name -> tephra.v1.File
-	18, // 8: tephra.v1.Record.health:type_name -> tephra.v1.Record.HealthEntry
-	2,  // 9: tephra.v1.Record.ptrace:type_name -> tephra.v1.Ptrace
-	3,  // 10: tephra.v1.Record.memfd:type_name -> tephra.v1.Memfd
-	4,  // 11: tephra.v1.Record.module:type_name -> tephra.v1.Module
-	5,  // 12: tephra.v1.Record.bpf:type_name -> tephra.v1.Bpf
-	6,  // 13: tephra.v1.Record.cred:type_name -> tephra.v1.Cred
-	7,  // 14: tephra.v1.Record.mount:type_name -> tephra.v1.Mount
-	8,  // 15: tephra.v1.Record.namespaces:type_name -> tephra.v1.Namespaces
-	11, // 16: tephra.v1.Process.exec:type_name -> tephra.v1.Exec
-	19, // 17: tephra.v1.Exec.env:type_name -> tephra.v1.Exec.EnvEntry
-	20, // 18: tephra.v1.K8s.labels:type_name -> tephra.v1.K8s.LabelsEntry
-	1,  // 19: tephra.v1.Exporter.Export:input_type -> tephra.v1.Record
-	0,  // 20: tephra.v1.Exporter.Export:output_type -> tephra.v1.Ack
-	20, // [20:21] is the sub-list for method output_type
-	19, // [19:20] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	10, // 0: tephra.v1.Record.rule:type_name -> tephra.v1.Rule
+	11, // 1: tephra.v1.Record.process:type_name -> tephra.v1.Process
+	13, // 2: tephra.v1.Record.parent:type_name -> tephra.v1.Parent
+	14, // 3: tephra.v1.Record.container:type_name -> tephra.v1.Container
+	15, // 4: tephra.v1.Record.k8s:type_name -> tephra.v1.K8s
+	16, // 5: tephra.v1.Record.exit:type_name -> tephra.v1.Exit
+	17, // 6: tephra.v1.Record.network:type_name -> tephra.v1.Network
+	18, // 7: tephra.v1.Record.file:type_name -> tephra.v1.File
+	19, // 8: tephra.v1.Record.health:type_name -> tephra.v1.Record.HealthEntry
+	3,  // 9: tephra.v1.Record.ptrace:type_name -> tephra.v1.Ptrace
+	4,  // 10: tephra.v1.Record.memfd:type_name -> tephra.v1.Memfd
+	5,  // 11: tephra.v1.Record.module:type_name -> tephra.v1.Module
+	6,  // 12: tephra.v1.Record.bpf:type_name -> tephra.v1.Bpf
+	7,  // 13: tephra.v1.Record.cred:type_name -> tephra.v1.Cred
+	8,  // 14: tephra.v1.Record.mount:type_name -> tephra.v1.Mount
+	9,  // 15: tephra.v1.Record.namespaces:type_name -> tephra.v1.Namespaces
+	2,  // 16: tephra.v1.Record.enforce:type_name -> tephra.v1.Enforce
+	12, // 17: tephra.v1.Process.exec:type_name -> tephra.v1.Exec
+	20, // 18: tephra.v1.Exec.env:type_name -> tephra.v1.Exec.EnvEntry
+	21, // 19: tephra.v1.K8s.labels:type_name -> tephra.v1.K8s.LabelsEntry
+	1,  // 20: tephra.v1.Exporter.Export:input_type -> tephra.v1.Record
+	0,  // 21: tephra.v1.Exporter.Export:output_type -> tephra.v1.Ack
+	21, // [21:22] is the sub-list for method output_type
+	20, // [20:21] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_api_tephra_v1_tephra_proto_init() }
@@ -1720,7 +1809,7 @@ func file_api_tephra_v1_tephra_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_tephra_v1_tephra_proto_rawDesc), len(file_api_tephra_v1_tephra_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   21,
+			NumMessages:   22,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

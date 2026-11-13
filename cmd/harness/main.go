@@ -24,6 +24,12 @@ const usage = `usage:
   harness list
   harness run [flags] --all | <id>...
   harness fp  [flags]
+  harness run --evasions [flags] --all | <id>...
+
+With --enforce dry-run|on, "run" takes the scenarios that enforcement
+refuses, runs them in pods carrying the enforcement label and judges the
+refusal; "fp" runs the ordinary workloads that way and counts refusals.
+The agents must already run enforcement in that mode.
 
 Runs real attack techniques. Use it only on the lab VM or a throwaway
 cluster you own; it refuses a cluster whose nodes are not labelled
@@ -49,6 +55,8 @@ func run() int {
 		keep      = fs.Bool("keep", false, "leave the scenario namespaces in place")
 		record    = fs.String("record", "", "directory to save the event behind each detection in, as <rule>.live.jsonl (rules/testdata)")
 		duration  = fs.Duration("duration", 30*time.Minute, "length of the false-positive run")
+		enforce   = fs.String("enforce", "", "run under enforcement: dry-run or on")
+		evasions  = fs.Bool("evasions", false, "run the evasion scenarios under evasions/ and write evasion.md and evasion.json")
 	)
 	fs.Usage = func() { fmt.Fprint(os.Stderr, usage); fs.PrintDefaults() }
 	_ = fs.Parse(os.Args[2:])
@@ -56,12 +64,30 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	if *evasions {
+		if *enforce != "" {
+			return fail(fmt.Errorf("--evasions and --enforce cannot be combined"))
+		}
+		if *attacks == "attacks" {
+			*attacks = "evasions"
+		}
+	}
 	scenarios, err := harness.LoadAll(*attacks)
 	if err != nil {
 		return fail(err)
 	}
 	cluster := &harness.Cluster{Context: *kctx, Namespace: *namespace, Release: *release}
-	runner := &harness.Runner{Cluster: cluster, Log: os.Stderr, Keep: *keep}
+	runner := &harness.Runner{Cluster: cluster, Log: os.Stderr, Keep: *keep, Enforce: *enforce}
+	var enforceMode uint64
+	switch *enforce {
+	case "":
+	case harness.EnforceDryRun:
+		enforceMode = 1
+	case harness.EnforceOn:
+		enforceMode = 2
+	default:
+		return fail(fmt.Errorf("--enforce %q is not dry-run or on", *enforce))
+	}
 
 	switch os.Args[1] {
 	case "list":
@@ -79,6 +105,18 @@ func run() int {
 				return fail(err)
 			}
 		}
+		if *enforce != "" {
+			var blockable []*harness.Scenario
+			for _, s := range scenarios {
+				switch {
+				case s.Enforce != nil:
+					blockable = append(blockable, s)
+				case !*all:
+					return fail(fmt.Errorf("scenario %s has no enforce section", s.ID))
+				}
+			}
+			scenarios = blockable
+		}
 	case "fp":
 	default:
 		fmt.Fprint(os.Stderr, usage)
@@ -94,6 +132,11 @@ func run() int {
 		return fail(err)
 	}
 	defer cluster.Close()
+	if enforceMode != 0 {
+		if err := cluster.EnforceMode(ctx, enforceMode); err != nil {
+			return fail(err)
+		}
+	}
 	report, err := harness.LoadReport(filepath.Join(*out, "coverage.json"))
 	if err != nil {
 		return fail(err)
@@ -107,15 +150,22 @@ func run() int {
 			return fail(err)
 		}
 		res.Date, res.Sensor, res.Kernel = today, sensor, kernel
-		report.FalsePositives = res
-		if werr := report.Write(*out); werr != nil {
+		if *enforce == "" {
+			report.FalsePositives = res
+			if werr := report.Write(*out); werr != nil {
+				return fail(werr)
+			}
+		} else if werr := writeJSON(filepath.Join(*out, "fp-enforce-"+*enforce+".json"), res); werr != nil {
 			return fail(werr)
 		}
 		for _, a := range res.Alerts {
 			fmt.Printf("%-5s %-8s %-22s %5d  %s\n", a.Rule, a.Level, a.Namespace, a.Count, a.Example)
 		}
 		fmt.Printf("false-positive run: %d minutes, %d high or critical alerts, %d drops\n", res.Minutes, res.Serious(), res.Drops)
-		if err != nil || res.Serious() > 0 {
+		if *enforce != "" {
+			fmt.Printf("enforcement %s: %d actions refused\n", *enforce, res.Denied)
+		}
+		if err != nil || res.Serious() > 0 || res.Denied > 0 {
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "harness:", err)
 			}
@@ -140,8 +190,21 @@ func run() int {
 		if len(res.AlsoFired) > 0 {
 			line += "  also: " + strings.Join(res.AlsoFired, ",")
 		}
+		if res.TookEffect != nil {
+			if *res.TookEffect {
+				line += "  took effect"
+			} else {
+				line += "  refused"
+			}
+		}
 		if res.Error != "" {
 			line += "  error: " + res.Error
+		}
+		if res.Predicted != "" {
+			line += fmt.Sprintf("  predicted %s, measured %s", res.Predicted, res.Measured())
+		}
+		if res.Drops > 0 || res.AgentRestarts > 0 {
+			line += fmt.Sprintf("  drops %d, agent restarts %d", res.Drops, res.AgentRestarts)
 		}
 		fmt.Println(line)
 		if res.Verdict() != harness.Detected {
@@ -155,6 +218,32 @@ func run() int {
 		if ctx.Err() != nil {
 			break
 		}
+	}
+	if *evasions {
+		er := &harness.EvasionReport{Date: today, Sensor: sensor, Kernel: kernel, Results: results}
+		if err := er.Write(*out); err != nil {
+			return fail(err)
+		}
+		corrected := 0
+		for _, r := range results {
+			if !r.PredictionHeld() {
+				corrected++
+			}
+		}
+		fmt.Printf("%d evasion scenarios, %d predictions corrected; report in %s/evasion.md\n", len(results), corrected, *out)
+		// Evasions find limits; a miss is a result, not a failure.
+		return 0
+	}
+	if *enforce != "" {
+		path := filepath.Join(*out, "enforcement-"+*enforce+".json")
+		if err := writeJSON(path, map[string]any{"date": today, "sensor": sensor, "kernel": kernel, "mode": *enforce, "results": results}); err != nil {
+			return fail(err)
+		}
+		fmt.Printf("%d scenarios under enforcement %s, %d not as expected; results in %s\n", len(results), *enforce, failed, path)
+		if failed > 0 {
+			return 1
+		}
+		return 0
 	}
 	report.Date, report.Sensor, report.Kernel = today, sensor, kernel
 	report.Merge(results)
@@ -191,6 +280,14 @@ func saveEvents(dir string, res *harness.Result) error {
 		}
 	}
 	return nil
+}
+
+func writeJSON(path string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
 
 func fail(err error) int {

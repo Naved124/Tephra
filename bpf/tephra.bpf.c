@@ -6,3 +6,4 @@
 #include "net.bpf.c"
 #include "priv.bpf.c"
 #include "tamper.bpf.c"
+#include "enforce.bpf.c"

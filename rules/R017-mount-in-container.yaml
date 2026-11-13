@@ -11,7 +11,7 @@ detection:
   runtime:
     process.runtime: true
   condition: selection and not (host or runtime)
-action: alert
+action: block
 description: >-
   An ordinary container cannot mount anything. One that does is privileged,
   and a mount is the usual first step to reaching the node's filesystem.

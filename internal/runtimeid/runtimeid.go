@@ -83,6 +83,23 @@ func (s *Set) Refresh() int {
 	return len(s.ids)
 }
 
+// ID identifies one runtime binary; Dev is in the kernel's encoding.
+type ID struct {
+	Dev   uint32
+	Inode uint64
+}
+
+// IDs lists the identities known.
+func (s *Set) IDs() []ID {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]ID, 0, len(s.ids))
+	for id := range s.ids {
+		out = append(out, ID{Dev: id.dev, Inode: id.inode})
+	}
+	return out
+}
+
 // Has reports whether a file is one of the runtime binaries. dev is in the
 // kernel's encoding, as events carry it.
 func (s *Set) Has(dev uint32, inode uint64) bool {

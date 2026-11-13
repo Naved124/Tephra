@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -29,6 +30,13 @@ func (r *Runner) FalsePositives(ctx context.Context, manifest string, d time.Dur
 	}
 	if _, err := c.kubectl(ctx, nil, "-n", FPNamespace, "apply", "-f", manifest); err != nil {
 		return nil, err
+	}
+	if r.Enforce != "" {
+		// Every pod the workloads start, now and on every rollout, opts
+		// in.
+		if err := r.labelTemplates(ctx); err != nil {
+			return nil, err
+		}
 	}
 	r.logf("waiting for the workloads")
 	for _, w := range []string{"deployment/web", "statefulset/db"} {
@@ -81,7 +89,14 @@ loop:
 		}
 		row.Count++
 	}
-	res := &FPResult{Minutes: int(d.Minutes())}
+	res := &FPResult{Minutes: int(d.Minutes()), Enforce: r.Enforce}
+	// Refusals are counted from the stored alerts, not from the agents'
+	// counters, which start again from zero when an agent restarts.
+	for _, a := range alerts {
+		if a.Enforce != nil && a.Enforce.Denied {
+			res.Denied++
+		}
+	}
 	for _, row := range rows {
 		res.Alerts = append(res.Alerts, *row)
 	}
@@ -99,4 +114,25 @@ loop:
 		return res, fmt.Errorf("the alert query hit its limit of 5000; the counts are incomplete")
 	}
 	return res, nil
+}
+
+// labelTemplates adds the enforcement label to the pod template of every
+// workload in the false-positive namespace.
+func (r *Runner) labelTemplates(ctx context.Context) error {
+	c := r.Cluster
+	names, err := c.kubectl(ctx, nil, "-n", FPNamespace, "get", "deployment,statefulset,daemonset,cronjob", "-o", "name")
+	if err != nil {
+		return err
+	}
+	label := fmt.Sprintf(`{"metadata":{"labels":{%q:"true"}}}`, EnforceLabel)
+	for _, name := range strings.Fields(string(names)) {
+		patch := `{"spec":{"template":` + label + `}}`
+		if strings.HasPrefix(name, "cronjob") {
+			patch = `{"spec":{"jobTemplate":{"spec":{"template":` + label + `}}}}`
+		}
+		if _, err := c.kubectl(ctx, nil, "-n", FPNamespace, "patch", name, "--type=merge", "-p", patch); err != nil {
+			return err
+		}
+	}
+	return nil
 }

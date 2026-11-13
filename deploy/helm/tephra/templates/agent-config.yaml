@@ -20,6 +20,14 @@ data:
       {{- if .Values.collector.enabled }}
       collector: "{{ .Release.Name }}-collector.{{ .Release.Namespace }}.svc:4317"
       {{- end }}
+    {{- $e := .Values.agent.enforcement | default dict }}
+    enforcement:
+      enabled: {{ $e.enabled | default false }}
+      dry_run: {{ ne (toString $e.dryRun) "false" }}
+      on_agent_exit: {{ $e.onAgentExit | default "pinned" | quote }}
+      label: {{ $e.label | default "tephra.dev/enforce" | quote }}
+      protect_namespaces: {{ toJson ($e.protectNamespaces | default (list "kube-system")) }}
+      pin_dir: {{ $e.pinDir | default "/sys/fs/bpf/tephra" | quote }}
 ---
 # The detection rules, one key per file of the repository's rules/ directory.
 # The agent reads them at start-up and again on SIGHUP.

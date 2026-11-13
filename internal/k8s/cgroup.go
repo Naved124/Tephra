@@ -176,3 +176,32 @@ func (r *CgroupResolver) scan() {
 	r.lastScan = time.Now()
 	r.scans++
 }
+
+// PodCgroups walks the hierarchy at root and returns the cgroup ID of every
+// pod's own cgroup, by pod UID. A pod's cgroup is the directory named after
+// the pod; its containers' cgroups are below it.
+func PodCgroups(root string) map[string]uint64 {
+	out := map[string]uint64{}
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		uid := PodUID(d.Name())
+		if uid == "" {
+			return nil
+		}
+		var st syscall.Stat_t
+		if syscall.Stat(path, &st) == nil {
+			out[uid] = st.Ino
+		}
+		// Nothing below a pod's cgroup is another pod's.
+		return fs.SkipDir
+	})
+	return out
+}
