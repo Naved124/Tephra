@@ -54,8 +54,10 @@ variable "user_data" {
   type        = string
 }
 
+# Canonical publishes 24.04 and later under ebs-gp3, and 22.04 (the kernel
+# floor) only under ebs-gp2. The root volume is gp3 either way.
 data "aws_ssm_parameter" "ami" {
-  name = "/aws/service/canonical/ubuntu/server/${var.ubuntu_version}/stable/current/amd64/hvm/ebs-gp3/ami-id"
+  name = "/aws/service/canonical/ubuntu/server/${var.ubuntu_version}/stable/current/amd64/hvm/${var.ubuntu_version == "22.04" ? "ebs-gp2" : "ebs-gp3"}/ami-id"
 }
 
 data "aws_availability_zones" "up" {

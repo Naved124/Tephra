@@ -109,7 +109,7 @@ cmd_sync() {
 	id=$(instance_id)
 	[ -n "$id" ] || die "no instance; run: lab.sh up"
 	rsync -a --delete \
-		--exclude /bin/ --exclude /deploy/vm/.state/ --exclude '.terraform/' --exclude '*.tfstate*' \
+		--exclude /bin/ --exclude /tephrad --exclude /.tools/ --exclude /deploy/vm/.state/ --exclude '.terraform/' --exclude '*.tfstate*' \
 		-e "ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=$STATE/known_hosts -o LogLevel=ERROR -o IdentitiesOnly=yes -o 'ProxyCommand=aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p'" \
 		"$REPO/" "tephra@$id:$REMOTE_DIR/"
 }
