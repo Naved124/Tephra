@@ -50,7 +50,7 @@ var (
 	workloadText = map[string]string{
 		"exec":    "Exec-heavy: 20,000 fork and exec of /bin/true on two CPUs. Throughput in execs per second.",
 		"file":    "File-heavy: unpack and compile BusyBox 1.37.0 on two CPUs. Throughput is builds per hour.",
-		"network": "Network-heavy: 30,000 HTTP requests to nginx, 32 concurrent, a new connection each. Throughput in requests per second; p99 latency in milliseconds.",
+		"network": "Network-heavy: 200,000 HTTP requests to nginx, 32 concurrent, a new connection each. Throughput in requests per second; p99 latency in milliseconds, as ApacheBench reports it (whole milliseconds).",
 		"idle":    "Idle: 60 seconds with nothing running. Only the sensor's own cost.",
 	}
 )

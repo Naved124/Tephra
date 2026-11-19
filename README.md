@@ -28,8 +28,9 @@ Milestones follow section 10 of the design.
 | M8 Remaining hooks | Done |
 | After M8: refused opens, deletes and renames, runtime by file identity | Done |
 | M9 Evasion work | Done: 8 scenarios, results in [docs/evasion.md](docs/evasion.md) |
-| M12 Enforcement | Done on kernels 6.8 and 7.0; 5.15 not yet tested |
-| M13 Correlation rules | Done on kernels 6.8 and 7.0; 5.15 not yet tested |
+| M10 Benchmarks | Done: against Falco and Tetragon, in [docs/benchmarks.md](docs/benchmarks.md) |
+| M12 Enforcement | Done; kernel tests pass on 5.15, 6.8 and 7.0 |
+| M13 Correlation rules | Done; kernel tests pass on 5.15, 6.8 and 7.0 |
 
 What works today: the agent watches process starts and exits, connections
 (IPv4, IPv6 and Unix sockets), opens of watched files, opens of those files
@@ -65,7 +66,16 @@ write-up per finding in [docs/evasions/](docs/evasions/). Three get past it
 today: a renamed shell (E01), a session inside an interpreter (E02), and
 acting while the agent is killed (E07).
 
-Not built yet: benchmarks against Falco and Tetragon, and the EKS demo.
+[docs/benchmarks.md](docs/benchmarks.md) measures the cost: four workloads
+under no sensor, Tephra in three modes, Falco and Tetragon, five runs each on
+one EC2 instance. On an exec-heavy loop Tephra with alerts only costs 14% of
+throughput, against 21% for Falco and 28% for Tetragon; on a compile it costs
+4%. The network workload is where Tephra is weakest: every connection is an
+event the agent processes, so it costs 22% of request throughput and about
+70% of a CPU, where Tetragon, which does not trace connections by default,
+costs 1%.
+
+Not built yet: the EKS demo.
 
 An alert, as `kubectl logs` shows it: the event that matched, with the rule
 in front. This one is a bind shell started with `nc -l -p 4445 -e /bin/sh` in
@@ -181,6 +191,20 @@ or missed.
 `make coverage` also saves the event behind every detection to
 `rules/testdata/<rule>.live.jsonl`, and the rule tests check that each rule
 still fires on it.
+
+## Benchmarks
+
+```sh
+bench/matrix.sh 5                    # every configuration by every workload, five runs each
+bench/supervise.sh 5                 # the same unattended: retries, summary, then powers off
+```
+
+Lab cluster only. Each cell is `bench/run.sh <configuration> <workload>
+<run>` and writes `bench/raw/<configuration>/<workload>/<run>.json`; cells
+already there are skipped, so an interrupted matrix resumes. Falco and
+Tetragon are installed from their official charts at the versions pinned in
+`bench/versions.env`. `go run ./cmd/bench bench/raw docs/benchmarks.md`
+rebuilds the report from the raw results.
 
 ## Backend
 
@@ -299,7 +323,10 @@ bpf/                 eBPF programs (C, CO-RE)
 cmd/tephrad/         agent entrypoint, rules subcommands
 cmd/collector/       gRPC -> Loki
 cmd/harness/         attack runner and coverage report
+cmd/bench/           benchmark report from bench/raw
 attacks/             one directory per attack scenario
+evasions/            one directory per evasion scenario
+bench/               benchmark scripts, workloads and raw results
 internal/loader/     bpf2go bindings, attach, kernel feature probes
 internal/events/     Go mirrors of the kernel structs, decoder
 internal/proctree/   process cache and /proc seeding
@@ -318,8 +345,10 @@ deploy/docker/       image builds
 deploy/helm/tephra/  Helm chart
 deploy/kind/         lab cluster definition
 deploy/vm/           dev VM definition
+deploy/aws/          lab on EC2 (lab.sh)
+deploy/terraform/    lab instance on EC2
 hack/                acceptance tests, one script per milestone
-docs/                design, coverage report
+docs/                design, coverage, evasion and benchmark reports
 ```
 
 ## Licence

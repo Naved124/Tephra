@@ -99,6 +99,7 @@ read -r cpu1 rss1 < <(sensor_usage)
 read -r ev1 dr1 < <(tephra_counts)
 result=$(k -n "$NS" logs bench | awk '/^RESULT / {sub(/^RESULT /, ""); print}')
 [ -n "$result" ] || { echo "no RESULT line from the workload" >&2; exit 1; }
+case " $result " in *"= "*) echo "empty value in the workload's RESULT: $result" >&2; exit 1 ;; esac
 
 mkdir -p "$(dirname "$out")"
 {

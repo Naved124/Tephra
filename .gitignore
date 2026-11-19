@@ -25,3 +25,4 @@
 terraform.tfstate.d/
 bench/.cache/
 /tephrad
+bench/DONE

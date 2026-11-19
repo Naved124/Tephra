@@ -12,14 +12,15 @@ spec:
     kubernetes.io/hostname: tephra-worker
   containers:
     - name: bench
-      image: httpd:2.4.65-alpine
+      image: httpd:2.4.65
       command: ["/bin/sh", "-c"]
       args:
         - |
-          out=$(taskset -c 2 /usr/local/apache2/bin/ab -q -n 30000 -c 32 http://bench-server/ 2>&1)
+          out=$(taskset -c 2 /usr/local/apache2/bin/ab -q -n 200000 -c 32 http://bench-server/ 2>&1)
           echo "$out" | grep -E "Requests per second|Failed requests|  99%"
           rps=$(echo "$out" | awk '/Requests per second/ {print $4}')
           p99=$(echo "$out" | awk '$1 == "99%" {print $2}')
-          echo "RESULT ops=30000 rps=$rps p99_ms=$p99"
+          [ -n "$rps" ] && [ -n "$p99" ] || { echo "$out"; exit 1; }
+          echo "RESULT ops=200000 rps=$rps p99_ms=$p99"
       resources:
         requests: {cpu: 10m, memory: 32Mi}

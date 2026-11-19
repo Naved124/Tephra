@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# nginx on one pinned CPU, for the network workload.
+# nginx on one pinned CPU (Debian image: the Alpine one has no taskset), for the network workload.
 apiVersion: v1
 kind: Pod
 metadata:
@@ -10,8 +10,15 @@ spec:
     kubernetes.io/hostname: tephra-worker
   containers:
     - name: nginx
-      image: nginx:1.27-alpine
-      command: ["taskset", "-c", "3", "nginx", "-g", "daemon off; worker_processes 1;"]
+      image: nginx:1.27
+      # The image's nginx.conf already sets worker_processes, and nginx
+      # refuses a directive given twice, so it is changed in the file.
+      command: ["/bin/sh", "-c"]
+      args:
+        - sed -i 's/^worker_processes.*/worker_processes 1;/' /etc/nginx/nginx.conf && exec taskset -c 3 nginx -g 'daemon off;'
+      readinessProbe:
+        tcpSocket: {port: 80}
+        periodSeconds: 1
       resources:
         requests: {cpu: 10m, memory: 32Mi}
 ---

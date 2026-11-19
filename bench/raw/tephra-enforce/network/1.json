@@ -1,0 +1,1 @@
+{"config":"tephra-enforce","workload":"network","run":1,"wall_ns":14836907424,"ops":200000,"rps":19359.86,"p99_ms":2,"sensor_cpu_ticks":1034,"sensor_rss_kb":109580,"events":400554,"drops":0}

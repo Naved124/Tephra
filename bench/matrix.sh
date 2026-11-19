@@ -25,13 +25,19 @@ for config in $CONFIGS; do
 	done
 	[ "$todo" = 1 ] || { echo "== $config: done already"; continue; }
 	echo "== $config"
-	bench/config.sh "$config"
+	# Every step has a time limit, so one that hangs costs minutes, not the
+	# rest of the matrix. A configuration that does not come up is skipped;
+	# its cells stay missing and a later pass retries them.
+	if ! timeout 15m bench/config.sh "$config"; then
+		echo "!! $config did not come up; skipping its cells"
+		continue
+	fi
 	# Runs interleave the workloads, so drift over time spreads evenly.
 	for r in $(seq 1 "$RUNS"); do
 		for w in $WORKLOADS; do
 			[ -f "bench/raw/$config/$w/$r.json" ] && continue
 			echo "-- $config $w $r"
-			bench/run.sh "$config" "$w" "$r" || echo "!! $config $w $r failed"
+			timeout 20m bench/run.sh "$config" "$w" "$r" || echo "!! $config $w $r failed"
 		done
 	done
 done
