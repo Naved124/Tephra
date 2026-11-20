@@ -326,8 +326,10 @@ int BPF_PROG(tephra_fork, struct task_struct *parent, struct task_struct *child)
 		return 0;
 	s->seen++;
 
-	if (BPF_CORE_READ(child, pid) != BPF_CORE_READ(child, tgid) ||
-	    agent_task()) {
+	/* Threads are not processes. The agent's own forks are reported: it
+	 * never starts a process, so one it starts is a sign that someone else
+	 * is running code in it, and the child's events need their parent. */
+	if (BPF_CORE_READ(child, pid) != BPF_CORE_READ(child, tgid)) {
 		s->filtered++;
 		return 0;
 	}
