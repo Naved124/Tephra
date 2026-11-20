@@ -77,10 +77,10 @@ func TestLoadAndObserve(t *testing.T) {
 	})
 
 	// Three lifecycle hooks, connect, accept, file_open, the five
-	// file_change hooks, refused opens and the seven privilege and tamper
+	// file_change hooks, refused opens and the eight privilege and tamper
 	// hooks.
-	if got := len(s.Attachments()); got != 20 {
-		t.Fatalf("attachments = %d, want 20: %+v, skipped %+v", got, s.Attachments(), s.Skipped())
+	if got := len(s.Attachments()); got != 21 {
+		t.Fatalf("attachments = %d, want 21: %+v, skipped %+v", got, s.Attachments(), s.Skipped())
 	}
 	for _, typ := range events.Types {
 		if typ == events.TypeEnforce {
@@ -91,16 +91,13 @@ func TestLoadAndObserve(t *testing.T) {
 			t.Errorf("%s: available %v, enabled %v", typ, s.Available(typ), s.Enabled(typ))
 		}
 	}
-	if s.Self().CgroupID == 0 || s.Self().PidNSInum == 0 {
+	if s.Self().CgroupID == 0 || s.Self().PidNSInum == 0 || s.Self().TGID == 0 || s.Self().StartNS == 0 {
 		t.Errorf("self not resolved: %+v", s.Self())
 	}
 
-	// The test binary shares the agent's cgroup, which is ignored. Lift
-	// that so the child below is visible.
-	if err := s.coll.Maps["cgroup_ignore"].Delete(s.Self().CgroupID); err != nil {
-		t.Fatalf("clear cgroup_ignore: %v", err)
-	}
-
+	// The test binary is the agent. Its child shares its cgroup and is
+	// still seen: only the agent's own process is ignored, so a process
+	// moved into the agent's cgroup is not hidden (E15).
 	cmd := exec.Command("/bin/true", "tephra-marker", "second arg")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("run /bin/true: %v", err)
@@ -197,7 +194,7 @@ func TestScriptExecReportsInterpreter(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if err := s.coll.Maps["cgroup_ignore"].Delete(s.Self().CgroupID); err != nil {
+	if err := s.coll.Maps["agent_tasks"].Delete(s.Self().TGID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -249,7 +246,7 @@ func TestArgvTruncation(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if err := s.coll.Maps["cgroup_ignore"].Delete(s.Self().CgroupID); err != nil {
+	if err := s.coll.Maps["agent_tasks"].Delete(s.Self().TGID); err != nil {
 		t.Fatal(err)
 	}
 

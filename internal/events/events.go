@@ -38,13 +38,15 @@ const (
 	// TypeEnforce is an action an enforcement program refused, or in
 	// dry-run mode would have refused.
 	TypeEnforce Type = 17
+	// TypeSignal is a signal another process sent to the agent.
+	TypeSignal Type = 18
 )
 
 // Types lists every event type the agent knows.
 var Types = []Type{
 	TypeExec, TypeFork, TypeExit, TypeConnect, TypeAccept, TypeUnixConnect, TypeFileOpen,
 	TypePtrace, TypeMemfd, TypeModuleLoad, TypeBPFLoad, TypeCredChange, TypeMount, TypeSetns,
-	TypeFileChange, TypeFileDenied, TypeEnforce,
+	TypeFileChange, TypeFileDenied, TypeEnforce, TypeSignal,
 }
 
 // ParseType is the inverse of Type.String.
@@ -93,6 +95,8 @@ func (t Type) String() string {
 		return "file_denied"
 	case TypeEnforce:
 		return "enforce"
+	case TypeSignal:
+		return "signal"
 	}
 	return fmt.Sprintf("unknown(%d)", uint32(t))
 }
@@ -277,6 +281,15 @@ type Ptrace struct {
 	TargetPID     uint32
 	TargetStartNS uint64
 	Mode          uint32
+}
+
+// Signal is struct signal_event: a signal sent to the agent. The header is
+// the sender.
+type Signal struct {
+	Header
+	TargetPID     uint32
+	TargetStartNS uint64
+	Signal        uint32
 }
 
 // Memfd is struct memfd_event.
@@ -484,6 +497,11 @@ func Decode(raw []byte) (Event, error) {
 			Dev:    le.Uint32(raw[enforceDev:]),
 			Path:   cstr(raw[enforcePath : enforcePath+n]),
 		}, nil
+	case TypeSignal:
+		if len(raw) < signalSize {
+			return nil, short(h, raw, signalSize)
+		}
+		return &Signal{Header: h, TargetPID: le.Uint32(raw[hdrSize:]), Signal: le.Uint32(raw[hdrSize+4:]), TargetStartNS: le.Uint64(raw[hdrSize+8:])}, nil
 	case TypePtrace:
 		if len(raw) < ptraceSize {
 			return nil, short(h, raw, ptraceSize)

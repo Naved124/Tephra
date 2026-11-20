@@ -54,8 +54,8 @@ func TestShippedRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set.Rules) != 30 {
-		t.Errorf("loaded %d rules, want R001 to R029 and R032", len(set.Rules))
+	if len(set.Rules) != 32 {
+		t.Errorf("loaded %d rules, want R001 to R030, R032 and R033", len(set.Rules))
 	}
 	for _, r := range set.Rules {
 		if r.Description == "" || len(r.Tags) < 2 {
@@ -195,7 +195,7 @@ func TestShippedWatches(t *testing.T) {
 	for _, typ := range set.EventTypes() {
 		types[typ.String()] = true
 	}
-	for _, name := range []string{"exec", "connect", "unix_connect", "file_open", "file_change", "file_denied", "ptrace", "module_load", "bpf_load", "cred_change", "mount", "setns"} {
+	for _, name := range []string{"exec", "connect", "unix_connect", "file_open", "file_change", "file_denied", "ptrace", "signal", "module_load", "bpf_load", "cred_change", "mount", "setns"} {
 		if !types[name] {
 			t.Errorf("event type %s not enabled by the shipped rules", name)
 		}

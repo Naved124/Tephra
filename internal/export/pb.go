@@ -68,8 +68,11 @@ func ToProto(r *Record) *tephrav1.Record {
 			Inode: x.Inode, Dev: x.Dev, MatchedBy: x.MatchedBy, Op: x.Op, Error: x.Error,
 		}
 	}
+	if x := r.Signal; x != nil {
+		p.Signal = &tephrav1.Signal{Number: x.Number, Name: x.Name, TargetPid: x.TargetPID}
+	}
 	if x := r.Ptrace; x != nil {
-		p.Ptrace = &tephrav1.Ptrace{TargetPid: x.TargetPID, TargetImage: x.TargetImage, TargetCommandLine: x.TargetCommandLine, Mode: x.Mode}
+		p.Ptrace = &tephrav1.Ptrace{TargetPid: x.TargetPID, TargetImage: x.TargetImage, TargetCommandLine: x.TargetCommandLine, Mode: x.Mode, TargetIsAgent: x.TargetIsAgent}
 	}
 	if x := r.Memfd; x != nil {
 		p.Memfd = &tephrav1.Memfd{Flags: x.Flags}
@@ -164,8 +167,11 @@ func FromProto(p *tephrav1.Record) *Record {
 			Inode: x.GetInode(), Dev: x.GetDev(), MatchedBy: x.GetMatchedBy(), Op: x.GetOp(), Error: x.GetError(),
 		}
 	}
+	if x := p.GetSignal(); x != nil {
+		r.Signal = &Signal{Number: x.GetNumber(), Name: x.GetName(), TargetPID: x.GetTargetPid()}
+	}
 	if x := p.GetPtrace(); x != nil {
-		r.Ptrace = &Ptrace{TargetPID: x.GetTargetPid(), TargetImage: x.GetTargetImage(), TargetCommandLine: x.GetTargetCommandLine(), Mode: x.GetMode()}
+		r.Ptrace = &Ptrace{TargetPID: x.GetTargetPid(), TargetImage: x.GetTargetImage(), TargetCommandLine: x.GetTargetCommandLine(), Mode: x.GetMode(), TargetIsAgent: x.GetTargetIsAgent()}
 	}
 	if x := p.GetMemfd(); x != nil {
 		r.Memfd = &Memfd{Flags: x.GetFlags()}

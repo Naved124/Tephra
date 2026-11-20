@@ -26,7 +26,7 @@ int BPF_PROG(tephra_file_open, struct file *file)
 		return 0;
 	s->seen++;
 
-	if (cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (agent_task()) {
 		s->filtered++;
 		return 0;
 	}
@@ -131,7 +131,7 @@ static __noinline int report_change(struct dentry *dentry, struct vfsmount *mnt,
 		return 0;
 	s->seen++;
 
-	if (cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (agent_task()) {
 		s->filtered++;
 		return 0;
 	}
@@ -279,7 +279,7 @@ static __always_inline int open_denied(unsigned long long *ctx, int dfd,
 		return 0;
 	s->seen++;
 
-	if (cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (agent_task()) {
 		s->filtered++;
 		return 0;
 	}

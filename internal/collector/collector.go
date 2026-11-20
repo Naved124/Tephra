@@ -52,6 +52,10 @@ type Options struct {
 	// streams in the batch are failed back to their agents.
 	PushAttempts int
 	PushBackoff  time.Duration
+	// SilenceAfter is how long an agent may send no health record before
+	// R031 reports it, unless it announced a planned stop; negative
+	// disables it. Agents send one every 15 s.
+	SilenceAfter time.Duration
 }
 
 func (o *Options) defaults() {
@@ -81,6 +85,9 @@ func (o *Options) defaults() {
 	}
 	if o.PushBackoff <= 0 {
 		o.PushBackoff = 500 * time.Millisecond
+	}
+	if o.SilenceAfter == 0 {
+		o.SilenceAfter = defaultSilence
 	}
 }
 
@@ -126,6 +133,7 @@ type Collector struct {
 	bytes   int
 	first   time.Time
 	kick    chan struct{}
+	agents  *watch
 
 	received, invalid, pushed, rejected, pushErrors, refused atomic.Uint64
 	queued                                                   atomic.Int64
@@ -134,7 +142,7 @@ type Collector struct {
 // New returns a Collector. Run must be started for streams to complete.
 func New(push Pusher, opts Options, log *slog.Logger) *Collector {
 	opts.defaults()
-	return &Collector{opts: opts, push: push, log: log, kick: make(chan struct{}, 1)}
+	return &Collector{opts: opts, push: push, log: log, kick: make(chan struct{}, 1), agents: newWatch(opts.SilenceAfter)}
 }
 
 // Stats returns the counters.
@@ -164,7 +172,10 @@ func (c *Collector) Export(stream tephrav1.Exporter_ExportServer) error {
 		if len(g.entries)+int(invalid) >= c.opts.MaxStream {
 			return status.Errorf(codes.InvalidArgument, "more than %d records in one stream", c.opts.MaxStream)
 		}
-		e, err := c.entry(rec)
+		e, alert, err := c.entry(rec)
+		if alert != nil {
+			c.raise(alert)
+		}
 		if err != nil {
 			invalid++
 			if c.invalid.Add(1) <= 10 {
@@ -200,25 +211,42 @@ func (c *Collector) Export(stream tephrav1.Exporter_ExportServer) error {
 	}
 }
 
-// entry validates a record and turns it into a log line with its labels.
-func (c *Collector) entry(p *tephrav1.Record) (Entry, error) {
+// entry validates a record and turns it into a log line with its labels. A
+// health record can also give an alert of the collector's own.
+func (c *Collector) entry(p *tephrav1.Record) (Entry, *export.Record, error) {
 	rec := export.FromProto(p)
 	ts, err := time.Parse(time.RFC3339Nano, rec.TS)
 	if err != nil {
-		return Entry{}, fmt.Errorf("timestamp %q: %w", rec.TS, err)
+		return Entry{}, nil, fmt.Errorf("timestamp %q: %w", rec.TS, err)
 	}
 	if rec.Type == export.TypeHealth {
 		if rec.Node == "" || len(rec.Health) == 0 {
-			return Entry{}, fmt.Errorf("health record without node or counters")
+			return Entry{}, nil, fmt.Errorf("health record without node or counters")
 		}
-		return healthEntry(c.opts.Cluster, rec.K8s.Namespace, rec.Node, ts, rec.Health)
+		var alert *export.Record
+		if c.opts.SilenceAfter > 0 && !rec.IsAlert() {
+			alert = c.agents.health(rec.Node, rec.Health, time.Now())
+		}
+		e, err := healthEntry(c.opts.Cluster, rec.K8s.Namespace, rec.Node, ts, rec.Health)
+		return e, alert, err
 	}
+	e, err := c.eventEntry(rec, ts)
+	return e, nil, err
+}
+
+// eventEntry turns an event or an alert into a log line with its labels.
+func (c *Collector) eventEntry(rec *export.Record, ts time.Time) (Entry, error) {
 	if _, ok := events.ParseType(rec.Type); !ok {
 		return Entry{}, fmt.Errorf("unknown event type %q", rec.Type)
 	}
 	if rec.Node == "" || rec.K8s.Namespace == "" {
 		return Entry{}, fmt.Errorf("record without node or namespace")
 	}
+	return c.label(rec, ts)
+}
+
+// label builds the entry of a record that passed validation.
+func (c *Collector) label(rec *export.Record, ts time.Time) (Entry, error) {
 	l := Labels{Cluster: c.opts.Cluster, Node: rec.Node, Namespace: rec.K8s.Namespace, Stream: "event", Type: rec.Type}
 	if rec.IsAlert() {
 		if rec.Rule.ID == "" || rec.Rule.Level == "" {
@@ -275,6 +303,28 @@ func (c *Collector) selfHealth(now time.Time) {
 	c.enqueue(&group{entries: []Entry{e}, bytes: len(e.Line), done: make(chan result, 1)})
 }
 
+// raise queues an alert the collector made itself. Nobody waits for its
+// result: if Loki refuses it, it is logged.
+func (c *Collector) raise(rec *export.Record) {
+	ts, _ := time.Parse(time.RFC3339Nano, rec.TS)
+	e, err := c.label(rec, ts)
+	if err != nil {
+		c.log.Error("collector alert not built", "rule", rec.Rule.ID, "error", err.Error())
+		return
+	}
+	c.log.Warn(rec.Rule.Title, "rule", rec.Rule.ID, "node", rec.Node, "facts", rec.Health)
+	done := make(chan result, 1)
+	if !c.enqueue(&group{entries: []Entry{e}, bytes: len(e.Line), done: done}) {
+		c.log.Error("collector alert dropped: queue full", "rule", rec.Rule.ID, "node", rec.Node)
+		return
+	}
+	go func() {
+		if res := <-done; res.err != nil || res.rejected {
+			c.log.Error("collector alert not stored", "rule", rec.Rule.ID, "node", rec.Node)
+		}
+	}()
+}
+
 func (c *Collector) enqueue(g *group) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -310,6 +360,11 @@ func (c *Collector) Run(ctx context.Context) {
 		select {
 		case now := <-health:
 			c.selfHealth(now)
+			if c.opts.SilenceAfter > 0 {
+				for _, a := range c.agents.check(now) {
+					c.raise(a)
+				}
+			}
 		case <-ctx.Done():
 			c.flush(context.Background())
 			return

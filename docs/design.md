@@ -52,7 +52,8 @@ The attacker has code execution inside a container, through an application vulne
 | Unprivileged process in a container | Yes | Primary case |
 | Root in an unprivileged container | Yes | Primary case |
 | Root in a privileged or hostPID container | Yes, detect the escape | The escape itself is the detection target |
-| Root on the host | Partly | Sensor can be killed or its programs detached; tamper events are emitted but not guaranteed |
+| Root on the host | Partly | Can stop the sensor, detach its pinned programs or unmount bpffs. Not prevented: no sensor can stop its own administrator. What it leaves is a trail: R030 for a signal sent other than through Kubernetes, R031 when the node goes quiet, and the Kubernetes audit log for API actions |
+| Cluster-admin, or anyone allowed to manage the tephra namespace | Partly | Can stop or remove Tephra the way an operator does, which raises nothing by design (section 7, "Operating Tephra"). The Kubernetes audit log is the record |
 | Kernel code execution (malicious module, kernel exploit) | No | An attacker in the kernel can blind any eBPF sensor; only the module load is detectable |
 
 ### Trust boundaries
@@ -160,6 +161,7 @@ The kernel side is thirteen small programs that each attach to one hook, fill on
 | cred_change | commit_creds | fentry | Old and new uid, euid, gid and effective capabilities; whether an exec made the change | M8 |
 | mount | security_sb_mount | fentry | Filesystem type, flags, the last six components of the target path | M8 |
 | setns | switch_task_namespaces | fentry | Which namespaces changed and the inode number of each namespace afterwards | M8 |
+| signal | security_task_kill | fentry | Signals sent by a process to the agent: the sender (the header), the signal number, the agent's pid | M14 |
 
 Reasons behind the less obvious choices:
 
@@ -168,6 +170,7 @@ Reasons behind the less obvious choices:
 - security_sock_graft for accept. It is entered in the accepting task once the connection is established, with the new socket as an argument. An exit hook on inet_csk_accept would miss the first connection of every server that was already waiting in accept() when the agent attached; it is kept only as a fallback.
 - The return of do_filp_open for refused opens. security_file_open only runs once the permission checks have passed, so a refusal is invisible there. Every open ends in do_filp_open, whichever check said no. Refusals are rare, so the kernel sends all of them and the agent matches the name against the watches.
 - The path hooks for file_change. Deleting a watched file, renaming another file onto its name or linking the name somewhere else never opens it. The security_path_* functions give the directory's mount as well as the entry, which the path needs; they exist on kernels built with CONFIG_SECURITY_PATH (AppArmor and Landlock select it). Without them the event type is reported as unavailable.
+- security_task_kill for signals. It runs for every signal a process sends, and not for signals the kernel raises itself (a fault, a terminal's ^C). Only signals to the agent are kept, and not those the agent sends itself, which Go does constantly. The event is written before the signal is delivered, so a SIGKILL still leaves it in the ring buffer.
 - commit_creds is not a stable interface. It is the one hook most likely to need a fallback; the loader treats attach failure here as a warning, not an error.
 
 ### Common event header
@@ -236,7 +239,7 @@ struct file_event {
 
 A connect to an AF_UNIX socket is emitted as a separate unix_connect record: the header plus sun_path[108] from the kernel copy of the address. R010 matches on it.
 
-The remaining payloads (ptrace, memfd, module_load, bpf_load, cred_change, mount, setns) are small fixed structs in bpf/common.h; each is the header plus the fields named in the hook table.
+The remaining payloads (ptrace, signal, memfd, module_load, bpf_load, cred_change, mount, setns) are small fixed structs in bpf/common.h; each is the header plus the fields named in the hook table.
 
 The two socket flags on exec are the basis of reverse-shell detection: the program reads file descriptors 0 and 1 from task->files->fdt and checks whether each inode is a socket.
 
@@ -251,7 +254,7 @@ The two socket flags on exec are the basis of reverse-shell detection: the progr
 | path_watch | LPM_TRIE | {prefixlen, path[128]}, watch bits | Agent | Path prefixes that file_open should emit; an exact path is stored with its terminating NUL |
 | inode_watch | HASH | {inode, dev}, watch bits | Agent | Files watched by identity |
 | name_watch | HASH | name[32], watch bits | Agent | Files watched by their last path component, wherever they are |
-| cgroup_ignore | HASH | cgroup ID, 1 byte | Agent | Skip the sensor's own pod and other trusted cgroups |
+| agent_tasks | HASH | kernel tgid, start time of the process | Agent | Skip the agent's own process. Keyed by process, not cgroup: a process moved into the agent's cgroup is still seen (E15). The start time is compared too, so a process that later gets a dead agent's pid number is not skipped |
 | net_ignore_v4, net_ignore_v6 | LPM_TRIE | CIDR, 1 byte | Agent | Destinations never emitted (loopback, node-local) |
 
 ### In-kernel filtering
@@ -259,7 +262,7 @@ The two socket flags on exec are the basis of reverse-shell detection: the progr
 Filtering in the kernel is what keeps overhead low, because the expensive part of an event is copying it to userspace.
 
 - Each program first checks its bit in cfg.enabled and returns if clear.
-- It then looks up the current cgroup ID in cgroup_ignore.
+- It then skips the agent's own process, looked up in agent_tasks.
 - file_open checks inode_watch, then name_watch, then resolves the path into scratch and does one path_watch lookup. No match means no event. The watch bits say whether an entry reports reads, writes or both, so a rule about writes costs nothing for reads. This is the only way file monitoring is affordable; unfiltered opens are the highest-volume event on any node.
 - connect and accept check the remote address against the ignore tries.
 - Events are built in scratch and sent with bpf_ringbuf_output using the actual length, so a short argv does not consume 1.3 KiB of ring space. The cost is one extra copy compared with bpf_ringbuf_reserve.
@@ -300,8 +303,10 @@ The agent is one Go binary structured as a pipeline of four stages connected by 
 
 - bpf2go compiles each .bpf.c at build time and embeds the object in the Go binary, so the container image needs no compiler.
 - On start: raise RLIMIT_MEMLOCK, probe kernel features, load the collection, write cfg and the filter maps, then attach programs one by one.
-- Links are held open by the agent and not pinned. If the agent exits, the kernel detaches everything; nothing is left behind on the node. The v2 enforcement programs are the exception and are pinned by default (section 9).
-- The agent writes its own cgroup ID into cgroup_ignore before attaching, so it never reports itself.
+- Detection links, the events ring buffer and the stats map are pinned under /sys/fs/bpf/tephra/detect (`tamper.keep_recording`, on by default). An agent that is killed, crashes or is frozen cannot take the kernel's sight with it: the programs keep recording into the pinned ring buffer. The next agent adopts the buffer, reads what was recorded meanwhile (counted as `recorded_while_down` in its health), attaches its own programs and then replaces the old links. For a moment both sets run, so an event can be reported twice. The old programs do not know the new agent and report it; the agent drops those events by pid and start time (`own_events_dropped`). A ring buffer pinned by a version with another layout or size cannot be adopted; the agent says so and starts fresh.
+- A planned stop removes the pins, so an uninstall leaves nothing in the kernel. A stop is planned when the kernel's signal event shows the SIGTERM came from the container runtime or systemd (recognised by file identity) or from the node's first process, which is how Kubernetes stops a pod and how a node shuts down. The agent waits up to 2 s for that event. Any other sender, or none seen, is an unplanned stop: the pins stay. On a kernel without the signal hook nothing can tell the two apart, and every stop is taken as planned.
+- The enforcement programs are pinned separately (section 9).
+- The agent writes its own process into agent_tasks before attaching, so it never reports itself.
 
 ### Ring buffer reader
 
@@ -481,9 +486,12 @@ The loader validates every rule (unknown field, wrong type for a modifier, bad A
 | R027 | Any program, not the container's main binary, started with a socket as stdin and stdout | exec | T1059 | Medium |
 | R028 | A script interpreter that is not the container's application, and was not started by its first process, connects out | connect | T1059.006, T1071 | Medium |
 | R029 | A program started on a pseudo-terminal by a script interpreter that is not the container's application | exec | T1059, T1572 | Medium |
+| R030 | A signal sent to the agent by anything but the container runtime, systemd or the node's first process; SIGHUP (reload) excepted | signal | T1562.001 | Critical |
+| R031 | An agent sent no health record for 45 s without announcing a stop (high), or came back as a new process without having announced one (medium). Raised by the collector, not by a rule file | — | T1562.001 | High / Medium |
 | R032 | A program executed that changed after its container started, so its image did not ship it | exec | T1059, T1036 | Medium |
+| R033 | Attach-level access to the agent (ptrace attach, /proc/<pid>/mem, process_vm_writev) from anywhere, the node included | ptrace | T1562.001, T1055.008 | Critical |
 
-R030 and R031 are reserved for the rest of M14. Since M14, a shell or download tool in R001, R002, R004 and R025 is recognised by its name or by its content (`process.identity`), and R005's allowlist holds only for binaries unchanged since the container started (`process.exe_modified`).
+Since M14, a shell or download tool in R001, R002, R004 and R025 is recognised by its name or by its content (`process.identity`), and R005's allowlist holds only for binaries unchanged since the container started (`process.exe_modified`).
 
 R001 to R014 use only M1 and M3 hooks and form the first rule milestone. R015 to R020 arrive with the M8 hooks.
 
@@ -498,7 +506,8 @@ Everything installs with one Helm chart: the agent DaemonSet, the collector, and
 - Accepts the Export stream from every agent, validates records, and groups them by Loki label set.
 - Flushes a batch at 1 MiB or 1 second, whichever comes first, and retries failed pushes with backoff. A stream is acknowledged only when its batch is in Loki. If the push keeps failing the stream is failed back to the agent, which still holds the records and sends them again.
 - A bound on the bytes held in memory protects it; a stream that would exceed it is refused, counted and exposed on /metrics, and the agent sends it again.
-- Stateless. One replica in v1; scaling out only needs a Service in front.
+- Stateless for records. One replica in v1; scaling out only needs a Service in front.
+- Watches the agents' health records and raises R031 itself: an agent silent for more than 45 s (agents report every 15 s) without a last record marked `stopping`, once per silence, high; and an agent that came back with a new start time without having announced a stop, once, medium, with how many events were recorded while it was down. Planned stops announce themselves and raise nothing. This state is in memory: a restarted collector learns each agent from its next health record and reports no silence until then. A node that disappears without shutting down (a reclaimed spot instance, a power cut) is reported as silent; nothing on the node can say otherwise. With two collector replicas each would see only some agents' health, so the watch assumes one.
 - Runs as a non-root user with a read-only root filesystem and no capabilities. NetworkPolicies let only the agents reach the collector, and only the collector and Grafana reach Loki, which has no authentication of its own.
 
 ### Loki label design
@@ -536,9 +545,34 @@ One Grafana alert rule fires on any high or critical alert and posts to a config
 | RBAC | get, list, watch on pods | Pod informer only |
 | Tolerations | All taints | The sensor must run on every node, including control-plane nodes |
 | Resources | Requests 100m CPU and 128 MiB; limit 512 MiB | Starting point, revised from benchmark results |
-| Update strategy | Rolling, maxUnavailable: 1 | A node is unmonitored only while its pod restarts |
+| Update strategy | Rolling, maxUnavailable: 1, maxSurge: 0 | A node is unmonitored only while its pod restarts, and never has two agents: a new one may adopt the ring buffer a killed one left pinned |
+| Host mount, read-write | /sys/fs/bpf | Pins for enforcement and for detection that outlives the agent |
 
 The agent image is a static Go binary on a distroless base. Rules are mounted from a ConfigMap generated from the rules/ directory.
+
+### Operating Tephra
+
+Every way an operator runs, stops or removes Tephra goes through Kubernetes, so it is checked by Kubernetes RBAC (the DaemonSet, `pods/exec` and the secrets in the tephra namespace) and recorded in its audit log. None of these raises an alert. Only cluster administrators should hold those rights.
+
+| Operator action | How | Alerts |
+|---|---|---|
+| Restart the agents | `kubectl -n <ns> rollout restart ds/<release>-agent` | none |
+| Upgrade, or change rules and configuration | `helm upgrade` | none |
+| Stop Tephra on one node | Delete the agent pod, or drain and remove the node | none |
+| Uninstall | `helm uninstall`; no programs or pins are left in the kernel | none |
+| Remove what an agent left pinned after an unplanned stop | `kubectl -n <ns> exec <agent pod> -- /tephrad detect off`, or reboot the node | none |
+| Turn enforcement off at once | `kubectl -n <ns> exec <agent pod> -- /tephrad enforce off` | none |
+
+What is reported instead:
+
+| Event | Alert |
+|---|---|
+| A signal to the agent from anything but the runtime, systemd or the node's first process | R030, critical |
+| Any process asking to attach to the agent or read or write its memory | R033, critical (and R015 from a container) |
+| An agent silent for 45 s without announcing a stop | R031, high, once per silence |
+| An agent that came back as a new process without announcing a stop (killed, crashed, out of memory) | R031, medium, with the count of events recorded while it was down |
+
+An attacker who is a cluster administrator, or root on the node, can use the same doors. That is not something a sensor can prevent; what Tephra guarantees is that it cannot be stopped silently from inside a workload, and that every way of stopping it leaves a record somewhere off the node.
 
 ### Development environment
 
@@ -1022,4 +1056,12 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
   - **Residual.** Code that runs inside the application's own interpreter process, for example a Python application exploited through `eval`, is the application as far as the kernel can tell, and R028 does not see it. What it then does (a file read, a token use, a new program) is what the other rules see. R002 lists `python3` as a server, so the notebook's terminals are expected to fire it in the false-positive run; that is measured, not changed here.
   - **False-positive workloads.** `notebook` (a Python application starting kernels over loopback and shells on terminals, as Jupyter does) and `worker` (a shell entrypoint looping over a Python worker that fetches from the web service) were added to the false-positive run to measure R028 and R029 where they would hurt.
 - **Finding: an attacker inside the application is the application.** Found while reviewing R006 with the project owner. R006, R013, R026, R027 and R028 leave the container's main binary alone, because the application legitimately reads its own token, talks to the API server and connects out. The threat model's primary attacker gets in through an application vulnerability; code that runs inside the application's own process (an `eval` of user input, a deserialisation bug, a malicious dependency) acts as the main binary, and those rules do not fire on it. What it then starts, writes or changes is still seen by the other rules. This is a class, not a rule bug, and it is not closed in M14: closing it needs knowledge of what the application normally does, which is M15. The evasion write-ups state it as a residual.
+- **Phase 3: the sensor cannot be blinded quietly.** E07 killed the agent, E14 froze it and killed it before it woke, E15 moved a process into its cgroup. In each case the sensor saw nothing more and the dashboard went quiet, and quiet looks like nothing happening. Four changes, with one principle: a stop by Kubernetes is an operator's and raises nothing; any other stop leaves a record (section 7, "Operating Tephra").
+  - **Recording outlives the agent.** Detection links, the ring buffer and the counters are pinned (`tamper.keep_recording`, default on). A killed, crashed or frozen agent leaves the kernel recording; the next one adopts the buffer and reads the backlog first, so what E14 did while the agent was frozen is read by its successor. A planned stop unpins, so uninstall leaves nothing behind. SIGTERM unpins and SIGKILL cannot, which is the point: a SIGTERM is only taken as planned when the kernel shows the runtime, systemd or the node's first process sent it.
+  - **Signals to the agent are an event.** `security_task_kill`, kept only for the agent as target and not for its own signals. R030 (critical) reports any sender but the runtime, systemd or the node's first process, by file identity. SIGHUP is left out: it makes the agent re-read ConfigMaps, which only the Kubernetes API can change. Signal events are always on, whatever the rules ask, because the agent needs them to judge its own stop.
+  - **Silence is an alert.** The collector remembers each agent's last health record and start time and raises R031 itself: high for 45 s of silence nobody announced, medium for a restart nobody announced. A planned stop sends a last health record marked `stopping`. R031 has no rule file, because the rule engine never sees health records.
+  - **The agent is ignored by process, not by cgroup.** `cgroup_ignore` became `agent_tasks`, keyed by the agent's kernel tgid and checked against its start time. A process moved into the agent's cgroup is now seen (E15).
+  - **The agent's process is the one blind spot, so getting into it is an alert.** Code injected into the agent would act unseen. Injection needs attach-level access (ptrace, /proc/<pid>/mem, process_vm_writev), which the kernel reports before granting it. R015 leaves host processes alone because debuggers on nodes are normal; R033 (critical) does not, for the agent as target, because no routine task debugs the security sensor. The enricher marks `ptrace.target_is_agent` by pid and start time. R015 keeps firing too from a container: it blocks, and a blocking rule may only use what the kernel can judge, which does not include "this is the agent". LD_PRELOAD does not apply (static binary) and the binary sits on a read-only root filesystem.
+  - **Handover.** The old programs keep running until the new agent replaces their links, so an event can arrive twice, and they report the new agent itself, whose events it drops by pid and start time. `maxSurge: 0` in the DaemonSet keeps a node from ever having two agents reading one buffer.
+  - **Residual.** Root on the node can still detach the pinned programs, unmount bpffs, or stop the agent through the runtime as an operator would; a cluster administrator can uninstall Tephra. Neither is preventable by any sensor. R031 notices a node that goes quiet without announcing it, and the Kubernetes audit log records the API actions. A node that vanishes without shutting down (a reclaimed spot instance) raises R031 high as well, because nothing on the node can say otherwise.
 - **To check in Phase 4, not assumed either way:** a service account token projected at a custom mount path, which R006's path prefixes would not name; and the token read through `/proc/<pid>/root/...` from another process in the pod, a different path string for the same file.

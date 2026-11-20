@@ -1,0 +1,26 @@
+id: R030
+title: Signal sent to the Tephra agent
+level: critical
+tags: [attack.defense_evasion, attack.t1562.001]
+event: signal
+detection:
+  runtime:
+    process.runtime: true
+  node_init:
+    process.pid: 1
+    k8s.namespace: host
+  reload:
+    signal.name: SIGHUP
+  condition: not (runtime or node_init or reload)
+action: alert
+description: >-
+  A process sent a signal to the Tephra agent: to kill it (E07), freeze it
+  while something else happens and kill it before it wakes (E14), or stop it.
+  Kubernetes stops the agent through the container runtime, and a node that
+  shuts down through its first process; both are recognised by the identity
+  of the file, so a rollout, upgrade, uninstall or drain does not fire. The
+  kernel reports the signal before delivering it, so even a SIGKILL leaves
+  this record in the pinned ring buffer for the next agent. SIGHUP only makes
+  the agent re-read files it is given through ConfigMaps, and is not reported.
+falsepositives:
+  - An administrator signalling the agent by hand from the node instead of through Kubernetes

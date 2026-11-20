@@ -43,6 +43,13 @@ type Options struct {
 	// earlier agent is removed.
 	PinDir string
 	Pin    bool
+	// KeepRecording pins the detection programs, the ring buffer and the
+	// counters in DetectPinDir, so that an agent killed, crashed or
+	// frozen leaves the kernel recording; the next Load adopts the ring
+	// buffer and reads what was recorded meanwhile. A planned stop calls
+	// UnpinDetection. Without it, whatever is pinned there is removed.
+	KeepRecording bool
+	DetectPinDir  string
 }
 
 // Attachment describes one attached program.
@@ -60,8 +67,12 @@ type Skipped struct {
 
 // Self is where the agent sits, as seen by the kernel.
 type Self struct {
-	// CgroupID is the agent's own cgroup; its events are never emitted.
+	// CgroupID is the agent's own cgroup.
 	CgroupID uint64
+	// TGID is the agent's process in the kernel's own pid namespace, and
+	// StartNS its start time; the agent's own events are never emitted.
+	TGID    uint32
+	StartNS uint64
 	// PidNSLevel and PidNSInum identify the node's pid namespace. Level 0
 	// is the root namespace; a kind node is one level down.
 	PidNSLevel uint32
@@ -147,6 +158,8 @@ var hooks = []hook{
 		types: []events.Type{events.TypeMount}},
 	{program: "tephra_setns", section: "fentry/switch_task_namespaces", kfunc: "switch_task_namespaces",
 		types: []events.Type{events.TypeSetns}},
+	{program: "tephra_signal", section: "fentry/security_task_kill", kfunc: "security_task_kill",
+		types: []events.Type{events.TypeSignal}},
 
 	// Enforcement. kfunc is the stub the kernel calls each LSM program
 	// through.
@@ -168,8 +181,8 @@ var hooks = []hook{
 // replaced by one that does not exist.
 var brokenHook string
 
-// Sensor owns the loaded programs and their links. Links are held open and not
-// pinned: when the agent exits the kernel detaches everything.
+// Sensor owns the loaded programs and their links. Links are held open; with
+// pinning they are also pinned, and outlive the agent until unpinned.
 type Sensor struct {
 	coll        *ebpf.Collection
 	links       []link.Link
@@ -184,6 +197,12 @@ type Sensor struct {
 	// enforcing lists the enforce actions whose program is attached.
 	enforcing map[uint32]bool
 	pinDir    string
+	// detectDir holds the pinned detection; empty when it is not kept.
+	detectDir string
+	// backlog says the ring buffer was adopted from an earlier agent;
+	// freshStart why one pinned could not be.
+	backlog    bool
+	freshStart string
 }
 
 // Spec returns the embedded collection spec, for tests that check layouts.
@@ -226,6 +245,11 @@ func Load(opts Options) (*Sensor, error) {
 		// Whatever an earlier agent left pinned would go on refusing.
 		unpinAll(opts.PinDir)
 	}
+	if opts.KeepRecording && opts.DetectPinDir != "" {
+		s.detectDir = opts.DetectPinDir
+	} else if opts.DetectPinDir != "" {
+		unpinAll(opts.DetectPinDir)
+	}
 	keep := s.precheck(spec)
 	if s.coll, keep, err = s.load(spec, keep); err != nil {
 		return nil, err
@@ -263,6 +287,9 @@ func Load(opts Options) (*Sensor, error) {
 			}
 		} else {
 			l, err = link.AttachTracing(link.TracingOptions{Program: s.coll.Programs[h.program]})
+			if err == nil {
+				err = replaceLink(s.detectDir, h, l)
+			}
 		}
 		if err != nil {
 			if h.required {
@@ -279,6 +306,11 @@ func Load(opts Options) (*Sensor, error) {
 			s.enforcing[a] = true
 		}
 	}
+	attached := map[string]bool{}
+	for _, at := range s.attachments {
+		attached[at.Program] = true
+	}
+	s.dropStaleLinks(attached)
 	if s.enforceOff == "" && len(s.enforcing) == 0 {
 		s.enforceOff = "no enforcement program could be attached"
 	}
@@ -382,7 +414,7 @@ func firstLine(s string) string {
 }
 
 // configure runs tephra_self in the agent's context, then writes cfg, the
-// agent's own cgroup into cgroup_ignore, and the filters. It must finish
+// agent's own process into agent_tasks, and the filters. It must finish
 // before any program attaches.
 func (s *Sensor) configure(opts Options) error {
 	ret, err := s.coll.Programs["tephra_self"].Run(&ebpf.RunOptions{})
@@ -396,24 +428,25 @@ func (s *Sensor) configure(opts Options) error {
 	if err := s.coll.Maps["self"].Lookup(uint32(0), &info); err != nil {
 		return fmt.Errorf("read self map: %w", err)
 	}
-	s.self = Self{CgroupID: info.CgroupId, PidNSLevel: info.PidnsLevel, PidNSInum: info.PidnsInum}
+	s.self = Self{CgroupID: info.CgroupId, TGID: info.Tgid, StartNS: info.StartTimeNs, PidNSLevel: info.PidnsLevel, PidNSInum: info.PidnsInum}
 
 	if err := s.SetEnabled(opts.Enabled); err != nil {
 		return err
 	}
-	if err := s.coll.Maps["cgroup_ignore"].Put(info.CgroupId, uint8(1)); err != nil {
-		return fmt.Errorf("write cgroup_ignore map: %w", err)
+	if err := s.coll.Maps["agent_tasks"].Put(info.Tgid, info.StartTimeNs); err != nil {
+		return fmt.Errorf("write agent_tasks map: %w", err)
 	}
 	return s.SetFilters(opts.Filters)
 }
 
 // SetEnabled chooses the event types the kernel emits. Nil means every type
-// that has a hook. Exec, fork and exit stay on whatever is asked.
+// that has a hook. Exec, fork, exit and signal stay on whatever is asked.
 func (s *Sensor) SetEnabled(types []events.Type) error {
 	if types == nil {
 		types = events.Types
 	}
-	types = append([]events.Type{events.TypeExec, events.TypeFork, events.TypeExit}, types...)
+	// Signals to the agent are how it tells a planned stop from an attack.
+	types = append([]events.Type{events.TypeExec, events.TypeFork, events.TypeExit, events.TypeSignal}, types...)
 	var enabled uint64
 	for _, t := range types {
 		if s.available[t] {

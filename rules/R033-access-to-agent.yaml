@@ -1,0 +1,19 @@
+id: R033
+title: Attach-level access to the Tephra agent
+level: critical
+tags: [attack.defense_evasion, attack.t1562.001, attack.t1055.008]
+event: ptrace
+detection:
+  agent:
+    ptrace.target_is_agent: true
+  condition: agent
+action: alert
+description: >-
+  A process asked the kernel for attach-level access to the Tephra agent:
+  ptrace attach, or reading or writing its memory through /proc/<pid>/mem or
+  process_vm_writev. The agent's own process is the one thing the sensor does
+  not report, so code injected into it would act unseen. The kernel reports
+  the request before it is granted. Nothing is exempt, the node included:
+  no routine task debugs the security sensor.
+falsepositives:
+  - An administrator debugging or profiling the agent on purpose

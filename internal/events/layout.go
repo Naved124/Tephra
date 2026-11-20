@@ -33,6 +33,7 @@ const (
 	unixPathMax = 108
 
 	ptraceSize        = hdrSize + 16
+	signalSize        = hdrSize + 16
 	memfdSize         = hdrSize + 8
 	moduleSize        = hdrSize + 56
 	bpfSize           = hdrSize + 24
@@ -158,6 +159,9 @@ var Layout = map[string]Struct{
 	}},
 	"ptrace_event": {Size: ptraceSize, Fields: map[string]Field{
 		"h": {0, hdrSize}, "target_pid": {hdrSize, 4}, "mode": {hdrSize + 4, 4}, "target_start_time_ns": {hdrSize + 8, 8},
+	}},
+	"signal_event": {Size: signalSize, Fields: map[string]Field{
+		"h": {0, hdrSize}, "target_pid": {hdrSize, 4}, "sig": {hdrSize + 4, 4}, "target_start_time_ns": {hdrSize + 8, 8},
 	}},
 	"memfd_event": {Size: memfdSize, Fields: map[string]Field{
 		"h": {0, hdrSize}, "memfd_flags": {hdrSize, 4}, "_pad": {hdrSize + 4, 4},

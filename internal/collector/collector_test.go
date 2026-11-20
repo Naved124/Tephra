@@ -413,3 +413,54 @@ func TestHealthRecords(t *testing.T) {
 	// that says so arrives after the batch is stored.
 	waitFor(t, "the rejection to be acknowledged", func() bool { return g.Stats().Rejected == 1 })
 }
+
+// An agent that stops sending health without announcing a stop is reported
+// by the collector as R031, once, in the alert stream.
+func TestSilentAgentRaisesR031(t *testing.T) {
+	loki := newFakeLoki(t)
+	srv := startCollector(t, loki, "", collector.Options{
+		HealthInterval: 20 * time.Millisecond, SilenceAfter: 100 * time.Millisecond, Namespace: "tephra",
+	})
+	g := startExporter(t, srv.addr, 8192)
+	g.Offer(&export.Record{
+		TS: "2026-11-20T09:00:00.000000Z", Type: export.TypeHealth, Node: "tephra-worker",
+		K8s: export.K8s{Namespace: "tephra"}, Health: map[string]uint64{"agent_start_unix": 1000},
+	})
+	waitFor(t, "R031 in the alert stream", func() bool { return loki.byLabel("stream")["alert"] == 1 })
+	time.Sleep(200 * time.Millisecond)
+	if got := loki.byLabel("stream")["alert"]; got != 1 {
+		t.Fatalf("%d alerts, want 1", got)
+	}
+	if got := loki.byLabel("level"); got["high"] != 1 {
+		t.Errorf("levels %v", got)
+	}
+	found := false
+	loki.mu.Lock()
+	for k := range loki.lines {
+		if strings.Contains(k, `"rule":{"id":"R031","title":"Tephra agent silent","level":"high"`) {
+			found = true
+		}
+	}
+	loki.mu.Unlock()
+	if !found {
+		t.Error("R031 line not stored")
+	}
+}
+
+// A planned stop announces itself, and its silence raises nothing.
+func TestPlannedStopRaisesNothing(t *testing.T) {
+	loki := newFakeLoki(t)
+	srv := startCollector(t, loki, "", collector.Options{
+		HealthInterval: 20 * time.Millisecond, SilenceAfter: 100 * time.Millisecond, Namespace: "tephra",
+	})
+	g := startExporter(t, srv.addr, 8192)
+	g.Offer(&export.Record{
+		TS: "2026-11-20T09:00:00.000000Z", Type: export.TypeHealth, Node: "tephra-worker",
+		K8s: export.K8s{Namespace: "tephra"}, Health: map[string]uint64{"agent_start_unix": 1000, "stopping": 1},
+	})
+	waitFor(t, "the health record", func() bool { return loki.byLabel("node")["tephra-worker"] == 1 })
+	time.Sleep(300 * time.Millisecond)
+	if got := loki.byLabel("stream")["alert"]; got != 0 {
+		t.Fatalf("%d alerts after a planned stop", got)
+	}
+}

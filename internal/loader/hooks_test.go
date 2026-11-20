@@ -39,7 +39,7 @@ func loadForTest(t *testing.T, opts Options) *Sensor {
 	for _, sk := range s.Skipped() {
 		t.Logf("skipped %s (%s): %s", sk.Program, sk.Hook, sk.Reason)
 	}
-	if err := s.coll.Maps["cgroup_ignore"].Delete(s.Self().CgroupID); err != nil {
+	if err := s.coll.Maps["agent_tasks"].Delete(s.Self().TGID); err != nil {
 		t.Fatal(err)
 	}
 	return s

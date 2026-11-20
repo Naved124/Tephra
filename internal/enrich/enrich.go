@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -25,8 +26,10 @@ import (
 
 // Enricher is used by one goroutine, the pipeline's enrich stage.
 type Enricher struct {
-	node    string
-	tree    *proctree.Tree
+	node string
+	tree *proctree.Tree
+	// agent is the agent's own process, so that access to it is named.
+	agent   proctree.Key
 	procfs  proctree.ProcFS
 	cgroups *k8s.CgroupResolver
 	// pods is nil when the agent runs outside a cluster.
@@ -73,6 +76,12 @@ type Identifier interface {
 
 // SetIdentity sets who recognises binaries by their content.
 func (e *Enricher) SetIdentity(ids Identifier) { e.ids = ids }
+
+// SetAgent names the agent's own process: its pid in the node's namespace
+// and its start time.
+func (e *Enricher) SetAgent(pid uint32, startNS uint64) {
+	e.agent = proctree.Key{PID: pid, StartNS: startNS}
+}
 
 // exeSlack is how long after a container's start a binary's change still
 // counts as part of the image: file times and process start times come from
@@ -330,9 +339,17 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 	case *events.Ptrace:
 		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
 		rec.Ptrace = &export.Ptrace{TargetPID: ev.TargetPID, Mode: ev.Mode}
+		rec.Ptrace.TargetIsAgent = e.agent.PID != 0 &&
+			proctree.Key{PID: ev.TargetPID, StartNS: ev.TargetStartNS} == e.agent
 		if target, ok := e.byPID(ev.TargetPID); ok {
 			rec.Ptrace.TargetImage = target.Image
 			rec.Ptrace.TargetCommandLine = strings.Join(target.Argv, " ")
+		}
+	case *events.Signal:
+		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		rec.Signal = &export.Signal{Number: ev.Signal, Name: unix.SignalName(syscall.Signal(ev.Signal)), TargetPID: ev.TargetPID}
+		if rec.Signal.Name == "" {
+			rec.Signal.Name = fmt.Sprintf("SIG%d", ev.Signal)
 		}
 	case *events.Memfd:
 		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})

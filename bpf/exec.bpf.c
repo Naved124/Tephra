@@ -188,7 +188,7 @@ int BPF_PROG(tephra_exec, struct task_struct *p, pid_t old_pid,
 		return 0;
 	s->seen++;
 
-	if (cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (agent_task()) {
 		s->filtered++;
 		return 0;
 	}
@@ -327,7 +327,7 @@ int BPF_PROG(tephra_fork, struct task_struct *parent, struct task_struct *child)
 	s->seen++;
 
 	if (BPF_CORE_READ(child, pid) != BPF_CORE_READ(child, tgid) ||
-	    cgroup_ignored(bpf_get_current_cgroup_id())) {
+	    agent_task()) {
 		s->filtered++;
 		return 0;
 	}
@@ -368,8 +368,7 @@ int BPF_PROG(tephra_exit, struct task_struct *p)
 		return 0;
 	s->seen++;
 
-	if (BPF_CORE_READ(p, signal, live.counter) != 0 ||
-	    cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (BPF_CORE_READ(p, signal, live.counter) != 0 || agent_task()) {
 		s->filtered++;
 		return 0;
 	}
@@ -410,5 +409,7 @@ int tephra_self(void *ctx)
 	info->cgroup_id = bpf_get_current_cgroup_id();
 	info->pidns_level = level;
 	info->pidns_inum = inum;
+	info->tgid = BPF_CORE_READ(task, tgid);
+	info->start_time_ns = BPF_CORE_READ(task, group_leader, start_boottime);
 	return 0;
 }

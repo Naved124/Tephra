@@ -50,6 +50,7 @@ message Record {
   Mount mount = 19;
   Namespaces namespaces = 20;
   Enforce enforce = 21;
+  Signal signal = 22;
 }
 
 // An action the kernel refused (denied), or in dry-run mode would have.
@@ -58,11 +59,19 @@ message Enforce {
   bool denied = 2;
 }
 
+// A signal sent to the agent; the sender is the record's process.
+message Signal {
+  uint32 number = 1;
+  string name = 2;
+  uint32 target_pid = 3;
+}
+
 message Ptrace {
   uint32 target_pid = 1;
   string target_image = 2;
   string target_command_line = 3;
   uint32 mode = 4;
+  bool target_is_agent = 5;
 }
 
 message Memfd {

@@ -14,6 +14,6 @@ description: >-
   A process in a container asked the kernel for attach-level access to
   another process: ptrace attach, or reading and writing its memory. That is
   how code is injected into a running process and how secrets are read out of
-  one.
+  one. Access to the Tephra agent also raises R033, critical, from anywhere.
 falsepositives:
   - Debuggers, profilers and crash handlers run on purpose in a container

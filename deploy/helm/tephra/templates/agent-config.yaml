@@ -28,6 +28,10 @@ data:
       label: {{ $e.label | default "tephra.dev/enforce" | quote }}
       protect_namespaces: {{ toJson ($e.protectNamespaces | default (list "kube-system")) }}
       pin_dir: {{ $e.pinDir | default "/sys/fs/bpf/tephra" | quote }}
+    {{- $t := .Values.agent.tamper | default dict }}
+    tamper:
+      keep_recording: {{ ne (toString $t.keepRecording) "false" }}
+      pin_dir: {{ $t.pinDir | default "/sys/fs/bpf/tephra/detect" | quote }}
 ---
 # The detection rules, one key per file of the repository's rules/ directory.
 # The agent reads them at start-up and again on SIGHUP.

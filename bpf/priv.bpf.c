@@ -28,7 +28,7 @@ int BPF_PROG(tephra_ptrace, struct task_struct *child, unsigned int mode)
 
 	/* A process looking at itself is not an attach to another. */
 	if (BPF_CORE_READ(child, tgid) == BPF_CORE_READ(task, tgid) ||
-	    cgroup_ignored(bpf_get_current_cgroup_id())) {
+	    agent_task()) {
 		s->filtered++;
 		return 0;
 	}
@@ -85,7 +85,7 @@ int BPF_PROG(tephra_cred, struct cred *new)
 	if ((e.old_uid == e.new_uid && e.old_euid == e.new_euid &&
 	     e.old_gid == e.new_gid &&
 	     !(e.new_cap_effective & ~e.old_cap_effective)) ||
-	    cgroup_ignored(bpf_get_current_cgroup_id())) {
+	    agent_task()) {
 		s->filtered++;
 		return 0;
 	}
@@ -122,7 +122,7 @@ int BPF_PROG(tephra_mount, const char *dev_name, const struct path *path,
 		return 0;
 	s->seen++;
 
-	if (cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (agent_task()) {
 		s->filtered++;
 		return 0;
 	}
@@ -206,8 +206,7 @@ int BPF_PROG(tephra_setns, struct task_struct *p, struct nsproxy *new)
 	s->seen++;
 
 	old = BPF_CORE_READ(p, nsproxy);
-	if (!old || p != bpf_get_current_task_btf() ||
-	    cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (!old || p != bpf_get_current_task_btf() || agent_task()) {
 		s->filtered++;
 		return 0;
 	}

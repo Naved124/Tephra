@@ -37,7 +37,7 @@ What works today: the agent watches process starts and exits, connections
 that the kernel refused, watched files being deleted, renamed, replaced or
 linked, ptrace attach, credential changes, mounts, namespace switches, kernel
 module loads, BPF program loads and memfd creation on its node. It attributes
-each event to a pod, evaluates the 30 detection rules in [rules/](rules/), and writes events
+each event to a pod, evaluates the 32 detection rules in [rules/](rules/), and writes events
 and alerts as JSON lines on stdout. A collector forwards both to Loki, and a
 Grafana dashboard shows the alerts and the sensor's own health.
 
@@ -115,7 +115,7 @@ export queue are on `/metrics`, port 9090 of each agent pod.
 A rule is a YAML file: one event type, named blocks of field tests, and a
 condition that combines the blocks, or a `sequence:` of two to four such
 steps in one process tree or pod within a time window. [rules/](rules/) holds
-R001 to R029 and R032; section 6 of the design describes the schema. Rules
+R001 to R030, R032 and R033; section 6 of the design describes the schema. Rules
 can name what a binary is by its content (`process.identity`: shell,
 interpreter, download_tool) and whether it changed after its container
 started (`process.exe_modified`), not only its path.
@@ -166,6 +166,31 @@ kubectl -n tephra exec <agent pod> -- /tephrad enforce off
 labelled pods and checks the refusal; `harness fp --enforce on` checks that
 ordinary workloads are refused nothing. Section 9 of the design has the
 details.
+
+## Stopping and removing Tephra
+
+Anything done through Kubernetes raises no alert: `kubectl rollout restart`,
+`helm upgrade`, deleting an agent pod, draining a node, `helm uninstall`. Uninstall
+leaves no programs or pins in the kernel. The agent recognises these stops
+because the kernel shows the container runtime sent the signal.
+
+Any other stop leaves a record. A signal sent to the agent by anything else
+(a `kill` from a pod or from a shell on the node) is R030, critical, and any
+process asking to attach to the agent or touch its memory is R033, critical. An agent
+that is killed, crashes or is frozen leaves its programs pinned and recording
+under `/sys/fs/bpf/tephra/detect`, and the next agent reads what happened in
+between; the collector reports the gap as R031. To remove what such an agent
+left pinned:
+
+```sh
+kubectl -n tephra exec <agent pod> -- /tephrad detect off
+```
+
+Someone with root on the node, or a cluster administrator, can still stop
+Tephra; no sensor can prevent its own administrator. What they cannot do is
+stop it without a trace: R031 notices a node that goes quiet, and the
+Kubernetes audit log records the API actions. Section 7 of the design has the
+full table.
 
 ## Attack harness
 

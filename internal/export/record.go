@@ -25,6 +25,7 @@ type Record struct {
 	File      *File      `json:"file,omitempty"`
 	// One of the following is set on the event type of the same name.
 	Ptrace     *Ptrace     `json:"ptrace,omitempty"`
+	Signal     *Signal     `json:"signal,omitempty"`
 	Memfd      *Memfd      `json:"memfd,omitempty"`
 	Module     *Module     `json:"module,omitempty"`
 	BPF        *BPF        `json:"bpf,omitempty"`
@@ -220,6 +221,8 @@ type Ptrace struct {
 	TargetImage       string `json:"target_image,omitempty"`
 	TargetCommandLine string `json:"target_command_line,omitempty"`
 	Mode              uint32 `json:"mode"`
+	// TargetIsAgent says the target is the Tephra agent itself.
+	TargetIsAgent bool `json:"target_is_agent,omitempty"`
 }
 
 // Enforce is set on enforce events.
@@ -283,4 +286,12 @@ type Namespaces struct {
 	Changed []string `json:"changed"`
 	// Host lists those of them that are now the node's own namespace.
 	Host []string `json:"host,omitempty"`
+}
+
+// Signal is set on signal events: a signal another process sent to the
+// agent. The sender is the record's process.
+type Signal struct {
+	Number    uint32 `json:"number"`
+	Name      string `json:"name"`
+	TargetPID uint32 `json:"target_pid"`
 }

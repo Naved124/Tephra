@@ -77,6 +77,14 @@ agent:
     pinDir: /sys/fs/bpf/tephra
     # Capabilities added to agent.capabilities while enforcement is enabled.
     extraCapabilities: []
+  tamper:
+    # Keep the kernel recording when the agent is killed, crashes or is
+    # frozen: the programs and the ring buffer are pinned under pinDir and
+    # the next agent reads what was recorded meanwhile. A stop by Kubernetes
+    # (rollout, upgrade, uninstall, drain) removes the pins, so nothing is
+    # left behind. "tephrad detect off" in the agent pod removes them by hand.
+    keepRecording: true
+    pinDir: /sys/fs/bpf/tephra/detect
 
 # Receives the agents' gRPC streams and pushes them to Loki.
 collector:

@@ -106,75 +106,80 @@ func (s *Sensor) Enforcing(action uint32) bool {
 // newCollection loads the programs, adopting the pinned policy maps of an
 // earlier agent when there are any and they still fit.
 func (s *Sensor) newCollection(spec *ebpf.CollectionSpec) (*ebpf.Collection, error) {
-	if s.pinDir == "" {
-		return ebpf.NewCollection(spec)
-	}
-	if err := os.MkdirAll(s.pinDir, 0o700); err != nil {
+	enforce, err := adoptPinned(s.pinDir, pinnedMaps)
+	if err != nil {
 		return nil, fmt.Errorf("enforcement pin directory: %w", err)
 	}
-	adopt := map[string]*ebpf.Map{}
-	defer func() {
-		for _, m := range adopt {
-			_ = m.Close()
-		}
-	}()
-	for _, name := range pinnedMaps {
-		m, err := ebpf.LoadPinnedMap(filepath.Join(s.pinDir, name), nil)
-		if err == nil {
-			adopt[name] = m
-		}
+	detect, err := adoptPinned(s.detectDir, detectMaps)
+	if err != nil {
+		closeMaps(enforce)
+		return nil, fmt.Errorf("detection pin directory: %w", err)
 	}
-	coll, err := ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{MapReplacements: adopt})
-	if err != nil && len(adopt) > 0 && errors.Is(err, ebpf.ErrMapIncompatible) {
+	defer func() { closeMaps(enforce); closeMaps(detect) }()
+	build := func() (*ebpf.Collection, error) {
+		replace := map[string]*ebpf.Map{}
+		for n, m := range enforce {
+			replace[n] = m
+		}
+		for n, m := range detect {
+			replace[n] = m
+		}
+		return ebpf.NewCollectionWithOptions(spec, ebpf.CollectionOptions{MapReplacements: replace})
+	}
+	coll, err := build()
+	if err != nil && len(detect) > 0 && errors.Is(err, ebpf.ErrMapIncompatible) {
+		// Pinned by a version with another layout or another ring
+		// buffer size: what it recorded cannot be read. Its programs
+		// keep their maps until their links are replaced.
+		s.freshStart = "the pinned ring buffer does not fit this version or size: " + firstLine(err.Error())
+		for _, name := range detectMaps {
+			_ = os.Remove(filepath.Join(s.detectDir, name))
+		}
+		closeMaps(detect)
+		detect = map[string]*ebpf.Map{}
+		coll, err = build()
+	}
+	if err != nil && len(enforce) > 0 && errors.Is(err, ebpf.ErrMapIncompatible) {
 		// Pinned by a version with another layout: start again from
 		// nothing. Enforcement by the old programs ends here.
 		unpinAll(s.pinDir)
-		coll, err = ebpf.NewCollection(spec)
+		closeMaps(enforce)
+		enforce = map[string]*ebpf.Map{}
+		coll, err = build()
 	}
 	if err != nil {
 		return nil, err
 	}
-	for _, name := range pinnedMaps {
-		if _, adopted := adopt[name]; adopted {
-			continue
-		}
-		path := filepath.Join(s.pinDir, name)
-		_ = os.Remove(path)
-		if err := coll.Maps[name].Pin(path); err != nil {
-			coll.Close()
-			return nil, fmt.Errorf("pin %s: %w", name, err)
-		}
+	if err := pinNew(coll, s.pinDir, pinnedMaps, enforce); err != nil {
+		coll.Close()
+		return nil, err
 	}
+	if err := pinNew(coll, s.detectDir, detectMaps, detect); err != nil {
+		coll.Close()
+		return nil, err
+	}
+	_, s.backlog = detect["events"]
 	return coll, nil
 }
 
 // pinLink replaces the pinned link of an enforcement program with the new
-// one. The new program is attached already, so the hook is never left
-// without one.
+// one.
 func (s *Sensor) pinLink(h hook, l link.Link) error {
-	if s.pinDir == "" {
-		return nil
-	}
-	path := filepath.Join(s.pinDir, "link_"+h.program)
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		_ = l.Close()
-		return fmt.Errorf("replace pinned link: %w", err)
-	}
-	if err := l.Pin(path); err != nil {
-		_ = l.Close()
-		return fmt.Errorf("pin link: %w", err)
-	}
-	return nil
+	return replaceLink(s.pinDir, h, l)
 }
 
-// unpinAll removes everything pinned in dir, which detaches the enforcement
-// programs an earlier agent left behind.
+// unpinAll removes everything pinned in dir, which detaches the programs an
+// earlier agent left behind. Directories in it, such as the detection pins
+// under the enforcement directory, are left alone.
 func unpinAll(dir string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
 		_ = os.Remove(filepath.Join(dir, e.Name()))
 	}
 	_ = os.Remove(dir)

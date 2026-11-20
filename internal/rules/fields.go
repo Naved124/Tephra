@@ -78,6 +78,7 @@ func sub[T any](k kind, event string, pick func(*export.Record) *T, get func(*T)
 }
 
 func ptraceOf(r *export.Record) *export.Ptrace { return r.Ptrace }
+func signalOf(r *export.Record) *export.Signal { return r.Signal }
 func memfdOf(r *export.Record) *export.Memfd   { return r.Memfd }
 func moduleOf(r *export.Record) *export.Module { return r.Module }
 func bpfOf(r *export.Record) *export.BPF       { return r.BPF }
@@ -90,6 +91,10 @@ func init() {
 		"ptrace.target_pid":          sub(kInt, "ptrace", ptraceOf, func(p *export.Ptrace) value { return integer(int64(p.TargetPID)) }),
 		"ptrace.target_image":        sub(kString, "ptrace", ptraceOf, func(p *export.Ptrace) value { return present(p.TargetImage) }),
 		"ptrace.target_command_line": sub(kString, "ptrace", ptraceOf, func(p *export.Ptrace) value { return present(p.TargetCommandLine) }),
+		"ptrace.target_is_agent":     sub(kBool, "ptrace", ptraceOf, func(p *export.Ptrace) value { return boolean(p.TargetIsAgent) }),
+		"signal.number":              sub(kInt, "signal", signalOf, func(s *export.Signal) value { return integer(int64(s.Number)) }),
+		"signal.name":                sub(kString, "signal", signalOf, func(s *export.Signal) value { return present(s.Name) }),
+		"signal.target_pid":          sub(kInt, "signal", signalOf, func(s *export.Signal) value { return integer(int64(s.TargetPID)) }),
 		"memfd.flags":                sub(kInt, "memfd", memfdOf, func(m *export.Memfd) value { return integer(int64(m.Flags)) }),
 		"module.name":                sub(kString, "module_load", moduleOf, func(m *export.Module) value { return str(m.Name) }),
 		"bpf.prog_type":              sub(kInt, "bpf_load", bpfOf, func(b *export.BPF) value { return integer(int64(b.ProgType)) }),

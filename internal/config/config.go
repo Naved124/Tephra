@@ -47,6 +47,21 @@ type Config struct {
 	// Enforcement lets rules with "action: block" refuse what they
 	// detect.
 	Enforcement Enforcement `yaml:"enforcement"`
+	// Tamper configures what happens when the agent is stopped by
+	// anything other than Kubernetes.
+	Tamper Tamper `yaml:"tamper"`
+}
+
+// Tamper configures the agent's defence of its own sight. Read at start-up
+// only.
+type Tamper struct {
+	// KeepRecording pins the detection programs and the ring buffer, so
+	// that an agent killed, crashed or frozen leaves the kernel recording
+	// for the next one to read. A stop by the container runtime, the way
+	// Kubernetes stops pods, removes the pins.
+	KeepRecording bool `yaml:"keep_recording"`
+	// PinDir is the directory on a BPF filesystem that holds the pins.
+	PinDir string `yaml:"pin_dir"`
 }
 
 // Enforcement configures refusal in the kernel. It applies only to pods
@@ -126,6 +141,7 @@ func Default() *Config {
 			ProtectNamespaces: []string{"kube-system"},
 			PinDir:            "/sys/fs/bpf/tephra",
 		},
+		Tamper: Tamper{KeepRecording: true, PinDir: "/sys/fs/bpf/tephra/detect"},
 	}
 }
 
@@ -181,6 +197,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("enforcement.label is empty")
 	case len(e.PinDir) < 2 || e.PinDir[0] != '/':
 		return fmt.Errorf("enforcement.pin_dir %q is not an absolute path", e.PinDir)
+	}
+	if p := c.Tamper.PinDir; len(p) < 2 || p[0] != '/' {
+		return fmt.Errorf("tamper.pin_dir %q is not an absolute path", p)
 	}
 	_, err := c.APIServers()
 	return err

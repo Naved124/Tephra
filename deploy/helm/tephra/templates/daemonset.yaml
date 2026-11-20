@@ -16,6 +16,9 @@ spec:
     type: RollingUpdate
     rollingUpdate:
       maxUnavailable: 1
+      # Never two agents on a node: a new one adopts the ring buffer a killed
+      # one left pinned, and two readers would split it.
+      maxSurge: 0
   template:
     metadata:
       labels:

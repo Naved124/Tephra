@@ -81,7 +81,7 @@ static __always_inline void unix_connect(const struct tephra_cfg *c,
 	s->seen++;
 
 	/* sun_family is two bytes; the rest of addrlen is the path. */
-	if (addrlen <= 2 || cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (addrlen <= 2 || agent_task()) {
 		s->filtered++;
 		return;
 	}
@@ -128,7 +128,7 @@ int BPF_PROG(tephra_connect, struct socket *sock, struct sockaddr *address,
 		return 0;
 	s->seen++;
 
-	if (cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (agent_task()) {
 		s->filtered++;
 		return 0;
 	}
@@ -177,7 +177,7 @@ static __always_inline int accept_common(struct sock *newsk)
 		return 0;
 	s->seen++;
 
-	if (!newsk || cgroup_ignored(bpf_get_current_cgroup_id())) {
+	if (!newsk || agent_task()) {
 		s->filtered++;
 		return 0;
 	}

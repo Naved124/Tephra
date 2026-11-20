@@ -878,3 +878,28 @@ func TestPtyAndParentFacts(t *testing.T) {
 		t.Errorf("host parent: %s", toJSON(t, rec))
 	}
 }
+
+// Access to the agent is named, by pid and start time: a process that later
+// gets the agent's pid number is not the agent.
+func TestPtraceTargetIsAgent(t *testing.T) {
+	f := newFixture(t)
+	cg := f.cgroup("system.slice/containerd.service")
+	f.e.SetAgent(3121, 777)
+	for _, tc := range []struct {
+		pid   uint32
+		start uint64
+		want  bool
+	}{
+		{3121, 777, true},
+		{3121, 999, false},
+		{4100, 777, false},
+	} {
+		rec := f.e.Handle(&events.Ptrace{
+			Header:    events.Header{Type: events.TypePtrace, PID: 600, StartTimeNS: 6, PPID: 1, CgroupID: cg},
+			TargetPID: tc.pid, TargetStartNS: tc.start, Mode: 2,
+		}, time.Now())
+		if rec.Ptrace == nil || rec.Ptrace.TargetIsAgent != tc.want {
+			t.Errorf("target %d/%d: %+v, want target_is_agent %v", tc.pid, tc.start, rec.Ptrace, tc.want)
+		}
+	}
+}

@@ -55,6 +55,7 @@ enum event_type {
 	EVENT_FILE_CHANGE = 15,
 	EVENT_FILE_DENIED = 16,
 	EVENT_ENFORCE = 17,
+	EVENT_SIGNAL = 18,
 	EVENT_TYPE_MAX = 32,
 };
 
@@ -204,6 +205,14 @@ struct ptrace_event {
 	struct event_hdr h;
 	__u32 target_pid; /* tgid in the node's pid namespace; 0 if outside */
 	__u32 mode;	  /* PTRACE_MODE_* bits */
+	__u64 target_start_time_ns;
+};
+
+/* A process sent a signal to the agent. The sender is the header. */
+struct signal_event {
+	struct event_hdr h;
+	__u32 target_pid; /* the agent's tgid in the node's pid namespace */
+	__u32 sig;
 	__u64 target_start_time_ns;
 };
 
@@ -369,6 +378,9 @@ struct self_info {
 	__u64 cgroup_id;
 	__u32 pidns_level;
 	__u32 pidns_inum;
+	__u32 tgid; /* kernel (initial namespace) tgid */
+	__u32 _pad;
+	__u64 start_time_ns; /* start_boottime of the agent's group leader */
 };
 
 struct stats_val {
@@ -431,14 +443,16 @@ struct {
 	__type(value, struct pathbuf);
 } path_scratch SEC(".maps");
 
-/* cgroups whose events are never emitted: the agent itself, and later other
- * trusted cgroups. */
+/* The agent's own processes, whose events are never emitted: kernel tgid to
+ * the leader's start_boottime. The start time is compared too, so a process
+ * that later gets a dead agent's pid number is not ignored. Keyed by process,
+ * not by cgroup: a process moved into the agent's cgroup is still seen. */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
-	__uint(max_entries, 1024);
-	__type(key, __u64);
-	__type(value, __u8);
-} cgroup_ignore SEC(".maps");
+	__uint(max_entries, 16);
+	__type(key, __u32);
+	__type(value, __u64);
+} agent_tasks SEC(".maps");
 
 /* Path prefixes file_open reports. An exact file is stored with its
  * terminating NUL, so it does not also match longer names. */
@@ -546,9 +560,20 @@ static __always_inline bool event_enabled(const struct tephra_cfg *c,
 	return c->enabled & (1ULL << type);
 }
 
-static __always_inline bool cgroup_ignored(__u64 cgroup_id)
+/* Whether @task belongs to the agent. */
+static __always_inline bool is_agent(struct task_struct *task)
 {
-	return bpf_map_lookup_elem(&cgroup_ignore, &cgroup_id) != NULL;
+	__u32 tgid = BPF_CORE_READ(task, tgid);
+	__u64 *start = bpf_map_lookup_elem(&agent_tasks, &tgid);
+
+	return start &&
+	       *start == BPF_CORE_READ(task, group_leader, start_boottime);
+}
+
+/* Whether the current task belongs to the agent. */
+static __always_inline bool agent_task(void)
+{
+	return is_agent(bpf_get_current_task_btf());
 }
 
 /* Reads the number @pid has at @level of the pid namespace hierarchy, and the

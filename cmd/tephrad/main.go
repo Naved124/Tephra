@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/cilium/ebpf/ringbuf"
 
 	"github.com/Naved124/tephra/internal/config"
@@ -62,6 +64,11 @@ type counters struct {
 	nestedOpens  atomic.Uint64
 	// deniedUnwatched counts refused opens of files no watch covers.
 	deniedUnwatched atomic.Uint64
+	// whileDown counts events in an adopted ring buffer that were recorded
+	// before this agent started: while no agent was reading. ownDropped
+	// counts the agent's own events reported by an earlier agent's programs.
+	whileDown  atomic.Uint64
+	ownDropped atomic.Uint64
 	// seqHeld is the number of partial rule sequences in memory;
 	// seqEvicted counts those dropped to stay under the cap.
 	seqHeld    atomic.Uint64
@@ -98,6 +105,9 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "enforce" {
 		os.Exit(enforceCmd(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "detect" {
+		os.Exit(detectCmd(os.Args[2:], os.Stdout, os.Stderr))
 	}
 
 	o := options{set: map[string]bool{}}
@@ -220,6 +230,9 @@ type agent struct {
 	c            *counters
 	// seqEvicted is the eviction count last read from the rule set.
 	seqEvicted uint64
+	// started is when the agent started; stop who last asked it to stop.
+	started time.Time
+	stop    stopSignal
 }
 
 // apply makes the kernel filters, the inode watches and the matcher follow
@@ -305,6 +318,9 @@ func (a *agent) handle(ev events.Event) {
 		}
 		return
 	}
+	if rec.Signal != nil {
+		a.noteSignal(rec)
+	}
 	if a.cur.cfg.Export.RawEvents {
 		a.emit(rec)
 	}
@@ -343,14 +359,29 @@ func (a *agent) emit(rec *export.Record) {
 // health sends the agent's own counters to the collector, so that the
 // dashboard can show sensor health from the same store as the events.
 func (a *agent) health(node string, now time.Time) {
+	a.sendHealth(node, now, false)
+}
+
+// sendHealth sends the counters; stopping marks the last record of a planned
+// stop, after which the collector expects silence.
+func (a *agent) sendHealth(node string, now time.Time, stopping bool) {
 	if a.grpc == nil {
 		return
 	}
 	h := map[string]uint64{
-		"rules_loaded":   uint64(a.c.rulesLoaded.Load()),
-		"decode_errors":  a.c.decodeErrors.Load(),
-		"reload_errors":  a.c.reloadErrors.Load(),
-		"proctree_procs": uint64(a.tree.Len()),
+		"rules_loaded":        uint64(a.c.rulesLoaded.Load()),
+		"decode_errors":       a.c.decodeErrors.Load(),
+		"reload_errors":       a.c.reloadErrors.Load(),
+		"proctree_procs":      uint64(a.tree.Len()),
+		"agent_start_unix":    uint64(a.started.Unix()),
+		"recorded_while_down": a.c.whileDown.Load(),
+		"own_events_dropped":  a.c.ownDropped.Load(),
+	}
+	if a.sensor.KeepsRecording() {
+		h["keeps_recording"] = 1
+	}
+	if stopping {
+		h["stopping"] = 1
 	}
 	for _, t := range events.Types {
 		st, err := a.sensor.ReadStats(t)
@@ -426,14 +457,24 @@ func run(log *slog.Logger, o options) error {
 		return fmt.Errorf("pod informer: %w", err)
 	}
 
+	started := time.Now()
+	startBoot := bootNS()
 	sensor, err := loader.Load(loader.Options{
 		RingBufSize: s.cfg.RingBufferSize, Enabled: s.enabled(), Filters: s.filters(),
-		Enforce: s.cfg.Enforcement.Enabled,
-		PinDir:  s.cfg.Enforcement.PinDir,
-		Pin:     s.cfg.Enforcement.OnAgentExit == config.OnExitPinned,
+		Enforce:       s.cfg.Enforcement.Enabled,
+		PinDir:        s.cfg.Enforcement.PinDir,
+		Pin:           s.cfg.Enforcement.OnAgentExit == config.OnExitPinned,
+		KeepRecording: s.cfg.Tamper.KeepRecording,
+		DetectPinDir:  s.cfg.Tamper.PinDir,
 	})
 	if err != nil {
 		return err
+	}
+	if why := sensor.FreshStart(); why != "" {
+		log.Warn("events recorded while no agent was running are lost", "reason", why)
+	}
+	if sensor.Backlog() {
+		log.Info("adopted the ring buffer an earlier agent left pinned; reading what it recorded")
 	}
 	defer func() {
 		if err := sensor.Close(); err != nil {
@@ -482,10 +523,12 @@ func run(log *slog.Logger, o options) error {
 		enricher:     enrich.New(node, tree, procfs, k8s.NewCgroupResolver(o.cgroupRoot), pods),
 		stdout:       export.NewJSONLines(os.Stdout),
 		c:            c,
+		started:      started,
 	}
 	a.enricher.ObserveRoots(a.tracker)
 	a.enricher.SetRuntimes(a.runtimes)
 	a.enricher.SetIdentity(a.ids)
+	a.enricher.SetAgent(uint32(os.Getpid()), sensor.Self().StartNS)
 	if err := a.apply(s); err != nil {
 		return err
 	}
@@ -526,7 +569,11 @@ func run(log *slog.Logger, o options) error {
 	// buffer fills and the kernel counts the drops.
 	queue := make(chan events.Event, o.queueLen)
 	readErr := make(chan error, 1)
-	go func() { readErr <- read(sensor.Events(), queue, c, log) }()
+	var backlogBefore uint64
+	if sensor.Backlog() {
+		backlogBefore = startBoot
+	}
+	go func() { readErr <- read(sensor.Events(), queue, c, log, sensor.Own, backlogBefore) }()
 
 	reap := time.NewTicker(10 * time.Second)
 	defer reap.Stop()
@@ -540,6 +587,17 @@ func run(log *slog.Logger, o options) error {
 			a.health(node, now)
 		case <-ctx.Done():
 			log.Info("signal received, shutting down")
+			if sensor.KeepsRecording() {
+				if planned, why := a.awaitStop(queue); planned {
+					// The last health record says the silence that
+					// follows is expected.
+					a.sendHealth(node, time.Now(), true)
+					sensor.UnpinDetection()
+					log.Info("planned stop: detection unpinned", "reason", why)
+				} else {
+					log.Warn("unplanned stop: detection stays pinned and keeps recording for the next agent", "reason", why)
+				}
+			}
 			return a.stdout.Flush()
 		case err := <-readErr:
 			_ = a.stdout.Flush()
@@ -570,7 +628,10 @@ func run(log *slog.Logger, o options) error {
 }
 
 // read decodes ring buffer records until the reader is closed.
-func read(rd *ringbuf.Reader, queue chan<- events.Event, c *counters, log *slog.Logger) error {
+// Events from an earlier agent's programs about this agent are dropped; those
+// recorded before backlogBefore (boot-clock ns; zero for none) are counted as
+// recorded while no agent was reading.
+func read(rd *ringbuf.Reader, queue chan<- events.Event, c *counters, log *slog.Logger, own func(*events.Header) bool, backlogBefore uint64) error {
 	var rec ringbuf.Record
 	for {
 		if err := rd.ReadInto(&rec); err != nil {
@@ -587,6 +648,23 @@ func read(rd *ringbuf.Reader, queue chan<- events.Event, c *counters, log *slog.
 			}
 			continue
 		}
+		h := ev.Hdr()
+		if own(h) {
+			c.ownDropped.Add(1)
+			continue
+		}
+		if h.TSBootNS < backlogBefore {
+			c.whileDown.Add(1)
+		}
 		queue <- ev
 	}
+}
+
+// bootNS is the boot clock the kernel stamps events with.
+func bootNS() uint64 {
+	var ts unix.Timespec
+	if err := unix.ClockGettime(unix.CLOCK_BOOTTIME, &ts); err != nil {
+		return 0
+	}
+	return uint64(ts.Nano())
 }
