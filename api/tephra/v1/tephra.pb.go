@@ -1014,7 +1014,10 @@ type Exec struct {
 	Env            map[string]string      `protobuf:"bytes,9,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	EnvTruncated   bool                   `protobuf:"varint,10,opt,name=env_truncated,json=envTruncated,proto3" json:"env_truncated,omitempty"`
 	// When the executable's inode last changed, nanoseconds since the epoch.
-	ExeCtimeNs    uint64 `protobuf:"varint,11,opt,name=exe_ctime_ns,json=exeCtimeNs,proto3" json:"exe_ctime_ns,omitempty"`
+	ExeCtimeNs uint64 `protobuf:"varint,11,opt,name=exe_ctime_ns,json=exeCtimeNs,proto3" json:"exe_ctime_ns,omitempty"`
+	// stdin and stdout are pseudo-terminals.
+	StdinIsPty    bool `protobuf:"varint,12,opt,name=stdin_is_pty,json=stdinIsPty,proto3" json:"stdin_is_pty,omitempty"`
+	StdoutIsPty   bool `protobuf:"varint,13,opt,name=stdout_is_pty,json=stdoutIsPty,proto3" json:"stdout_is_pty,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1126,14 +1129,32 @@ func (x *Exec) GetExeCtimeNs() uint64 {
 	return 0
 }
 
+func (x *Exec) GetStdinIsPty() bool {
+	if x != nil {
+		return x.StdinIsPty
+	}
+	return false
+}
+
+func (x *Exec) GetStdoutIsPty() bool {
+	if x != nil {
+		return x.StdoutIsPty
+	}
+	return false
+}
+
 type Parent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Pid           uint32                 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
-	Image         string                 `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
-	CommandLine   string                 `protobuf:"bytes,3,opt,name=command_line,json=commandLine,proto3" json:"command_line,omitempty"`
-	Runtime       bool                   `protobuf:"varint,4,opt,name=runtime,proto3" json:"runtime,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	Pid         uint32                 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
+	Image       string                 `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
+	CommandLine string                 `protobuf:"bytes,3,opt,name=command_line,json=commandLine,proto3" json:"command_line,omitempty"`
+	Runtime     bool                   `protobuf:"varint,4,opt,name=runtime,proto3" json:"runtime,omitempty"`
+	// Only for a parent in the same container.
+	Identity       string `protobuf:"bytes,5,opt,name=identity,proto3" json:"identity,omitempty"`
+	IsMainBinary   bool   `protobuf:"varint,6,opt,name=is_main_binary,json=isMainBinary,proto3" json:"is_main_binary,omitempty"`
+	ContainerFirst bool   `protobuf:"varint,7,opt,name=container_first,json=containerFirst,proto3" json:"container_first,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Parent) Reset() {
@@ -1190,6 +1211,27 @@ func (x *Parent) GetCommandLine() string {
 func (x *Parent) GetRuntime() bool {
 	if x != nil {
 		return x.Runtime
+	}
+	return false
+}
+
+func (x *Parent) GetIdentity() string {
+	if x != nil {
+		return x.Identity
+	}
+	return ""
+}
+
+func (x *Parent) GetIsMainBinary() bool {
+	if x != nil {
+		return x.IsMainBinary
+	}
+	return false
+}
+
+func (x *Parent) GetContainerFirst() bool {
+	if x != nil {
+		return x.ContainerFirst
 	}
 	return false
 }
@@ -1686,7 +1728,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\aruntime\x18\v \x01(\bR\aruntime\x12\x12\n" +
 	"\x04tree\x18\f \x01(\tR\x04tree\x12\x1a\n" +
 	"\bidentity\x18\r \x01(\tR\bidentity\x12!\n" +
-	"\fexe_modified\x18\x0e \x01(\bR\vexeModified\"\xab\x03\n" +
+	"\fexe_modified\x18\x0e \x01(\bR\vexeModified\"\xf1\x03\n" +
 	"\x04Exec\x12&\n" +
 	"\x0fstdin_is_socket\x18\x01 \x01(\bR\rstdinIsSocket\x12(\n" +
 	"\x10stdout_is_socket\x18\x02 \x01(\bR\x0estdoutIsSocket\x12\x1a\n" +
@@ -1700,15 +1742,21 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\renv_truncated\x18\n" +
 	" \x01(\bR\fenvTruncated\x12 \n" +
 	"\fexe_ctime_ns\x18\v \x01(\x04R\n" +
-	"exeCtimeNs\x1a6\n" +
+	"exeCtimeNs\x12 \n" +
+	"\fstdin_is_pty\x18\f \x01(\bR\n" +
+	"stdinIsPty\x12\"\n" +
+	"\rstdout_is_pty\x18\r \x01(\bR\vstdoutIsPty\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"m\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd8\x01\n" +
 	"\x06Parent\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\rR\x03pid\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12!\n" +
 	"\fcommand_line\x18\x03 \x01(\tR\vcommandLine\x12\x18\n" +
-	"\aruntime\x18\x04 \x01(\bR\aruntime\"E\n" +
+	"\aruntime\x18\x04 \x01(\bR\aruntime\x12\x1a\n" +
+	"\bidentity\x18\x05 \x01(\tR\bidentity\x12$\n" +
+	"\x0eis_main_binary\x18\x06 \x01(\bR\fisMainBinary\x12'\n" +
+	"\x0fcontainer_first\x18\a \x01(\bR\x0econtainerFirst\"E\n" +
 	"\tContainer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +

@@ -1,0 +1,35 @@
+id: R028
+title: Interpreter that is not the container's application connects out
+level: medium
+tags: [attack.command_and_control, attack.t1059.006, attack.execution, attack.t1071]
+event: connect
+detection:
+  by_content:
+    process.identity: interpreter
+  by_name:
+    process.Image|re: '/(python[0-9.]*|perl[0-9.]*|ruby[0-9.]*|node|nodejs|php[0-9.]*|lua[0-9.]*|luajit|tclsh[0-9.]*|pwsh|Rscript)$'
+  outbound:
+    network.direction: outbound
+  main:
+    process.is_main_binary: true
+  entrypoint:
+    parent.container_first: true
+  runtime:
+    process.runtime: true
+  host:
+    k8s.namespace: host
+  condition: (by_content or by_name) and outbound and not (main or entrypoint or runtime or host)
+action: alert
+description: >-
+  A script interpreter (Python, Perl, Ruby, Node and the like) made a
+  network connection, and it is not the program the container runs. An
+  interpreter can hold a whole remote session by itself, reading commands
+  from a socket and running them in its own process, so no shell or other
+  program is ever started (E02, E12). The container's application is left
+  out, as is an interpreter started directly by the container's first
+  process, which is how entrypoint scripts run their workers. An attacker
+  who enters with kubectl exec or through the application hangs below the
+  runtime or the application instead.
+falsepositives:
+  - Maintenance scripts run by hand with kubectl exec that use the network
+  - Sidecar-less containers whose entrypoint starts a helper interpreter from a nested script rather than directly

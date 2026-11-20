@@ -351,7 +351,7 @@ The JSON line and the protobuf message carry the same fields. Field names follow
     "User": "www-data", "uid": 33,
     "stdin_is_socket": true, "stdout_is_socket": true
   },
-  "parent": { "pid": 48190, "Image": "/usr/sbin/nginx", "CommandLine": "nginx: worker process" },
+  "parent": { "pid": 48190, "Image": "/usr/sbin/nginx", "CommandLine": "nginx: worker process", "is_main_binary": true, "container_first": true },
   "ancestors": ["/usr/sbin/nginx", "/usr/bin/containerd-shim-runc-v2"],
   "container": { "id": "3f9c…", "name": "web", "image": "nginx:1.27" },
   "k8s": { "namespace": "shop", "pod": "web-7c9d8-xk2lp", "labels": { "app": "web" } }
@@ -479,9 +479,11 @@ The loader validates every rule (unknown field, wrong type for a modifier, bad A
 | R025 | A download tool runs, then the same pod executes a file changed after that, within 60 s | sequence: exec, exec | T1105 | High |
 | R026 | Service account token read, then a connection to the Kubernetes API from the same pod, within 60 s | sequence: file_open, connect | T1528 | High |
 | R027 | Any program, not the container's main binary, started with a socket as stdin and stdout | exec | T1059 | Medium |
+| R028 | A script interpreter that is not the container's application, and was not started by its first process, connects out | connect | T1059.006, T1071 | Medium |
+| R029 | A program started on a pseudo-terminal by a script interpreter that is not the container's application | exec | T1059, T1572 | Medium |
 | R032 | A program executed that changed after its container started, so its image did not ship it | exec | T1059, T1036 | Medium |
 
-R028 to R031 are reserved for the rest of M14. Since M14, a shell or download tool in R001, R002, R004 and R025 is recognised by its name or by its content (`process.identity`), and R005's allowlist holds only for binaries unchanged since the container started (`process.exe_modified`).
+R030 and R031 are reserved for the rest of M14. Since M14, a shell or download tool in R001, R002, R004 and R025 is recognised by its name or by its content (`process.identity`), and R005's allowlist holds only for binaries unchanged since the container started (`process.exe_modified`).
 
 R001 to R014 use only M1 and M3 hooks and form the first rule milestone. R015 to R020 arrive with the M8 hooks.
 
@@ -1011,3 +1013,9 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
 - **Main binary by file.** `process.is_main_binary`, which R006, R013, R026 and R027 use to leave the application alone, now compares the device and inode of the binaries rather than their paths, and is never true for a binary changed after the start. Copying a tool over the application's binary no longer inherits its exemptions.
 - **Rules.** R001, R002, R004 and R025 match a shell or download tool by name or content; R005's allowlist requires `exe_modified: false`. Two new rules by behaviour: R027, any program with a socket as stdin and stdout, not the main binary (medium); R032, a program executed that its image did not ship (medium; container drift). Both are new sources of false positives in build and CI pods, to be measured in the false-positive run before their levels are final.
 - **Cost.** One hash per new executable file, a few milliseconds for the first MiB, then a cache hit; the catalogue is read once per container root. `tephra_identity_digests`, `tephra_identity_files` and `tephra_identity_errors_total` show it. The agent holds no capability to read files other users made unreadable, so such a binary is unknown, which no rule treats as safe.
+- **Phase 2: sessions that start no program.** An interpreter can hold a remote session by itself, reading commands from a socket and running them in its own process (E02, E12), or give a real shell a pseudo-terminal and relay the socket to it (E13). Neither starts a shell on a socket, so R001 and R027 do not apply. Two behaviours are left that the application does not show, and two rules match them:
+  - **R028**, an interpreter that is not the container's application connects out. It is recognised by content or by name, the name covering processes that started before the agent. Left out: the application itself, compared by file, so Jupyter kernels and multiprocessing workers, which run the application's own interpreter, are left alone; and an interpreter started directly by the container's first process, which is how entrypoint scripts run workers. An attacker who arrives with `kubectl exec` hangs below the runtime, and one who arrives through the application hangs below the application, so neither is a child of the first process.
+  - **R029**, a program starts with a pseudo-terminal on stdin and stdout, and its parent is an interpreter that is not the application. The exec hook now reports a terminal as well as a socket: a character device with a Unix98 pty slave major (136 to 143). A terminal from `kubectl exec -t` comes from the runtime, and one from a notebook server comes from the application.
+  - Records gain `stdin_is_pty` and `stdout_is_pty` on exec, and, for a parent in the same container, `parent.identity`, `parent.is_main_binary` and `parent.container_first`.
+  - **Residual.** Code that runs inside the application's own interpreter process, for example a Python application exploited through `eval`, is the application as far as the kernel can tell, and R028 does not see it. What it then does (a file read, a token use, a new program) is what the other rules see. R002 lists `python3` as a server, so the notebook's terminals are expected to fire it in the false-positive run; that is measured, not changed here.
+  - **False-positive workloads.** `notebook` (a Python application starting kernels over loopback and shells on terminals, as Jupyter does) and `worker` (a shell entrypoint looping over a Python worker that fetches from the web service) were added to the false-positive run to measure R028 and R029 where they would hurt.

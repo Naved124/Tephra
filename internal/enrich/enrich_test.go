@@ -149,7 +149,9 @@ func TestExecInPod(t *testing.T) {
 			Tree: "48190.20000000000",
 			Exec: &export.Exec{StdinIsSocket: true, StdoutIsSocket: true, Inode: 77},
 		},
-		Parent:    &export.Parent{PID: 48190, Image: "/usr/sbin/nginx", CommandLine: "nginx: worker process"},
+		// nginx is both the container's first process and its
+		// application.
+		Parent:    &export.Parent{PID: 48190, Image: "/usr/sbin/nginx", CommandLine: "nginx: worker process", IsMainBinary: true, ContainerFirst: true},
 		Ancestors: []string{"/usr/sbin/nginx", "/usr/bin/containerd-shim-runc-v2"},
 		Container: &export.Container{ID: cid, Name: "web", Image: "nginx:1.27"},
 		K8s:       export.K8s{Namespace: "shop", Pod: "web-7c9d8-xk2lp", Labels: map[string]string{"app": "web"}},
@@ -164,7 +166,7 @@ func TestExecInPod(t *testing.T) {
 		`"ts":"2026-11-10T08:22:31.004512Z"`, `"type":"exec"`, `"node":"kind-worker"`,
 		`"Image":"/bin/sh"`, `"CommandLine":"sh -i"`, `"User":"www-data"`, `"uid":33`,
 		`"stdin_is_socket":true`, `"stdout_is_socket":true`, `"start_time_ns":91822330114`,
-		`"parent":{"pid":48190,"Image":"/usr/sbin/nginx","CommandLine":"nginx: worker process"}`,
+		`"parent":{"pid":48190,"Image":"/usr/sbin/nginx","CommandLine":"nginx: worker process","is_main_binary":true,"container_first":true}`,
 		`"ancestors":["/usr/sbin/nginx","/usr/bin/containerd-shim-runc-v2"]`,
 		`"container":{"id":"` + cid + `","name":"web","image":"nginx:1.27"}`,
 		`"k8s":{"namespace":"shop","pod":"web-7c9d8-xk2lp","labels":{"app":"web"}}`,
@@ -835,5 +837,44 @@ func TestMainBinaryByFile(t *testing.T) {
 	rec = f.e.Handle(&events.Exec{Header: h, Path: "/app/server", Argv: []string{"server"}, Dev: 5, Inode: 500, CtimeNS: uint64(time.Now().UnixNano())}, time.Now())
 	if rec.Process.IsMainBinary || !rec.Process.ExeModified {
 		t.Error("main binary overwritten in place is still the main binary")
+	}
+}
+
+// An interpreter in a container starts a shell on a terminal, as a pty
+// relay does (E13): the shell's record says so, and says what its parent is.
+func TestPtyAndParentFacts(t *testing.T) {
+	f := newFixture(t)
+	f.e.SetIdentity(&fakeIdentifier{roles: map[string]identity.Role{"/usr/local/bin/python3": identity.Interpreter}})
+	h := f.webShell("/usr/local/bin/python3", "python3", "-")
+
+	// The interpreter's own parent is nginx: first process and application.
+	rec := f.e.Handle(&events.Exec{Header: h, Path: "/usr/local/bin/python3", Argv: []string{"python3", "-"}, Inode: 90}, time.Now())
+	if rec.Parent == nil || !rec.Parent.ContainerFirst || !rec.Parent.IsMainBinary || rec.Parent.Identity != "" {
+		t.Fatalf("python's parent: %s", toJSON(t, rec))
+	}
+	if rec.Process.Identity != "interpreter" {
+		t.Errorf("python identity %q", rec.Process.Identity)
+	}
+
+	child := events.Header{Type: events.TypeFork, PID: h.PID, StartTimeNS: h.StartTimeNS, CgroupID: h.CgroupID}
+	f.e.Handle(&events.Fork{Header: child, ChildPID: 48301, ChildStartNS: 99_500_000_000, ParentPID: h.PID, ParentStartNS: h.StartTimeNS}, time.Now())
+	sh := events.Header{
+		Type: events.TypeExec, PID: 48301, StartTimeNS: 99_500_000_000, PPID: h.PID, CgroupID: h.CgroupID,
+		Flags: events.ExecStdinPty | events.ExecStdoutPty,
+	}
+	rec = f.e.Handle(&events.Exec{Header: sh, Path: "/bin/sh", Argv: []string{"sh"}, Inode: 91}, time.Now())
+	if !rec.Process.StdinIsPty || !rec.Process.StdoutIsPty || rec.Process.StdinIsSocket {
+		t.Errorf("stdio: %s", toJSON(t, rec))
+	}
+	p := rec.Parent
+	if p == nil || p.PID != h.PID || p.Identity != "interpreter" || p.IsMainBinary || p.ContainerFirst {
+		t.Errorf("shell's parent: %s", toJSON(t, rec))
+	}
+
+	// A host process's parent carries none of it.
+	host := f.cgroup("system.slice/ssh.service")
+	rec = f.e.Handle(&events.Exec{Header: events.Header{Type: events.TypeExec, PID: 701, StartTimeNS: 6, PPID: 1, CgroupID: host}, Path: "/bin/sh"}, time.Now())
+	if p := rec.Parent; p != nil && (p.Identity != "" || p.IsMainBinary || p.ContainerFirst) {
+		t.Errorf("host parent: %s", toJSON(t, rec))
 	}
 }

@@ -90,14 +90,17 @@ type Process struct {
 
 // Exec holds what only an exec event knows.
 type Exec struct {
-	StdinIsSocket  bool   `json:"stdin_is_socket"`
-	StdoutIsSocket bool   `json:"stdout_is_socket"`
-	Unlinked       bool   `json:"unlinked"`
-	Setuid         bool   `json:"setuid"`
-	ArgvTruncated  bool   `json:"argv_truncated"`
-	Inode          uint64 `json:"inode"`
-	Dev            uint32 `json:"dev"`
-	CapEffective   uint64 `json:"cap_effective"`
+	StdinIsSocket  bool `json:"stdin_is_socket"`
+	StdoutIsSocket bool `json:"stdout_is_socket"`
+	// A pseudo-terminal, /dev/pts/N, on stdin or stdout.
+	StdinIsPty    bool   `json:"stdin_is_pty,omitempty"`
+	StdoutIsPty   bool   `json:"stdout_is_pty,omitempty"`
+	Unlinked      bool   `json:"unlinked"`
+	Setuid        bool   `json:"setuid"`
+	ArgvTruncated bool   `json:"argv_truncated"`
+	Inode         uint64 `json:"inode"`
+	Dev           uint32 `json:"dev"`
+	CapEffective  uint64 `json:"cap_effective"`
 	// ExeCtimeNS is when the executable's inode last changed (written,
 	// renamed, chmod), in nanoseconds since the epoch.
 	ExeCtimeNS uint64 `json:"exe_ctime_ns,omitempty"`
@@ -173,6 +176,12 @@ type Parent struct {
 	Image       string `json:"Image"`
 	CommandLine string `json:"CommandLine"`
 	Runtime     bool   `json:"runtime,omitempty"`
+	// Set only for a parent in the same container: what its binary is
+	// by content, whether it runs the container's main binary, and
+	// whether it is the container's first process.
+	Identity       string `json:"identity,omitempty"`
+	IsMainBinary   bool   `json:"is_main_binary,omitempty"`
+	ContainerFirst bool   `json:"container_first,omitempty"`
 }
 
 // Container is absent for host processes.

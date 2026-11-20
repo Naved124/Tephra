@@ -145,6 +145,9 @@ message Exec {
   bool env_truncated = 10;
   // When the executable's inode last changed, nanoseconds since the epoch.
   uint64 exe_ctime_ns = 11;
+  // stdin and stdout are pseudo-terminals.
+  bool stdin_is_pty = 12;
+  bool stdout_is_pty = 13;
 }
 
 message Parent {
@@ -152,6 +155,10 @@ message Parent {
   string image = 2;
   string command_line = 3;
   bool runtime = 4;
+  // Only for a parent in the same container.
+  string identity = 5;
+  bool is_main_binary = 6;
+  bool container_first = 7;
 }
 
 message Container {

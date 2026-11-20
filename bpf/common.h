@@ -31,6 +31,7 @@ char LICENSE[] SEC("license") = "GPL";
 
 #define S_IFMT	 00170000
 #define S_IFSOCK 0140000
+#define S_IFCHR	 0020000
 #define S_ISUID	 0004000
 
 /* Event types. The value is the index into the stats map, the bit position in
@@ -82,6 +83,8 @@ struct event_hdr {
 #define EXEC_F_SETUID	   (1U << 3) /* binary has the setuid bit */
 #define EXEC_F_ARGV_TRUNC  (1U << 4)
 #define EXEC_F_ENV_TRUNC   (1U << 5) /* environment not scanned to its end */
+#define EXEC_F_STDIN_PTY   (1U << 6) /* stdin is a pseudo-terminal */
+#define EXEC_F_STDOUT_PTY  (1U << 7) /* stdout is a pseudo-terminal */
 
 /* A record ends after argv_len bytes of argv when env_len is zero, which is
  * the usual case. With captured variables the whole of argv is sent, followed

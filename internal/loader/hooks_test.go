@@ -430,3 +430,70 @@ func TestAcceptBlockedBeforeAttach(t *testing.T) {
 		t.Fatal("no accept event for a server that was blocked in accept() before the sensor attached")
 	}
 }
+
+// What stdin and stdout are, as the exec hook reports them: a terminal's
+// far end (E13's relay), a socket, or neither.
+func TestExecStdio(t *testing.T) {
+	s := loadForTest(t, Options{})
+
+	ptmx, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_NOCTTY, 0)
+	if err != nil {
+		t.Skipf("no pseudo-terminals: %v", err)
+	}
+	defer func() { _ = ptmx.Close() }()
+	if err := unix.IoctlSetPointerInt(int(ptmx.Fd()), unix.TIOCSPTLCK, 0); err != nil {
+		t.Fatal(err)
+	}
+	n, err := unix.IoctlGetInt(int(ptmx.Fd()), unix.TIOCGPTN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pts, err := os.OpenFile(fmt.Sprintf("/dev/pts/%d", n), os.O_RDWR|unix.O_NOCTTY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pts.Close() }()
+	pair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sock := os.NewFile(uintptr(pair[0]), "sock")
+	defer func() { _ = sock.Close(); _ = unix.Close(pair[1]) }()
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = null.Close() }()
+
+	run := func(stdio *os.File) uint32 {
+		t.Helper()
+		fd := stdio.Fd()
+		pid, err := syscall.ForkExec("/bin/true", []string{"/bin/true"}, &syscall.ProcAttr{Files: []uintptr{fd, fd, os.Stderr.Fd()}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ws syscall.WaitStatus
+		if _, err := syscall.Wait4(pid, &ws, 0, nil); err != nil {
+			t.Fatal(err)
+		}
+		e := next(t, s, 5*time.Second, func(x *events.Exec) bool { return x.PID == uint32(pid) })
+		if e == nil {
+			t.Fatal("exec event not seen")
+		}
+		return e.Flags & (events.ExecStdinPty | events.ExecStdoutPty | events.ExecStdinSock | events.ExecStdoutSock)
+	}
+	for _, tc := range []struct {
+		name string
+		f    *os.File
+		want uint32
+	}{
+		{"pty", pts, events.ExecStdinPty | events.ExecStdoutPty},
+		{"socket", sock, events.ExecStdinSock | events.ExecStdoutSock},
+		// A character device that is not a terminal.
+		{"null", null, 0},
+	} {
+		if got := run(tc.f); got != tc.want {
+			t.Errorf("%s: stdio flags %#x, want %#x", tc.name, got, tc.want)
+		}
+	}
+}

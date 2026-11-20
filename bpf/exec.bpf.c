@@ -6,15 +6,37 @@
 const struct fork_event *__tephra_fork_event __attribute__((unused));
 const struct exit_event *__tephra_exit_event __attribute__((unused));
 
-static __always_inline bool fd_is_socket(struct task_struct *task, __u32 fd)
+static __always_inline struct inode *fd_inode(struct task_struct *task,
+					      __u32 fd)
 {
 	struct file **fds = BPF_CORE_READ(task, files, fdt, fd);
 	struct file *f = NULL;
 
 	/* The table always has room for at least the first 64 descriptors. */
 	if (!fds || bpf_probe_read_kernel(&f, sizeof(f), &fds[fd]) || !f)
+		return NULL;
+	return BPF_CORE_READ(f, f_inode);
+}
+
+static __always_inline bool fd_is_socket(struct task_struct *task, __u32 fd)
+{
+	struct inode *inode = fd_inode(task, fd);
+
+	return inode && (BPF_CORE_READ(inode, i_mode) & S_IFMT) == S_IFSOCK;
+}
+
+/* A pseudo-terminal's far end, /dev/pts/N: a character device with one of
+ * the eight Unix98 pty slave majors, 136 to 143. The kernel's dev_t keeps the
+ * major above bit 20. */
+static __always_inline bool fd_is_pty(struct task_struct *task, __u32 fd)
+{
+	struct inode *inode = fd_inode(task, fd);
+	__u32 major;
+
+	if (!inode || (BPF_CORE_READ(inode, i_mode) & S_IFMT) != S_IFCHR)
 		return false;
-	return (BPF_CORE_READ(f, f_inode, i_mode) & S_IFMT) == S_IFSOCK;
+	major = BPF_CORE_READ(inode, i_rdev) >> 20;
+	return major >= 136 && major <= 143;
 }
 
 /* The dynamic loader variables that change which code a binary runs. Returns
@@ -221,6 +243,10 @@ int BPF_PROG(tephra_exec, struct task_struct *p, pid_t old_pid,
 		e->h.flags |= EXEC_F_STDIN_SOCK;
 	if (fd_is_socket(p, 1))
 		e->h.flags |= EXEC_F_STDOUT_SOCK;
+	if (fd_is_pty(p, 0))
+		e->h.flags |= EXEC_F_STDIN_PTY;
+	if (fd_is_pty(p, 1))
+		e->h.flags |= EXEC_F_STDOUT_PTY;
 
 	/* One bounded read of the argument block instead of a loop over
 	 * arguments. */

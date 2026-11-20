@@ -54,8 +54,8 @@ func TestShippedRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set.Rules) != 28 {
-		t.Errorf("loaded %d rules, want R001 to R027 and R032", len(set.Rules))
+	if len(set.Rules) != 30 {
+		t.Errorf("loaded %d rules, want R001 to R029 and R032", len(set.Rules))
 	}
 	for _, r := range set.Rules {
 		if r.Description == "" || len(r.Tags) < 2 {

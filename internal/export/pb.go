@@ -41,10 +41,12 @@ func ToProto(r *Record) *tephrav1.Record {
 			Unlinked: x.Unlinked, Setuid: x.Setuid, ArgvTruncated: x.ArgvTruncated,
 			Inode: x.Inode, Dev: x.Dev, CapEffective: x.CapEffective,
 			Env: x.Env, EnvTruncated: x.EnvTruncated, ExeCtimeNs: x.ExeCtimeNS,
+			StdinIsPty: x.StdinIsPty, StdoutIsPty: x.StdoutIsPty,
 		}
 	}
 	if x := r.Parent; x != nil {
-		p.Parent = &tephrav1.Parent{Pid: x.PID, Image: x.Image, CommandLine: x.CommandLine, Runtime: x.Runtime}
+		p.Parent = &tephrav1.Parent{Pid: x.PID, Image: x.Image, CommandLine: x.CommandLine, Runtime: x.Runtime,
+			Identity: x.Identity, IsMainBinary: x.IsMainBinary, ContainerFirst: x.ContainerFirst}
 	}
 	if x := r.Container; x != nil {
 		p.Container = &tephrav1.Container{Id: x.ID, Name: x.Name, Image: x.Image}
@@ -125,6 +127,7 @@ func FromProto(p *tephrav1.Record) *Record {
 				Unlinked: e.GetUnlinked(), Setuid: e.GetSetuid(), ArgvTruncated: e.GetArgvTruncated(),
 				Inode: e.GetInode(), Dev: e.GetDev(), CapEffective: e.GetCapEffective(),
 				EnvTruncated: e.GetEnvTruncated(), ExeCtimeNS: e.GetExeCtimeNs(),
+				StdinIsPty: e.GetStdinIsPty(), StdoutIsPty: e.GetStdoutIsPty(),
 			}
 			if len(e.GetEnv()) > 0 {
 				r.Process.Env = e.GetEnv()
@@ -132,7 +135,8 @@ func FromProto(p *tephrav1.Record) *Record {
 		}
 	}
 	if x := p.GetParent(); x != nil {
-		r.Parent = &Parent{PID: x.GetPid(), Image: x.GetImage(), CommandLine: x.GetCommandLine(), Runtime: x.GetRuntime()}
+		r.Parent = &Parent{PID: x.GetPid(), Image: x.GetImage(), CommandLine: x.GetCommandLine(), Runtime: x.GetRuntime(),
+			Identity: x.GetIdentity(), IsMainBinary: x.GetIsMainBinary(), ContainerFirst: x.GetContainerFirst()}
 	}
 	if x := p.GetContainer(); x != nil {
 		r.Container = &Container{ID: x.GetId(), Name: x.GetName(), Image: x.GetImage()}

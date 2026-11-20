@@ -105,6 +105,8 @@ const (
 	ExecSetuid     = 1 << 3
 	ExecArgvTrunc  = 1 << 4
 	ExecEnvTrunc   = 1 << 5
+	ExecStdinPty   = 1 << 6
+	ExecStdoutPty  = 1 << 7
 )
 
 // File flag bits in Header.Flags, FILE_F_* in bpf/common.h.

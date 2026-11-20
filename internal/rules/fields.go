@@ -178,6 +178,8 @@ var fields = map[string]field{
 
 	"process.stdin_is_socket":  execField(kBool, func(e *export.Exec) value { return boolean(e.StdinIsSocket) }),
 	"process.stdout_is_socket": execField(kBool, func(e *export.Exec) value { return boolean(e.StdoutIsSocket) }),
+	"process.stdin_is_pty":     execField(kBool, func(e *export.Exec) value { return boolean(e.StdinIsPty) }),
+	"process.stdout_is_pty":    execField(kBool, func(e *export.Exec) value { return boolean(e.StdoutIsPty) }),
 	"process.unlinked":         execField(kBool, func(e *export.Exec) value { return boolean(e.Unlinked) }),
 	"process.setuid":           execField(kBool, func(e *export.Exec) value { return boolean(e.Setuid) }),
 	"process.argv_truncated":   execField(kBool, func(e *export.Exec) value { return boolean(e.ArgvTruncated) }),
@@ -185,11 +187,14 @@ var fields = map[string]field{
 	"process.cap_effective":    execField(kInt, func(e *export.Exec) value { return integer(int64(e.CapEffective)) }),
 	"process.env_names":        execField(kStrings, func(e *export.Exec) value { return value{ss: e.EnvNames(), ok: true} }),
 
-	"parent.pid":         parentField(kInt, func(p *export.Parent) value { return integer(int64(p.PID)) }),
-	"parent.Image":       parentField(kString, func(p *export.Parent) value { return str(p.Image) }),
-	"parent.CommandLine": parentField(kString, func(p *export.Parent) value { return str(p.CommandLine) }),
-	"parent.runtime":     parentField(kBool, func(p *export.Parent) value { return boolean(p.Runtime) }),
-	"ancestors":          {kind: kStrings, get: func(r *export.Record) value { return value{ss: r.Ancestors, ok: true} }},
+	"parent.pid":             parentField(kInt, func(p *export.Parent) value { return integer(int64(p.PID)) }),
+	"parent.Image":           parentField(kString, func(p *export.Parent) value { return str(p.Image) }),
+	"parent.CommandLine":     parentField(kString, func(p *export.Parent) value { return str(p.CommandLine) }),
+	"parent.runtime":         parentField(kBool, func(p *export.Parent) value { return boolean(p.Runtime) }),
+	"parent.identity":        parentField(kString, func(p *export.Parent) value { return present(p.Identity) }),
+	"parent.is_main_binary":  parentField(kBool, func(p *export.Parent) value { return boolean(p.IsMainBinary) }),
+	"parent.container_first": parentField(kBool, func(p *export.Parent) value { return boolean(p.ContainerFirst) }),
+	"ancestors":              {kind: kStrings, get: func(r *export.Record) value { return value{ss: r.Ancestors, ok: true} }},
 
 	"container.id":    containerField(func(c *export.Container) string { return c.ID }),
 	"container.name":  containerField(func(c *export.Container) string { return c.Name }),

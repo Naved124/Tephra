@@ -1,0 +1,31 @@
+id: R029
+title: Program started on a terminal that an interpreter created
+level: medium
+tags: [attack.execution, attack.t1059, attack.command_and_control, attack.t1572]
+event: exec
+detection:
+  terminal:
+    process.stdin_is_pty: true
+    process.stdout_is_pty: true
+  by_content:
+    parent.identity: interpreter
+  by_name:
+    parent.Image|re: '/(python[0-9.]*|perl[0-9.]*|ruby[0-9.]*|node|nodejs|php[0-9.]*|lua[0-9.]*|luajit|tclsh[0-9.]*|pwsh|Rscript)$'
+  app:
+    parent.is_main_binary: true
+  runtime:
+    process.runtime: true
+  host:
+    k8s.namespace: host
+  condition: terminal and (by_content or by_name) and not (app or runtime or host)
+action: alert
+description: >-
+  A program in a container was started with a pseudo-terminal on stdin and
+  stdout, by a script interpreter that is not the container's application.
+  That is how a relay upgrades a raw connection to a full interactive shell
+  (Python's pty.spawn, Perl's IO::Pty): the shell sees a terminal, not the
+  socket, so the rules on socket stdio do not apply (E13). A terminal given
+  by kubectl exec -t comes from the runtime, and one given by a notebook
+  server comes from the application; neither fires.
+falsepositives:
+  - Interactive tools run by hand inside a kubectl exec session, such as a Python REPL that starts a shell

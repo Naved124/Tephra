@@ -296,6 +296,8 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 			CapEffective:   ev.CapEffective,
 			ExeCtimeNS:     ev.CtimeNS,
 			EnvTruncated:   ev.Flags&events.ExecEnvTrunc != 0,
+			StdinIsPty:     ev.Flags&events.ExecStdinPty != 0,
+			StdoutIsPty:    ev.Flags&events.ExecStdoutPty != 0,
 		}
 		for _, kv := range ev.Env {
 			if name, value, ok := strings.Cut(kv, "="); ok {
@@ -448,7 +450,7 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 	rec.Process.User = e.users.name(h.PID, h.MntNS, h.UID)
 	rec.Process.Runtime = e.isRuntime(p)
 
-	e.ancestry(rec, p, h.CgroupID)
+	parent, hasParent := e.ancestry(rec, p, h.CgroupID)
 	e.attribute(rec, p, h.CgroupID)
 	if runtimeCopy {
 		e.tree.SetRuntimeChild(p.Key)
@@ -466,6 +468,14 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		if isExec && e.inodes != nil {
 			// A new root filesystem shows up with its first exec.
 			e.inodes.Observe(p.Key.PID, rec.Container.ID)
+		}
+		if hasParent && rec.Parent != nil && !rec.Parent.Runtime &&
+			(parent.CgroupID == h.CgroupID || parent.ContainerID == rec.Container.ID) {
+			rec.Parent.Identity = parent.Identity
+			rec.Parent.IsMainBinary = e.isMainBinary(rec.Container.ID, parent, false)
+			if first, ok := e.tree.OldestInContainer(rec.Container.ID); ok {
+				rec.Parent.ContainerFirst = first.Key == parent.Key
+			}
 		}
 	}
 	return rec
@@ -643,7 +653,8 @@ func (e *Enricher) parentOf(cur proctree.Proc) (proctree.Proc, bool) {
 // subject's cgroup. The walk leaves a container's cgroup at the runtime
 // (the shim, or runc for an exec into the container), so that ancestor is
 // the container's first process or the process an exec into it started.
-func (e *Enricher) ancestry(rec *export.Record, p proctree.Proc, cgroupID uint64) {
+// It returns the parent it found.
+func (e *Enricher) ancestry(rec *export.Record, p proctree.Proc, cgroupID uint64) (parent proctree.Proc, found bool) {
 	cur := p
 	root, inTree := p.Key, true
 	defer func() {
@@ -653,11 +664,12 @@ func (e *Enricher) ancestry(rec *export.Record, p proctree.Proc, cgroupID uint64
 		if cur.Parent.PID == 0 {
 			break
 		}
-		parent, ok := e.parentOf(cur)
-		if !ok || parent.Key == cur.Key {
+		next, ok := e.parentOf(cur)
+		if !ok || next.Key == cur.Key {
 			break
 		}
 		if i == 0 {
+			parent, found = next, true
 			rec.Parent = &export.Parent{
 				PID:         parent.Key.PID,
 				Image:       parent.Image,
@@ -665,14 +677,15 @@ func (e *Enricher) ancestry(rec *export.Record, p proctree.Proc, cgroupID uint64
 				Runtime:     e.isRuntime(parent),
 			}
 		}
-		rec.Ancestors = append(rec.Ancestors, parent.Image)
-		if inTree && sameGroup(parent, p, cgroupID) && !e.isRuntime(parent) {
-			root = parent.Key
+		rec.Ancestors = append(rec.Ancestors, next.Image)
+		if inTree && sameGroup(next, p, cgroupID) && !e.isRuntime(next) {
+			root = next.Key
 		} else {
 			inTree = false
 		}
-		cur = parent
+		cur = next
 	}
+	return parent, found
 }
 
 // sameGroup reports whether an ancestor is in the subject's cgroup. An
