@@ -1078,3 +1078,37 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
   - The list of rules that noticed a held-out scenario was read as soon as its expected rule fired. Some rules come later, such as R031 after an agent's restart, so the list is now read at the end of the scenario's time.
   - The two questions below became scenarios E17 and E18, in a third group, "Checks", with predictions in section 8.
 - **To check in Phase 4, not assumed either way:** a service account token projected at a custom mount path, which R006's path prefixes would not name; and the token read through `/proc/<pid>/root/...` from another process in the pod, a different path string for the same file.
+- **Phase 4, run 1 (20 Nov, measured once, kept as recorded).** Two EC2 machines in parallel: kernel 7.0.0-1018-aws on demand (the baseline ran on -1017), and 5.15.0-1121-aws on spot. Sensor f57d110. Reports: [coverage.md](coverage.md), [evasion.md](evasion.md).
+  - **Kernel tests:** 30 of 30 pass on both kernels, including the four enforcement tests with BPF LSM active and the four Phase 3 tamper tests.
+  - **Acceptance M0 to M6:** pass on both. The rollout restart in `make dev` raised no R030 and no R031, and no new agent found pins left behind, so every old agent judged its stop as planned. Two "stopping" health records arrived for three agents; the third agent was probably restarted before its first health record, so the collector did not know it yet. Not confirmed.
+  - **A01 to A22:** 22 of 22 detected on both kernels.
+  - **Evasions on 7.0:**
+
+    | Group | Baseline | Run 1 |
+    |---|---|---|
+    | Original E01 to E08 | 5 of 8 | 6 of 8 |
+    | Held-out E09 to E16 | 2 of 8 | 6 of 8 |
+    | Checks E17, E18 | — | 1 of 2, both predictions held |
+
+    - Missed: E02 and E12 (sessions inside an interpreter), E07, E15, E17.
+    - On 5.15, E07 and E14 were caught (R005 with R030, and R031 for E14); E15 was not.
+  - **False-positive run on 7.0:** 30 minutes, **0 high or critical**, 0 drops. Medium alerts:
+    - R002 and R029, 120 each: the notebook workload's terminal shells. R029 should have left them alone as the application's own, so this is to be investigated.
+    - R028, 6: the worker's Python client.
+    - R032, 24: the build job.
+    - R004, 11: apk.
+  - **E07 on 7.0 was spoiled by the harness, not by the sensor alone.** E06's process was still reading /etc/shadow in a loop when E07 started, because the harness deletes each scenario's namespace without waiting. While E07 had the agent dead, the pinned ring buffer filled with those reads. The new agent recovered 47,917 events and raised about 23,600 R005 alerts at once. The export queue (8,192) then dropped 24,330 events and 15,422 alerts, among them E07's R005 and R030.
+    - On 5.15, where E07 ran without E06 before it, it was caught.
+    - The result stands as measured.
+    - Two findings follow:
+      - the harness must wait for a scenario's namespace to be gone;
+      - **a flood of alerts can bury the one that matters.** The queue protects alerts from floods of events, not from floods of alerts. That is a weakness an attacker can use on purpose, and the fix (collapsing repeated alerts into one with a count) needs a held-out scenario written first.
+  - **E15: the read is seen, but filed under the agent's pod.** R005 fired on the cat in the agent's cgroup, but pod attribution follows the cgroup, so the alert names the agent's pod, and the scenario counts as missed by its pre-registered rule. The fix is to attribute by namespaces as well, and to treat a process in the agent's cgroup that is not the agent as tampering.
+  - **Not run in run 1:** blocking in the cluster, and the benchmarks, which were skipped because the code is about to change.
+  - **Next:**
+    1. fix the harness;
+    2. write new held-out scenarios for each weakness above, before their fixes;
+    3. fix;
+    4. a full re-run on both kernels with blocking and the Falco and Tetragon benchmarks, which becomes the baseline from then on.
+    
+    E09 to E16 are no longer held out: a re-run after fixes is labelled as such.
