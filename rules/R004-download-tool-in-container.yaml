@@ -17,13 +17,16 @@ detection:
       - /microdnf
       - /pip
       - /pip3
+  by_content:
+    process.identity: download_tool
   host:
     k8s.namespace: host
-  condition: selection and not host
+  condition: (selection or by_content) and not host
 action: alert
 description: >-
   Containers are built once and run unchanged. Fetching files or installing
   packages in a running one is how tools are brought in after a compromise.
+  curl, wget and the like are also recognised by content, under any name.
 falsepositives:
   - Health checks and init scripts that call curl or wget
   - Images that install or query packages at start-up; the official nginx image's entrypoint runs "apk manifest nginx"

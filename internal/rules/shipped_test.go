@@ -54,8 +54,8 @@ func TestShippedRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set.Rules) != 26 {
-		t.Errorf("loaded %d rules, want R001 to R026", len(set.Rules))
+	if len(set.Rules) != 28 {
+		t.Errorf("loaded %d rules, want R001 to R027 and R032", len(set.Rules))
 	}
 	for _, r := range set.Rules {
 		if r.Description == "" || len(r.Tags) < 2 {
@@ -203,6 +203,48 @@ func TestShippedWatches(t *testing.T) {
 	for _, name := range []string{"accept", "memfd"} {
 		if types[name] {
 			t.Errorf("%s enabled, but no shipped rule uses it", name)
+		}
+	}
+}
+
+// R025's first step recognises a download tool by content, so a renamed
+// curl or wget still starts the sequence. The recorded sequence is replayed
+// with its fetch tool renamed: by name alone it would not fire.
+func TestDownloadThenExecuteByContent(t *testing.T) {
+	set, err := rules.Load(shipped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var r25 *rules.Rule
+	for _, r := range set.Rules {
+		if r.ID == "R025" {
+			r25 = r
+		}
+	}
+	if r25 == nil {
+		t.Fatal("R025 not shipped")
+	}
+	recs := readEvents(t, filepath.Join(shipped, "testdata", "R025.match.jsonl"))
+	if len(recs) == 0 || recs[0].Process.Image != "/bin/wget" {
+		t.Fatalf("R025.match.jsonl no longer starts with wget")
+	}
+	for _, identity := range []string{"", "download_tool"} {
+		one, err := rules.NewSet([]*rules.Rule{r25})
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for i, rec := range recs {
+			if i == 0 {
+				c := *rec
+				c.Process.Image = "/tmp/.cache/upd"
+				c.Process.Identity = identity
+				rec = &c
+			}
+			n += len(one.Match(rec))
+		}
+		if fired := n > 0; fired != (identity != "") {
+			t.Errorf("renamed fetch tool with identity %q: fired %v", identity, fired)
 		}
 	}
 }

@@ -4,8 +4,10 @@ level: medium
 tags: [attack.execution, attack.t1059.004]
 event: exec
 detection:
-  selection:
+  by_name:
     process.Image|endswith: [/sh, /bash, /dash, /zsh, /ash, /ksh]
+  by_content:
+    process.identity: shell
   server:
     ancestors|endswith:
       - /nginx
@@ -28,11 +30,12 @@ detection:
       - /postgres
       - /mysqld
       - /mongod
-  condition: selection and server
+  condition: (by_name or by_content) and server
 action: alert
 description: >-
   A shell anywhere below a server process in the process tree usually means
-  the server was made to run a command.
+  the server was made to run a command. The shell is recognised by its name
+  or by its content.
 falsepositives:
   - Applications that shell out on purpose (build tools, npm scripts, subprocess calls with shell=True)
   - Container entrypoint scripts that start the server and are then re-entered

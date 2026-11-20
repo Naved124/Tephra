@@ -37,7 +37,7 @@ What works today: the agent watches process starts and exits, connections
 that the kernel refused, watched files being deleted, renamed, replaced or
 linked, ptrace attach, credential changes, mounts, namespace switches, kernel
 module loads, BPF program loads and memfd creation on its node. It attributes
-each event to a pod, evaluates the 26 detection rules in [rules/](rules/), and writes events
+each event to a pod, evaluates the 28 detection rules in [rules/](rules/), and writes events
 and alerts as JSON lines on stdout. A collector forwards both to Loki, and a
 Grafana dashboard shows the alerts and the sensor's own health.
 
@@ -115,7 +115,10 @@ export queue are on `/metrics`, port 9090 of each agent pod.
 A rule is a YAML file: one event type, named blocks of field tests, and a
 condition that combines the blocks, or a `sequence:` of two to four such
 steps in one process tree or pod within a time window. [rules/](rules/) holds
-R001 to R026; section 6 of the design describes the schema.
+R001 to R027 and R032; section 6 of the design describes the schema. Rules
+can name what a binary is by its content (`process.identity`: shell,
+interpreter, download_tool) and whether it changed after its container
+started (`process.exe_modified`), not only its path.
 
 ```sh
 bin/tephrad rules validate rules/                 # check every rule, errors carry file and line

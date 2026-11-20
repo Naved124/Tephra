@@ -72,6 +72,13 @@ type Process struct {
 	// binaries, recognised by the identity of the file and not by its
 	// name.
 	Runtime bool `json:"runtime,omitempty"`
+	// Identity is what the binary is by its content, whatever its name:
+	// shell, interpreter or download_tool; empty when unknown.
+	Identity string `json:"identity,omitempty"`
+	// ExeModified says the binary changed after its container started, so
+	// it is not a file the image shipped. Always false outside a
+	// container.
+	ExeModified bool `json:"exe_modified,omitempty"`
 	// Tree names the tree of processes this one belongs to: its topmost
 	// ancestor in the same cgroup, as "<pid>.<start time>". In a container
 	// that is the container's first process, or the process an exec into

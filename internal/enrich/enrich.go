@@ -18,6 +18,7 @@ import (
 
 	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/export"
+	"github.com/Naved124/tephra/internal/identity"
 	"github.com/Naved124/tephra/internal/k8s"
 	"github.com/Naved124/tephra/internal/proctree"
 )
@@ -47,6 +48,10 @@ type Enricher struct {
 	hostNS map[string]uint32
 	// runtimes, if set, knows the node's runtime binaries.
 	runtimes RuntimeSet
+	// ids, if set, recognises binaries by their content; idRoots are the
+	// containers whose root it has been shown.
+	ids     Identifier
+	idRoots map[string]bool
 	// watched, if set, says which watches cover a path. Refused opens
 	// arrive unfiltered and are kept only when one does.
 	watched         func(path string) uint32
@@ -58,6 +63,21 @@ type Enricher struct {
 type RuntimeSet interface {
 	Has(dev uint32, inode uint64) bool
 }
+
+// Identifier recognises executables by content; identity.Catalog
+// implements it.
+type Identifier interface {
+	ObserveRoot(pid uint32)
+	Identify(x identity.Exe) identity.Role
+}
+
+// SetIdentity sets who recognises binaries by their content.
+func (e *Enricher) SetIdentity(ids Identifier) { e.ids = ids }
+
+// exeSlack is how long after a container's start a binary's change still
+// counts as part of the image: file times and process start times come from
+// different clocks.
+const exeSlack = time.Second
 
 // SetRuntimes sets who recognises runtime binaries.
 func (e *Enricher) SetRuntimes(r RuntimeSet) { e.runtimes = r }
@@ -182,6 +202,8 @@ type RootObserver interface {
 type mainBinary struct {
 	key   proctree.Key
 	image string
+	dev   uint32
+	inode uint64
 }
 
 // maxMains bounds the main-binary cache; entries are cheap to recompute.
@@ -432,6 +454,12 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		e.tree.SetRuntimeChild(p.Key)
 		rec.Process.Runtime = true
 	}
+	if x, ok := ev.(*events.Exec); ok && !rec.Process.Runtime {
+		p.Identity, p.ExeModified = e.identify(x, rec, p)
+		e.tree.SetIdentity(p.Key, p.Identity, p.ExeModified)
+	}
+	rec.Process.Identity = p.Identity
+	rec.Process.ExeModified = p.ExeModified
 	if rec.Container != nil {
 		_, isExec := ev.(*events.Exec)
 		rec.Process.IsMainBinary = e.isMainBinary(rec.Container.ID, p, isExec)
@@ -441,6 +469,41 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		}
 	}
 	return rec
+}
+
+// identify says what the binary just executed is, by content, and whether
+// it changed after its container started. Only processes in containers are
+// identified: the catalogue is learned from container images, and the
+// change time is judged against the container's start.
+func (e *Enricher) identify(ev *events.Exec, rec *export.Record, p proctree.Proc) (string, bool) {
+	if rec.Container == nil {
+		return "", false
+	}
+	var rootPID uint32
+	modified := false
+	if first, ok := e.tree.OldestInContainer(rec.Container.ID); ok {
+		rootPID = first.Key.PID
+		started := e.boot.Add(time.Duration(first.Key.StartNS))
+		if ev.CtimeNS != 0 && time.Unix(0, int64(ev.CtimeNS)).After(started.Add(exeSlack)) {
+			modified = true
+		}
+	}
+	if e.ids == nil {
+		return "", modified
+	}
+	// A new root filesystem shows up with its first exec.
+	if !e.idRoots[rec.Container.ID] {
+		if e.idRoots == nil || len(e.idRoots) >= maxMains {
+			e.idRoots = map[string]bool{}
+		}
+		e.ids.ObserveRoot(p.Key.PID)
+		e.idRoots[rec.Container.ID] = true
+	}
+	role := e.ids.Identify(identity.Exe{
+		PID: ev.PID, Path: ev.Path, Dev: ev.Dev, Inode: ev.Inode, Ctime: ev.CtimeNS,
+		Argv: ev.Argv, RootPID: rootPID,
+	})
+	return string(role), modified
 }
 
 // isMainBinary reports whether p runs the binary its container started
@@ -457,10 +520,21 @@ func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool
 		if len(e.mains) >= maxMains {
 			e.mains = map[string]*mainBinary{}
 		}
-		m = &mainBinary{key: first.Key, image: first.Image}
+		m = &mainBinary{key: first.Key, image: first.Image, dev: first.ExeDev, inode: first.ExeInode}
 		e.mains[containerID] = m
 	case isExec && p.Key == m.key:
-		m.image = p.Image
+		m.image, m.dev, m.inode = p.Image, p.ExeDev, p.ExeInode
+	}
+	// A binary written after the container started is never the main
+	// one, even at the main one's path: copying a tool over the
+	// application's binary must not inherit its exemptions.
+	if p.ExeModified {
+		return false
+	}
+	// The same file, when both are known; a path names whatever file is
+	// there now.
+	if m.inode != 0 && p.ExeInode != 0 {
+		return p.ExeDev == m.dev && p.ExeInode == m.inode
 	}
 	return p.Image != "" && p.Image == m.image
 }

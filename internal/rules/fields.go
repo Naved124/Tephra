@@ -173,6 +173,8 @@ var fields = map[string]field{
 	"process.gid":            {kind: kInt, get: func(r *export.Record) value { return integer(int64(r.Process.GID)) }},
 	"process.is_main_binary": {kind: kBool, get: func(r *export.Record) value { return boolean(r.Process.IsMainBinary) }},
 	"process.runtime":        {kind: kBool, get: func(r *export.Record) value { return boolean(r.Process.Runtime) }},
+	"process.identity":       {kind: kString, get: func(r *export.Record) value { return present(r.Process.Identity) }},
+	"process.exe_modified":   {kind: kBool, get: func(r *export.Record) value { return boolean(r.Process.ExeModified) }},
 
 	"process.stdin_is_socket":  execField(kBool, func(e *export.Exec) value { return boolean(e.StdinIsSocket) }),
 	"process.stdout_is_socket": execField(kBool, func(e *export.Exec) value { return boolean(e.StdoutIsSocket) }),

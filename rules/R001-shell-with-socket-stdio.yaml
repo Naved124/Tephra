@@ -4,15 +4,20 @@ level: high
 tags: [attack.execution, attack.t1059.004]
 event: exec
 detection:
-  selection:
+  by_name:
     process.Image|endswith: [/sh, /bash, /dash, /zsh, /ash, /ksh]
+  by_content:
+    process.identity: shell
+  wired:
     process.stdin_is_socket: true
     process.stdout_is_socket: true
-  condition: selection
+  condition: (by_name or by_content) and wired
 action: alert
 description: >-
   An interactive shell wired to a socket is the shape of a reverse or bind
   shell. The image is the binary that actually runs, so a shell started
-  through a script still matches.
+  through a script still matches. A shell is recognised by its name or by
+  its content, so a copy under another name (E01), or busybox running its
+  sh applet under any name (E09), is still a shell.
 falsepositives:
   - Remote-exec tooling that attaches shells over raw sockets

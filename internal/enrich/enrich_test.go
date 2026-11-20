@@ -20,6 +20,7 @@ import (
 
 	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/export"
+	"github.com/Naved124/tephra/internal/identity"
 	"github.com/Naved124/tephra/internal/k8s"
 	"github.com/Naved124/tephra/internal/proctree"
 )
@@ -749,5 +750,90 @@ func TestRuntimeByIdentity(t *testing.T) {
 	}
 	if rec.Parent == nil || !rec.Parent.Runtime {
 		t.Errorf("parent of a process started by runc not marked as the runtime: %+v", rec.Parent)
+	}
+}
+
+type fakeIdentifier struct {
+	roots []uint32
+	asked []identity.Exe
+	roles map[string]identity.Role
+}
+
+func (f *fakeIdentifier) ObserveRoot(pid uint32) { f.roots = append(f.roots, pid) }
+
+func (f *fakeIdentifier) Identify(x identity.Exe) identity.Role {
+	f.asked = append(f.asked, x)
+	return f.roles[x.Path]
+}
+
+// A binary in a container is identified by content, and judged against
+// the container's start: a file changed after it is not from the image.
+func TestIdentityAndDrift(t *testing.T) {
+	f := newFixture(t)
+	ids := &fakeIdentifier{roles: map[string]identity.Role{"/tmp/kworker": identity.Shell}}
+	f.e.SetIdentity(ids)
+	h := f.webShell("/bin/sh", "sh")
+
+	// The container started at its first process's start; a file written
+	// now is long after that, one from the image long before.
+	now := uint64(time.Now().UnixNano())
+	rec := f.e.Handle(&events.Exec{Header: h, Path: "/tmp/kworker", Argv: []string{"/tmp/kworker"}, Dev: 5, Inode: 77, CtimeNS: now}, time.Now())
+	if rec.Process.Identity != "shell" || !rec.Process.ExeModified {
+		t.Errorf("copied shell: identity %q modified %v", rec.Process.Identity, rec.Process.ExeModified)
+	}
+	last := ids.asked[len(ids.asked)-1]
+	if last.PID != h.PID || last.RootPID != 48190 || last.Inode != 77 || last.Ctime != now {
+		t.Errorf("asked %+v", last)
+	}
+	// The container's root was shown once, with its first exec.
+	if !reflect.DeepEqual(ids.roots, []uint32{h.PID}) {
+		t.Errorf("roots observed %v", ids.roots)
+	}
+
+	// Later events of the process carry what its exec found.
+	h2 := h
+	h2.Type = events.TypeFileOpen
+	rec = f.e.Handle(&events.FileOpen{Header: h2, Path: "/etc/shadow"}, time.Now())
+	if rec.Process.Identity != "shell" || !rec.Process.ExeModified {
+		t.Errorf("file_open after exec: identity %q modified %v", rec.Process.Identity, rec.Process.ExeModified)
+	}
+
+	// A file from the image: changed before the container started.
+	rec = f.e.Handle(&events.Exec{Header: h, Path: "/usr/bin/id", Argv: []string{"id"}, Dev: 5, Inode: 78, CtimeNS: 1}, time.Now())
+	if rec.Process.Identity != "" || rec.Process.ExeModified {
+		t.Errorf("image file: identity %q modified %v", rec.Process.Identity, rec.Process.ExeModified)
+	}
+
+	// Host processes are not identified.
+	before := len(ids.asked)
+	host := f.cgroup("system.slice/ssh.service")
+	rec = f.e.Handle(&events.Exec{Header: events.Header{Type: events.TypeExec, PID: 700, StartTimeNS: 5, CgroupID: host}, Path: "/tmp/kworker", CtimeNS: now}, time.Now())
+	if len(ids.asked) != before || rec.Process.Identity != "" || rec.Process.ExeModified {
+		t.Errorf("host process identified: %s", toJSON(t, rec))
+	}
+}
+
+// The main binary is the same file as the container's first process, not
+// a file at the same path; and a file changed after the start never is.
+func TestMainBinaryByFile(t *testing.T) {
+	f := newFixture(t)
+	h := f.webShell("/bin/sh", "sh")
+	first, _ := f.tree.ByPID(48190)
+	init := events.Header{Type: events.TypeExec, PID: first.Key.PID, StartTimeNS: first.Key.StartNS, PPID: 100, CgroupID: h.CgroupID}
+	f.e.Handle(&events.Exec{Header: init, Path: "/app/server", Argv: []string{"server"}, Dev: 5, Inode: 500, CtimeNS: 1}, time.Now())
+
+	rec := f.e.Handle(&events.Exec{Header: h, Path: "/app/server", Argv: []string{"server"}, Dev: 5, Inode: 500, CtimeNS: 1}, time.Now())
+	if !rec.Process.IsMainBinary {
+		t.Error("same file is not the main binary")
+	}
+	// A tool copied over the main binary's path: another file.
+	rec = f.e.Handle(&events.Exec{Header: h, Path: "/app/server", Argv: []string{"server"}, Dev: 5, Inode: 501, CtimeNS: 1}, time.Now())
+	if rec.Process.IsMainBinary {
+		t.Error("another file at the main binary's path is the main binary")
+	}
+	// Written in place over the main binary: same inode, changed since.
+	rec = f.e.Handle(&events.Exec{Header: h, Path: "/app/server", Argv: []string{"server"}, Dev: 5, Inode: 500, CtimeNS: uint64(time.Now().UnixNano())}, time.Now())
+	if rec.Process.IsMainBinary || !rec.Process.ExeModified {
+		t.Error("main binary overwritten in place is still the main binary")
 	}
 }

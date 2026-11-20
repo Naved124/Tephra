@@ -28,6 +28,7 @@ import (
 	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/export"
 	"github.com/Naved124/tephra/internal/filter"
+	"github.com/Naved124/tephra/internal/identity"
 	"github.com/Naved124/tephra/internal/inodewatch"
 	"github.com/Naved124/tephra/internal/k8s"
 	"github.com/Naved124/tephra/internal/loader"
@@ -212,6 +213,7 @@ type agent struct {
 	tree         *proctree.Tree
 	tracker      *inodewatch.Tracker
 	runtimes     *runtimeid.Set
+	ids          *identity.Catalog
 	enricher     *enrich.Enricher
 	stdout       *export.JSONLines
 	grpc         *export.GRPC
@@ -265,6 +267,9 @@ func (a *agent) observeRoots() {
 	for _, p := range a.tree.Live() {
 		if p.ContainerID != "" {
 			a.tracker.Observe(p.Key.PID, p.ContainerID)
+			// Containers that started before the agent: learn what
+			// their images ship before their first exec is judged.
+			a.ids.ObserveRoot(p.Key.PID)
 		}
 	}
 }
@@ -473,12 +478,14 @@ func run(log *slog.Logger, o options) error {
 		tree:         tree,
 		tracker:      inodewatch.New(o.procRoot, sensor),
 		runtimes:     runtimeid.New(o.procRoot, nil),
+		ids:          identity.New(o.procRoot),
 		enricher:     enrich.New(node, tree, procfs, k8s.NewCgroupResolver(o.cgroupRoot), pods),
 		stdout:       export.NewJSONLines(os.Stdout),
 		c:            c,
 	}
 	a.enricher.ObserveRoots(a.tracker)
 	a.enricher.SetRuntimes(a.runtimes)
+	a.enricher.SetIdentity(a.ids)
 	if err := a.apply(s); err != nil {
 		return err
 	}

@@ -82,6 +82,10 @@ func metricsHandler(a *agent, pods *k8s.PodIndex) http.Handler {
 		gauge(&b, "tephra_inode_watches", "Files watched by identity.", uint64(inodes))
 		gauge(&b, "tephra_watched_roots", "Root filesystems in which watched files were resolved.", uint64(roots))
 		counter(&b, "tephra_inode_watch_errors_total", "Failed writes to the inode watch map.", errs)
+		digests, files, idErrs := a.ids.Stats()
+		gauge(&b, "tephra_identity_digests", "Shells, interpreters and download tools known by content, learned from container images.", uint64(digests))
+		gauge(&b, "tephra_identity_files", "Executed files identified, cached by device, inode and change time.", uint64(files))
+		counter(&b, "tephra_identity_errors_total", "Executed files that could not be read to identify them.", idErrs)
 
 		if a.grpc != nil {
 			st := a.grpc.Stats()

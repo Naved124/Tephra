@@ -27,6 +27,8 @@ func ToProto(r *Record) *tephrav1.Record {
 			IsMainBinary: r.Process.IsMainBinary,
 			Runtime:      r.Process.Runtime,
 			Tree:         r.Process.Tree,
+			Identity:     r.Process.Identity,
+			ExeModified:  r.Process.ExeModified,
 		},
 		K8S: &tephrav1.K8S{Namespace: r.K8s.Namespace, Pod: r.K8s.Pod, Labels: r.K8s.Labels},
 	}
@@ -115,6 +117,7 @@ func FromProto(p *tephrav1.Record) *Record {
 		r.Process = Process{
 			PID: x.GetPid(), StartTimeNS: x.GetStartTimeNs(), Image: x.GetImage(), CommandLine: x.GetCommandLine(),
 			User: x.GetUser(), UID: x.GetUid(), GID: x.GetGid(), CgroupID: x.GetCgroupId(), IsMainBinary: x.GetIsMainBinary(), Runtime: x.GetRuntime(), Tree: x.GetTree(),
+			Identity: x.GetIdentity(), ExeModified: x.GetExeModified(),
 		}
 		if e := x.GetExec(); e != nil {
 			r.Process.Exec = &Exec{

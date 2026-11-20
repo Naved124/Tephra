@@ -25,12 +25,18 @@ detection:
       # Image builders unpack a base image, shadow file included, into
       # their own container.
       - /kaniko/executor
-  condition: selection and not allowed
+  # A program on the list is trusted only as the image shipped it; a file
+  # written over /usr/bin/passwd after the container started is not passwd
+  # (E10).
+  replaced:
+    process.exe_modified: true
+  condition: selection and not (allowed and not replaced)
 action: alert
 description: >-
   The password hash file was opened by something that is not part of login or
   account management. The file is watched by identity as well as by path, so
-  a hard link to it under another name is still reported.
+  a hard link to it under another name is still reported. The programs
+  allowed by path are allowed only as the image shipped them.
 falsepositives:
   - Backup and configuration-management agents that read all of /etc
   - Image builders other than kaniko, which is allowed by path, unpacking a base image. The false-positive run in docs/coverage.md found this one

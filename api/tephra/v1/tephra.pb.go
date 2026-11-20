@@ -864,7 +864,11 @@ type Process struct {
 	Runtime bool `protobuf:"varint,11,opt,name=runtime,proto3" json:"runtime,omitempty"`
 	// The tree of processes this one belongs to: "<pid>.<start time>" of
 	// its topmost ancestor in the same cgroup.
-	Tree          string `protobuf:"bytes,12,opt,name=tree,proto3" json:"tree,omitempty"`
+	Tree string `protobuf:"bytes,12,opt,name=tree,proto3" json:"tree,omitempty"`
+	// What the binary is by its content: shell, interpreter, download_tool.
+	Identity string `protobuf:"bytes,13,opt,name=identity,proto3" json:"identity,omitempty"`
+	// The binary changed after its container started.
+	ExeModified   bool `protobuf:"varint,14,opt,name=exe_modified,json=exeModified,proto3" json:"exe_modified,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -981,6 +985,20 @@ func (x *Process) GetTree() string {
 		return x.Tree
 	}
 	return ""
+}
+
+func (x *Process) GetIdentity() string {
+	if x != nil {
+		return x.Identity
+	}
+	return ""
+}
+
+func (x *Process) GetExeModified() bool {
+	if x != nil {
+		return x.ExeModified
+	}
+	return false
 }
 
 type Exec struct {
@@ -1652,7 +1670,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\tR\x05level\x12\x12\n" +
-	"\x04tags\x18\x04 \x03(\tR\x04tags\"\xc6\x02\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\"\x85\x03\n" +
 	"\aProcess\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\rR\x03pid\x12\"\n" +
 	"\rstart_time_ns\x18\x02 \x01(\x04R\vstartTimeNs\x12\x14\n" +
@@ -1666,7 +1684,9 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x04exec\x18\n" +
 	" \x01(\v2\x0f.tephra.v1.ExecR\x04exec\x12\x18\n" +
 	"\aruntime\x18\v \x01(\bR\aruntime\x12\x12\n" +
-	"\x04tree\x18\f \x01(\tR\x04tree\"\xab\x03\n" +
+	"\x04tree\x18\f \x01(\tR\x04tree\x12\x1a\n" +
+	"\bidentity\x18\r \x01(\tR\bidentity\x12!\n" +
+	"\fexe_modified\x18\x0e \x01(\bR\vexeModified\"\xab\x03\n" +
 	"\x04Exec\x12&\n" +
 	"\x0fstdin_is_socket\x18\x01 \x01(\bR\rstdinIsSocket\x12(\n" +
 	"\x10stdout_is_socket\x18\x02 \x01(\bR\x0estdoutIsSocket\x12\x1a\n" +

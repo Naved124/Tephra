@@ -49,6 +49,12 @@ type Proc struct {
 	// RuntimeChild marks an image with no file of its own that a node
 	// runtime binary executed: runc re-executing itself from memory.
 	RuntimeChild bool
+	// Identity is what the running binary is by content (a shell, an
+	// interpreter, a download tool), empty when unknown. ExeModified says
+	// the binary changed after its container started: it is not the file
+	// the image shipped. Both are set by the enricher after an exec.
+	Identity    string
+	ExeModified bool
 	// CgroupID is 0 for a process seeded from /proc that has not produced
 	// an event yet.
 	CgroupID uint64
@@ -187,6 +193,8 @@ func (t *Tree) Fork(ev *events.Fork) {
 		child.ExeDev = src.ExeDev
 		child.ExeInode = src.ExeInode
 		child.RuntimeChild = src.RuntimeChild
+		child.Identity = src.Identity
+		child.ExeModified = src.ExeModified
 		child.ContainerID = src.ContainerID
 		child.Attr = src.Attr
 	}
@@ -214,6 +222,8 @@ func (t *Tree) Exec(ev *events.Exec) Proc {
 	p.ExeDev = ev.Dev
 	p.ExeInode = ev.Inode
 	p.RuntimeChild = false
+	p.Identity = ""
+	p.ExeModified = false
 	p.Comm = ev.Comm
 	p.UID = ev.UID
 	if p.CgroupID != ev.CgroupID {
@@ -291,6 +301,16 @@ func (t *Tree) SetRuntimeChild(k Key) {
 	defer t.mu.Unlock()
 	if p := t.get(k); p != nil {
 		p.RuntimeChild = true
+	}
+}
+
+// SetIdentity records what the process's current binary is.
+func (t *Tree) SetIdentity(k Key, identity string, modified bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if p := t.get(k); p != nil {
+		p.Identity = identity
+		p.ExeModified = modified
 	}
 }
 

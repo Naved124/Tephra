@@ -1,0 +1,25 @@
+id: R032
+title: Program executed that was not in the container's image
+level: medium
+tags: [attack.execution, attack.t1059, attack.defense_evasion, attack.t1036]
+event: exec
+detection:
+  drift:
+    process.exe_modified: true
+  runtime:
+    process.runtime: true
+  host:
+    k8s.namespace: host
+  condition: drift and not (runtime or host)
+action: alert
+description: >-
+  A container executed a file that was written, replaced or made executable
+  after the container started, so it is not something its image shipped.
+  Containers are built once and run what they were built with; a new
+  executable is how a dropped tool, a downloaded payload or a renamed copy
+  of a shell gets run, whatever it is called and however it got there. For
+  a script the file judged is the script, not its interpreter.
+falsepositives:
+  - Build and CI pods, which compile programs and run them
+  - Entrypoints that generate a script at start-up and run it a while later
+  - Scripts in ConfigMap volumes that are updated while the pod runs

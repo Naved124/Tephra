@@ -8,6 +8,8 @@ sequence:
   steps:
     - event: exec
       detection:
+        by_content:
+          process.identity: download_tool
         fetch:
           process.Image|endswith:
             - /curl
@@ -18,7 +20,7 @@ sequence:
             - /sftp
         host:
           k8s.namespace: host
-        condition: fetch and not host
+        condition: (fetch or by_content) and not host
     - event: exec
       exe_changed: true
       detection:

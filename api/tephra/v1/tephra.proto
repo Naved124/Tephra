@@ -126,6 +126,10 @@ message Process {
   // The tree of processes this one belongs to: "<pid>.<start time>" of
   // its topmost ancestor in the same cgroup.
   string tree = 12;
+  // What the binary is by its content: shell, interpreter, download_tool.
+  string identity = 13;
+  // The binary changed after its container started.
+  bool exe_modified = 14;
 }
 
 message Exec {

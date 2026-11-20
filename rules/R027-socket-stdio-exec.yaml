@@ -1,0 +1,28 @@
+id: R027
+title: Program started with a network socket as stdin and stdout
+level: medium
+tags: [attack.execution, attack.t1059, attack.command_and_control, attack.t1571]
+event: exec
+detection:
+  wired:
+    process.stdin_is_socket: true
+    process.stdout_is_socket: true
+  main:
+    process.is_main_binary: true
+  runtime:
+    process.runtime: true
+  host:
+    k8s.namespace: host
+  condition: wired and not (main or runtime or host)
+action: alert
+description: >-
+  A program in a container was started with a socket on both stdin and
+  stdout, whatever the program is. That is how a remote party drives an
+  interactive program: a reverse or bind shell, or an interpreter or a
+  custom binary standing in for one. R001 is the high-level case of a
+  recognised shell; this rule covers what is not recognised, by behaviour
+  rather than by name or content. The container's own main binary is left
+  out, since a socket-activated server is started this way.
+falsepositives:
+  - inetd-style services that run a program per connection, rare in containers
+  - Debug sidecars that attach a program to a socket on purpose
