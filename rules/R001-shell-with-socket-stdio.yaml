@@ -5,7 +5,7 @@ tags: [attack.execution, attack.t1059.004]
 event: exec
 detection:
   by_name:
-    process.Image|endswith: [/sh, /bash, /dash, /zsh, /ash, /ksh]
+    process.Image|endswith: [/sh, /bash, /dash, /zsh, /ash, /ksh, /mksh, /yash, /fish, /tcsh, /csh, /hush]
   by_content:
     process.identity: shell
   wired:
