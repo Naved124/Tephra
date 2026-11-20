@@ -44,6 +44,12 @@ variable "ubuntu_version" {
   default     = "24.04"
 }
 
+variable "spot" {
+  description = "Run on spot capacity: cheaper, a separate vCPU quota, but AWS may take the instance back. A one-time request, so nothing is left behind when it ends."
+  type        = bool
+  default     = false
+}
+
 variable "disk_gib" {
   type    = number
   default = 60
@@ -140,6 +146,17 @@ resource "aws_instance" "lab" {
   vpc_security_group_ids = [aws_security_group.lab.id]
   iam_instance_profile   = aws_iam_instance_profile.lab.name
   user_data              = var.user_data
+
+  dynamic "instance_market_options" {
+    for_each = var.spot ? [1] : []
+    content {
+      market_type = "spot"
+      spot_options {
+        spot_instance_type             = "one-time"
+        instance_interruption_behavior = "terminate"
+      }
+    }
+  }
 
   metadata_options {
     http_tokens                 = "required"

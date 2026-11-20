@@ -72,16 +72,19 @@ func (r *EvasionReport) Markdown() string {
 	b.WriteString("The analysis of each finding is in [evasions/](evasions/).\n\n")
 	fmt.Fprintf(&b, "Run on %s, sensor %s, kernel %s.\n\n", r.Date, r.Sensor, r.Kernel)
 
-	var orig, held []*Result
+	var orig, held, checks []*Result
 	for _, res := range r.Results {
-		if res.Heldout {
+		switch {
+		case res.Heldout:
 			held = append(held, res)
-		} else {
+		case res.Check:
+			checks = append(checks, res)
+		default:
 			orig = append(orig, res)
 		}
 	}
 	if len(orig) > 0 {
-		if len(held) > 0 {
+		if len(held)+len(checks) > 0 {
 			b.WriteString("## Original scenarios\n\n")
 			b.WriteString("The sensor's fixes were built against these.\n\n")
 		}
@@ -93,6 +96,12 @@ func (r *EvasionReport) Markdown() string {
 		b.WriteString("A held-out scenario counts as detected when any rule fires on it (an alert naming its pod, or an alert about its node with no namespace), ")
 		b.WriteString("because the rule that should catch it may not have existed when it was written.\n\n")
 		table(&b, held, true)
+	}
+	if len(checks) > 0 {
+		b.WriteString("## Checks\n\n")
+		b.WriteString("Written after the fixes, to test questions they left open; neither a target of the fixes nor held out. ")
+		b.WriteString("Their predictions were committed before they first ran.\n\n")
+		table(&b, checks, false)
 	}
 	for _, res := range r.Results {
 		if res.Note != "" {

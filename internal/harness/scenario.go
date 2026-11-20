@@ -48,6 +48,10 @@ type Scenario struct {
 	// because the rule that should catch it may not exist yet when the
 	// scenario is written.
 	Heldout bool `yaml:"heldout"`
+	// Check marks an evasion written after the fixes, to test a question
+	// they left open. It is judged like an original scenario, by its
+	// expected rules, and reported apart from both groups.
+	Check bool `yaml:"check"`
 	// Enforce says how the scenario is refused when enforcement covers
 	// its pod. Only scenarios with it run under "harness run --enforce".
 	Enforce *EnforceSpec `yaml:"enforce"`
@@ -119,6 +123,10 @@ func LoadScenario(dir string) (*Scenario, error) {
 		return nil, fmt.Errorf("%s: predicted %q is not detected, partial or missed", path, s.Predicted)
 	case s.Heldout && !strings.HasPrefix(s.ID, "E"):
 		return nil, fmt.Errorf("%s: only an evasion scenario can be held out", path)
+	case s.Check && !strings.HasPrefix(s.ID, "E"):
+		return nil, fmt.Errorf("%s: only an evasion scenario can be a check", path)
+	case s.Check && s.Heldout:
+		return nil, fmt.Errorf("%s: a scenario is held out or a check, not both", path)
 	}
 	if e := s.Enforce; e != nil {
 		if len(e.DryRun) == 0 || len(e.On) == 0 {

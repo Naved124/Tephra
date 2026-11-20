@@ -9,14 +9,21 @@
 # The instance has no inbound port. SSH and rsync run inside an AWS Systems
 # Manager session, so the laptop needs the aws CLI, a login (aws sso login),
 # session-manager-plugin and terraform.
+#
+# Several labs can run at once, each named by LAB_NAME. SPOT=1 runs one on
+# spot capacity (cheaper, a separate vCPU quota, may be taken back; it cannot
+# be stopped, only destroyed). KERNEL_FLOOR=1 with UBUNTU_VERSION=22.04 boots
+# it on the 5.15 kernel.
 set -euo pipefail
 # The AWS CLI profile to use; set AWS_PROFILE to override.
-export AWS_PROFILE="${AWS_PROFILE:-admin}"
+export AWS_PROFILE="${AWS_PROFILE:-claude}"
 
 LAB_NAME="${LAB_NAME:-tephra-dev}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-m7i.xlarge}"
 UBUNTU_VERSION="${UBUNTU_VERSION:-24.04}"
 DISK_GIB="${DISK_GIB:-60}"
+SPOT="${SPOT:-0}"
+KERNEL_FLOOR="${KERNEL_FLOOR:-0}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -73,7 +80,7 @@ wait_ssh() {
 
 cmd_up() {
 	need aws terraform session-manager-plugin ssh ssh-keygen rsync
-	aws sts get-caller-identity >/dev/null 2>&1 || die "not logged in to AWS; run: aws sso login"
+	aws sts get-caller-identity >/dev/null 2>&1 || die "no AWS credentials for profile $AWS_PROFILE"
 	mkdir -p "$STATE"
 	[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N "" -C "$LAB_NAME" -f "$KEY"
 	tf init -input=false >/dev/null
@@ -86,8 +93,13 @@ cmd_up() {
 		aws ec2 wait instance-running --instance-ids "$id"
 	elif [ -z "$id" ]; then
 		rm -f "$STATE/known_hosts"
+		local spot=false
+		if [ "$SPOT" = 1 ]; then
+			spot=true
+			touch "$STATE/spot"
+		fi
 		tf apply -input=false -auto-approve \
-			-var "name=$LAB_NAME" -var "instance_type=$INSTANCE_TYPE" \
+			-var "name=$LAB_NAME" -var "instance_type=$INSTANCE_TYPE" -var "spot=$spot" \
 			-var "ubuntu_version=$UBUNTU_VERSION" -var "disk_gib=$DISK_GIB" \
 			-var "user_data=$(sed "s|__SSH_PUBKEY__|$(cat "$KEY.pub")|" "$REPO/deploy/vm/user-data.yaml.tmpl")"
 	fi
@@ -95,13 +107,16 @@ cmd_up() {
 	echo "waiting for cloud-init"
 	lab_ssh 'cloud-init status --wait' || die "cloud-init failed; see /var/log/cloud-init-output.log on the instance"
 	lab_ssh 'sudo bash -s' <"$REPO/deploy/vm/provision.sh"
+	if [ "$KERNEL_FLOOR" = 1 ]; then
+		lab_ssh 'sudo bash -s' <"$REPO/deploy/vm/kernel-floor.sh"
+	fi
 	if lab_ssh 'test -e /run/tephra-reboot-needed'; then
-		echo "rebooting to activate BPF LSM"
+		echo "rebooting to activate BPF LSM and the chosen kernel"
 		lab_ssh 'sudo systemctl reboot' || true
 		sleep 20
 		wait_ssh
 	fi
-	echo "lab ready: deploy/aws/lab.sh ssh"
+	echo "lab ready on kernel $(lab_ssh 'uname -r'): LAB_NAME=$LAB_NAME deploy/aws/lab.sh ssh"
 }
 
 cmd_sync() {
@@ -127,6 +142,7 @@ cmd_down() {
 	local id
 	id=$(instance_id)
 	[ -n "$id" ] || return 0
+	[ ! -e "$STATE/spot" ] || die "$LAB_NAME runs on spot capacity and cannot be stopped; destroy it"
 	aws ec2 stop-instances --instance-ids "$id" >/dev/null
 	echo "stopping $id (the disk is still billed until: lab.sh destroy)"
 }
@@ -137,13 +153,19 @@ cmd_destroy() {
 	rm -rf "$STATE"
 }
 
+# Every lab instance in the account, not only LAB_NAME's, so that none is
+# forgotten.
+# shellcheck disable=SC2016,SC2001 # backticks are JMESPath literals; sed works per line
 cmd_status() {
-	local id
-	id=$(instance_id)
-	if [ -z "$id" ]; then
-		echo "not created"
+	local out
+	out=$(aws ec2 describe-instances --filters Name=tag-key,Values=lab \
+		Name=instance-state-name,Values=pending,running,stopping,stopped \
+		--query 'Reservations[].Instances[].[Tags[?Key==`lab`]|[0].Value,InstanceId,State.Name,InstanceType,InstanceLifecycle]' \
+		--output text)
+	if [ -z "$out" ]; then
+		echo "no lab instance"
 	else
-		echo "$id $(instance_state "$id")"
+		echo "$out" | sed 's/None$/on-demand/'
 	fi
 }
 

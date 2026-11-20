@@ -353,11 +353,14 @@ func TestEvasionVerdicts(t *testing.T) {
 	md = (&EvasionReport{Date: "2026-11-20", Results: []*Result{
 		{ID: "E01", Title: "x", Predicted: Missed, Rules: missed},
 		{ID: "E09", Title: "y", Predicted: Missed, Rules: missed, Heldout: true, Noticed: []string{"R027"}},
+		{ID: "E17", Title: "z", Predicted: Missed, Rules: missed, Check: true},
 	}}).Markdown()
 	for _, want := range []string{
 		"## Original scenarios",
 		"## Held-out scenarios",
+		"## Checks",
 		"| E09 | y | R005 missed | R027 | missed | detected | corrected |",
+		"| E17 | z | R005 missed | missed | missed | held |",
 		"1 of 1 detected or visible; 0 of 1 predictions held.",
 	} {
 		if !strings.Contains(md, want) {
@@ -371,17 +374,29 @@ func TestShippedEvasions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 16 {
-		t.Fatalf("%d evasion scenarios, want 16", len(all))
+	if len(all) != 18 {
+		t.Fatalf("%d evasion scenarios, want 18", len(all))
 	}
 	for _, s := range all {
 		if !strings.HasPrefix(s.ID, "E") || s.Predicted == "" {
 			t.Errorf("%s: predicted %q", s.ID, s.Predicted)
 		}
-		// E01 to E08 are the ones the fixes were built against; from E09
-		// on they are held out.
-		if want := s.ID >= "E09"; s.Heldout != want {
+		// E01 to E08 are the ones the fixes were built against; E09 to
+		// E16 are held out; from E17 on they are checks written after the
+		// fixes.
+		if want := s.ID >= "E09" && s.ID <= "E16"; s.Heldout != want {
 			t.Errorf("%s: heldout %v, want %v", s.ID, s.Heldout, want)
 		}
+		if want := s.ID >= "E17"; s.Check != want {
+			t.Errorf("%s: check %v, want %v", s.ID, s.Check, want)
+		}
+	}
+}
+
+// Alerts about a node carry the namespace "host"; Loki has no empty label to
+// match, so a query for namespace="" finds nothing.
+func TestNodeAlertSelector(t *testing.T) {
+	if got, want := nodeAlerts("lab-worker"), `{stream="alert", node="lab-worker", namespace="host"}`; got != want {
+		t.Errorf("selector %s, want %s", got, want)
 	}
 }

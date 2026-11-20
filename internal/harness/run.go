@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Naved124/tephra/internal/export"
 )
 
 // Verdicts for one expected rule.
@@ -64,6 +66,9 @@ type Result struct {
 	// Heldout: the scenario was written before the fixes and is judged
 	// by any rule that fires on it.
 	Heldout bool `json:"heldout,omitempty"`
+	// Check: the scenario was written after the fixes, to test a
+	// question they left open.
+	Check bool `json:"check,omitempty"`
 	// Noticed lists every rule that fired on a held-out scenario: alerts
 	// naming its pod, and alerts about its node that belong to no
 	// namespace (the sensor reporting on itself).
@@ -329,8 +334,18 @@ func (r *Runner) Run(ctx context.Context, s *Scenario) *Result {
 		}
 		time.Sleep(time.Second)
 	}
+	res.Check = s.Check
 	if s.Heldout {
 		res.Heldout = true
+		// Some rules come later than the expected one: R031 needs an
+		// agent's first health record after a restart. The list is read
+		// at the end of the scenario's time, not at the first match.
+		if wait := time.Until(deadline); wait > 0 {
+			select {
+			case <-ctx.Done():
+			case <-time.After(wait):
+			}
+		}
 		res.Noticed = r.noticed(ctx, ns, s, start)
 	}
 	if n, err := c.AgentRestarts(ctx); err == nil && n > restartsBefore {
@@ -341,6 +356,13 @@ func (r *Runner) Run(ctx context.Context, s *Scenario) *Result {
 	}
 	res.DropsVisible = s.ExpectDrops && res.Drops > 0
 	return res
+}
+
+// nodeAlerts selects the alerts about a node that belong to no pod. The
+// agents and the collector label them with the namespace "host"; Loki has
+// no empty label to match.
+func nodeAlerts(node string) string {
+	return fmt.Sprintf(`{stream="alert", node=%q, namespace=%q}`, node, export.NamespaceHost)
 }
 
 // noticed lists the rules that fired on a held-out scenario: any alert in
@@ -366,7 +388,7 @@ func (r *Runner) noticed(ctx context.Context, ns string, s *Scenario, start time
 	}
 	out, err := c.kubectl(ctx, nil, "-n", ns, "get", "pod", s.Run.Pod, "-o", "jsonpath={.spec.nodeName}")
 	if node := strings.TrimSpace(string(out)); err == nil && node != "" {
-		if as, err := c.Alerts(ctx, fmt.Sprintf(`{stream="alert", node=%q, namespace=""}`, node), start.Add(-2*time.Second)); err == nil {
+		if as, err := c.Alerts(ctx, nodeAlerts(node), start.Add(-2*time.Second)); err == nil {
 			add(as, "")
 		}
 	}

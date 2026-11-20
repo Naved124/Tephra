@@ -1,0 +1,17 @@
+id: E18
+title: Read the application's service account token through /proc/<pid>/root from a sidecar
+tags: [attack.credential_access, attack.t1528, attack.defense_evasion]
+expect: [R006]
+predicted: detected
+check: true
+run:
+  pod: victim
+  container: helper
+note: >-
+  Check, written after the fixes. The pod shares one process namespace, so a
+  second container can reach the application's files through
+  /proc/<pid>/root without the path R006 names. Predicted detected: the kernel
+  builds the path of the opened file (bpf_d_path) by walking up its mounts,
+  and from a reader whose root is in another container that walk ends at the
+  application container's root, giving /var/run/secrets/kubernetes.io/serviceaccount/...,
+  which R006 names. If the path comes out otherwise, the read is missed.

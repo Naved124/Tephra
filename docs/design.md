@@ -684,6 +684,15 @@ E01, E02 and E07 got past the sensor. Fixing exactly those three would teach the
 | E15 | A process moves itself into the agent's own cgroup, which the sensor ignores, and reads /etc/shadow | Sensor tampering | Missed |
 | E16 | Connection flood, then a read of /etc/shadow | Buffer exhaustion | Detected or drops reported |
 
+### Checks
+
+Two questions the M14 fixes left open, written as scenarios after the fixes and before their first run. They are neither targets of the fixes nor held out, and are reported in a group of their own.
+
+| ID | Check | Class | Predicted |
+|---|---|---|---|
+| E17 | A service account token projected at a custom path (/var/run/app/token), read with cat | Path coverage | Missed: R006 names only the standard prefixes, so the kernel never reports the open |
+| E18 | The application's token read from a second container of the pod through /proc/<pid>/root | Path coverage | Detected: bpf_d_path walks up to the application container's root, giving the standard path |
+
 ### False-positive run
 
 Run ordinary workloads for 30 minutes with all rules enabled: an nginx deployment under HTTP load, a PostgreSQL pod under pgbench, an image build job, and a rolling update. The target is zero high or critical alerts. Every alert that does fire is either fixed in the rule or documented under falsepositives.
@@ -1064,4 +1073,8 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
   - **The agent's process is the one blind spot, so getting into it is an alert.** Code injected into the agent would act unseen. Injection needs attach-level access (ptrace, /proc/<pid>/mem, process_vm_writev), which the kernel reports before granting it. R015 leaves host processes alone because debuggers on nodes are normal; R033 (critical) does not, for the agent as target, because no routine task debugs the security sensor. The enricher marks `ptrace.target_is_agent` by pid and start time. R015 keeps firing too from a container: it blocks, and a blocking rule may only use what the kernel can judge, which does not include "this is the agent". LD_PRELOAD does not apply (static binary) and the binary sits on a read-only root filesystem.
   - **Handover.** The old programs keep running until the new agent replaces their links, so an event can arrive twice, and they report the new agent itself, whose events it drops by pid and start time. `maxSurge: 0` in the DaemonSet keeps a node from ever having two agents reading one buffer.
   - **Residual.** Root on the node can still detach the pinned programs, unmount bpffs, or stop the agent through the runtime as an operator would; a cluster administrator can uninstall Tephra. Neither is preventable by any sensor. R031 notices a node that goes quiet without announcing it, and the Kubernetes audit log records the API actions. A node that vanishes without shutting down (a reclaimed spot instance) raises R031 high as well, because nothing on the node can say otherwise.
+- **Before Phase 4: fixes to the measuring tool, not to the sensor.** Two flaws in the harness were found while planning the run and fixed before it, with tests; no scenario changed.
+  - A held-out scenario counts alerts about its node that belong to no pod, but the query asked Loki for `namespace=""`. Agents and the collector label such alerts `namespace="host"`, and Loki has no empty label to match, so none could ever be counted.
+  - The list of rules that noticed a held-out scenario was read as soon as its expected rule fired. Some rules come later, such as R031 after an agent's restart, so the list is now read at the end of the scenario's time.
+  - The two questions below became scenarios E17 and E18, in a third group, "Checks", with predictions in section 8.
 - **To check in Phase 4, not assumed either way:** a service account token projected at a custom mount path, which R006's path prefixes would not name; and the token read through `/proc/<pid>/root/...` from another process in the pod, a different path string for the same file.

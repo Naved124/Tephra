@@ -1,0 +1,9 @@
+id: E17
+title: Read a service account token projected at a custom path
+tags: [attack.credential_access, attack.t1528, attack.defense_evasion]
+expect: [R006]
+predicted: missed
+check: true
+run:
+  pod: victim
+note: Check, written after the fixes. A pod may project its service account token anywhere; this one mounts it at /var/run/app/token. R006 names the token by the standard path prefixes only, so the kernel is never asked to report an open of this file.
