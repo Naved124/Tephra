@@ -1,0 +1,9 @@
+id: E10
+title: Read /etc/shadow with another program copied over an allowlisted path
+tags: [attack.credential_access, attack.t1003.008, attack.defense_evasion, attack.t1036.005]
+expect: [R005]
+predicted: missed
+heldout: true
+run:
+  pod: victim
+note: Held out. cat is copied over /usr/bin/passwd in the container's writable layer; R005 lets /usr/bin/passwd read /etc/shadow.

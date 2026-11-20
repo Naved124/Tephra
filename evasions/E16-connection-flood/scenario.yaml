@@ -1,0 +1,11 @@
+id: E16
+title: Flood the sensor with connections, then read /etc/shadow
+tags: [attack.credential_access, attack.t1003.008, attack.defense_evasion, attack.t1562.006]
+expect: [R005]
+predicted: detected
+expect_drops: true
+heldout: true
+timeout: 90s
+run:
+  pod: victim
+note: Held out. E05 flooded with process starts and caused no drops; connections cost the agent more per event (M10). Six processes connect in a loop to two that accept, and the read happens in the middle. Detected, or drops reported, both count as visible.

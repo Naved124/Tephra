@@ -1,0 +1,10 @@
+id: E14
+title: Freeze the agent, read /etc/shadow, kill the agent before it reads its buffer
+tags: [attack.defense_evasion, attack.t1562.001, attack.credential_access, attack.t1003.008]
+expect: [R005]
+predicted: missed
+heldout: true
+timeout: 90s
+run:
+  pod: victim
+note: Held out. The kernel records the read while the agent is stopped; killing the agent then frees the buffer that holds it. Privileged pod with the host's process namespace, as E07.

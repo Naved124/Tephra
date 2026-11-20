@@ -336,6 +336,11 @@ func TestEvasionVerdicts(t *testing.T) {
 		{Result{Predicted: Detected, Rules: missed, DropsVisible: true}, DropsReported, true},
 		{Result{Predicted: Detected, Rules: missed}, Missed, false},
 		{Result{Predicted: Partial, Rules: hit}, Detected, false},
+		// A held-out scenario counts any rule that fired on it.
+		{Result{Predicted: Missed, Rules: missed, Heldout: true, Noticed: []string{"R027"}}, Detected, false},
+		{Result{Predicted: Missed, Rules: missed, Heldout: true}, Missed, true},
+		// An original scenario does not.
+		{Result{Predicted: Missed, Rules: missed, Noticed: []string{"R027"}}, Missed, true},
 	} {
 		if m := tc.r.Measured(); m != tc.measured || tc.r.PredictionHeld() != tc.held {
 			t.Errorf("%+v: measured %s held %v, want %s %v", tc.r, m, tc.r.PredictionHeld(), tc.measured, tc.held)
@@ -345,6 +350,20 @@ func TestEvasionVerdicts(t *testing.T) {
 	if !strings.Contains(md, "| E01 | x | R005 detected | missed | detected | corrected |") {
 		t.Errorf("markdown row missing:\n%s", md)
 	}
+	md = (&EvasionReport{Date: "2026-11-20", Results: []*Result{
+		{ID: "E01", Title: "x", Predicted: Missed, Rules: missed},
+		{ID: "E09", Title: "y", Predicted: Missed, Rules: missed, Heldout: true, Noticed: []string{"R027"}},
+	}}).Markdown()
+	for _, want := range []string{
+		"## Original scenarios",
+		"## Held-out scenarios",
+		"| E09 | y | R005 missed | R027 | missed | detected | corrected |",
+		"1 of 1 detected or visible; 0 of 1 predictions held.",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown lacks %q:\n%s", want, md)
+		}
+	}
 }
 
 func TestShippedEvasions(t *testing.T) {
@@ -352,12 +371,17 @@ func TestShippedEvasions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 8 {
-		t.Fatalf("%d evasion scenarios, want 8", len(all))
+	if len(all) != 16 {
+		t.Fatalf("%d evasion scenarios, want 16", len(all))
 	}
 	for _, s := range all {
 		if !strings.HasPrefix(s.ID, "E") || s.Predicted == "" {
 			t.Errorf("%s: predicted %q", s.ID, s.Predicted)
+		}
+		// E01 to E08 are the ones the fixes were built against; from E09
+		// on they are held out.
+		if want := s.ID >= "E09"; s.Heldout != want {
+			t.Errorf("%s: heldout %v, want %v", s.ID, s.Heldout, want)
 		}
 	}
 }

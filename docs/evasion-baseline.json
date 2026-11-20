@@ -1,0 +1,340 @@
+{
+  "date": "2026-11-20",
+  "sensor": "v0.1.0-3-g37cda4f-dirty (tephra/tephrad:dev)",
+  "kernel": "7.0.0-1017-aws",
+  "results": [
+    {
+      "id": "E01",
+      "title": "Reverse shell through a copy of the shell under another name",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.004",
+        "attack.defense_evasion",
+        "attack.t1036.003"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "missed"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "The copy is dash under /tmp/kworker; R001 matches on the name of the binary.",
+      "predicted": "missed"
+    },
+    {
+      "id": "E02",
+      "title": "Interactive session implemented inside Python, no shell executed",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.006"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "missed"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "The session lists a directory and reads /etc/hostname with Python calls; nothing is executed.",
+      "predicted": "missed"
+    },
+    {
+      "id": "E03",
+      "title": "Read /etc/shadow through a hard link under an unwatched name",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1003.008",
+        "attack.defense_evasion"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 56,
+          "event": "{\"ts\":\"2026-11-20T08:16:37.704804Z\",\"type\":\"file_open\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":20948,\"start_time_ns\":1566209581352,\"Image\":\"/bin/cat\",\"CommandLine\":\"cat /tmp/notes.txt\",\"uid\":0,\"gid\":0,\"cgroup_id\":31945,\"tree\":\"20942.1566205168618\"},\"parent\":{\"pid\":20942,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"fb57d162d872df425ddd5a07c73418b77936beb5bf21ae689676100e4d217735\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e03-437990\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/tmp/notes.txt\",\"target\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":864305,\"dev\":331,\"matched_by\":\"inode\"}}"
+        }
+      ],
+      "visible_ms": 3097,
+      "ring_buffer_drops": 0,
+      "note": "The link is made when the pod starts; only the read through it, by cat, falls in the window that is judged.",
+      "predicted": "detected"
+    },
+    {
+      "id": "E04",
+      "title": "Open /etc/shadow through io_uring instead of the open system call",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1003.008",
+        "attack.defense_evasion"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 92,
+          "event": "{\"ts\":\"2026-11-20T08:16:45.679306Z\",\"type\":\"file_open\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":21170,\"start_time_ns\":1574151553634,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":32206,\"tree\":\"21164.1574146838342\"},\"parent\":{\"pid\":21164,\"Image\":\"/usr/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/usr/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"27a0b6701b4b0af651096d0dd6c54956743a1196d027a8121e67addbd7d11a35\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-slim\"},\"k8s\":{\"namespace\":\"tephra-e04-5a50ba\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":34816,\"write\":false,\"truncate\":false,\"inode\":864755,\"dev\":385,\"matched_by\":\"inode\"}}"
+        }
+      ],
+      "visible_ms": 2126,
+      "ring_buffer_drops": 0,
+      "note": "The pod runs without the runtime's default seccomp profile, which may refuse io_uring, so that what is measured is the sensor.",
+      "predicted": "detected"
+    },
+    {
+      "id": "E05",
+      "title": "Flood the sensor with short-lived processes, then read /etc/shadow",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1003.008",
+        "attack.defense_evasion",
+        "attack.t1562.006"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 2067,
+          "event": "{\"ts\":\"2026-11-20T08:16:54.254731Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":41518,\"start_time_ns\":1582757266803,\"Image\":\"/bin/cat\",\"CommandLine\":\"cat /etc/shadow\",\"uid\":0,\"gid\":0,\"cgroup_id\":32467,\"tree\":\"34929.1580747040085\"},\"parent\":{\"pid\":34929,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"10f81003b7255e617137e7322abc2c44fd33a9cee0959649b32b6963c58cc283\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e05-bc1edb\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":1318592,\"dev\":331,\"matched_by\":\"inode\"}}"
+        }
+      ],
+      "visible_ms": 10148,
+      "ring_buffer_drops": 0,
+      "note": "Detected, or ring buffer drops reported by the sensor, both count as the gap being visible.",
+      "predicted": "detected"
+    },
+    {
+      "id": "E06",
+      "title": "Rewrite the path argument from a second thread while openat runs",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1003.008",
+        "attack.defense_evasion"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 92,
+          "event": "{\"ts\":\"2026-11-20T08:17:07.184747Z\",\"type\":\"file_open\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":21693,\"start_time_ns\":1595655969626,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":33122,\"tree\":\"21687.1595651760036\"},\"parent\":{\"pid\":21687,\"Image\":\"/usr/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/usr/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"f8ac09c0c5435e7ce9648887f7ad8f7437d885d3e851b2302de78013bd0fd0dd\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-slim\"},\"k8s\":{\"namespace\":\"tephra-e06-7329c0\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":864755,\"dev\":402,\"matched_by\":\"inode\"}}"
+        }
+      ],
+      "visible_ms": 2129,
+      "ring_buffer_drops": 0,
+      "note": "One thread opens the name in a shared buffer in a loop; another flips the buffer between /etc/shadow and /etc/hostx, which does not exist. The sensor reads the name the kernel resolved, not the buffer.",
+      "predicted": "detected"
+    },
+    {
+      "id": "E07",
+      "title": "Kill the agent on the node, read /etc/shadow, let the agent restart",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001",
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "missed"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "The pod is privileged with the host's process namespace, which is what an attacker who escaped to the node has. The report gives the agent restart count, which is how the gap shows; the agent has no heartbeat of its own.",
+      "predicted": "missed",
+      "agent_restarts": 1
+    },
+    {
+      "id": "E08",
+      "title": "The payload at the end of a command line longer than the capture limit",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1027"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 71,
+          "event": "{\"ts\":\"2026-11-20T08:18:49.010745Z\",\"type\":\"file_open\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":22209,\"start_time_ns\":1697501911019,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -c # AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"uid\":0,\"gid\":0,\"cgroup_id\":34213,\"tree\":\"22200.1697495882730\"},\"parent\":{\"pid\":22200,\"Image\":\"/usr/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/usr/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"e55f83d8ea1df44daa3a879fc95bb2223c09c817396753b0ebc82c66ea1323d8\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-slim\"},\"k8s\":{\"namespace\":\"tephra-e08-f445b3\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":864755,\"dev\":385,\"matched_by\":\"inode\"}}"
+        }
+      ],
+      "visible_ms": 3115,
+      "ring_buffer_drops": 0,
+      "note": "The process is python3 -c with 1500 bytes of comment before the code that opens /etc/shadow; the sensor keeps the first 1024 bytes of argv. No shipped rule matches on the command line, so what truncation costs is the evidence in the alert, not the alert.",
+      "predicted": "partial"
+    },
+    {
+      "id": "E09",
+      "title": "Reverse shell through a renamed copy of busybox, shell chosen by argument",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.004",
+        "attack.defense_evasion",
+        "attack.t1036.003"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "missed"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out. busybox is copied to /tmp/.cache/busybox and its sh applet is reached through a two-line script that nc -e runs, so the executed file is a shell that carries neither a shell's path nor a shell's name.",
+      "predicted": "missed",
+      "heldout": true
+    },
+    {
+      "id": "E10",
+      "title": "Read /etc/shadow with another program copied over an allowlisted path",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1003.008",
+        "attack.defense_evasion",
+        "attack.t1036.005"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "missed"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out. cat is copied over /usr/bin/passwd in the container's writable layer; R005 lets /usr/bin/passwd read /etc/shadow.",
+      "predicted": "missed",
+      "heldout": true
+    },
+    {
+      "id": "E11",
+      "title": "Download and run a file with Python's own HTTP client, no download tool",
+      "tags": [
+        "attack.command_and_control",
+        "attack.t1105",
+        "attack.execution"
+      ],
+      "rules": [
+        {
+          "rule": "R004",
+          "verdict": "missed"
+        },
+        {
+          "rule": "R025",
+          "verdict": "missed"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out. R004 and the first step of R025 name download tools; here the interpreter fetches the file itself.",
+      "predicted": "missed",
+      "heldout": true
+    },
+    {
+      "id": "E12",
+      "title": "Interactive session implemented inside Perl, no shell executed",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.006"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "missed"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out. The session lists a directory and reads /etc/hostname with Perl built-ins; Perl forks once for the operator side and executes nothing.",
+      "predicted": "missed",
+      "heldout": true
+    },
+    {
+      "id": "E13",
+      "title": "Reverse shell through a pseudo-terminal relayed to a socket",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.004"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "missed"
+        }
+      ],
+      "also_fired": [
+        "R002"
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out. Python connects out, starts /bin/sh on a pseudo-terminal and copies bytes between the two, so the shell's stdin and stdout are a terminal and not a socket.",
+      "predicted": "missed",
+      "heldout": true,
+      "noticed": [
+        "R002"
+      ]
+    },
+    {
+      "id": "E14",
+      "title": "Freeze the agent, read /etc/shadow, kill the agent before it reads its buffer",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001",
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "missed"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out. The kernel records the read while the agent is stopped; killing the agent then frees the buffer that holds it. Privileged pod with the host's process namespace, as E07.",
+      "predicted": "missed",
+      "heldout": true,
+      "agent_restarts": 1
+    },
+    {
+      "id": "E15",
+      "title": "Read /etc/shadow from inside the agent's own cgroup",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001",
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "missed"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out. The sensor ignores its own cgroup so that it does not report itself. A privileged pod with the host's process namespace and cgroup tree moves a process into that cgroup and reads the file from there.",
+      "predicted": "missed",
+      "heldout": true
+    },
+    {
+      "id": "E16",
+      "title": "Flood the sensor with connections, then read /etc/shadow",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1003.008",
+        "attack.defense_evasion",
+        "attack.t1562.006"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 5096,
+          "event": "{\"ts\":\"2026-11-20T08:24:18.108637Z\",\"type\":\"file_open\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":24629,\"start_time_ns\":2021574463817,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":39364,\"tree\":\"24623.2021570041650\"},\"parent\":{\"pid\":24623,\"Image\":\"/usr/bin/sh\",\"CommandLine\":\"sh -s\"},\"ancestors\":[\"/usr/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"ac44d9637474cf5422f1c7b5e65d99cb3b9a31a1e0f5f22b07882e7a28b79634\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-slim\"},\"k8s\":{\"namespace\":\"tephra-e16-1d2c79\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":864755,\"dev\":360,\"matched_by\":\"inode\"}}"
+        }
+      ],
+      "visible_ms": 20125,
+      "ring_buffer_drops": 0,
+      "note": "Held out. E05 flooded with process starts and caused no drops; connections cost the agent more per event (M10). Six processes connect in a loop to two that accept, and the read happens in the middle. Detected, or drops reported, both count as visible.",
+      "predicted": "detected",
+      "heldout": true,
+      "noticed": [
+        "R005"
+      ]
+    }
+  ]
+}

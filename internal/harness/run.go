@@ -61,6 +61,13 @@ type Result struct {
 	// DropsVisible: the scenario expects drops and the sensor reported
 	// some.
 	DropsVisible bool `json:"drops_visible,omitempty"`
+	// Heldout: the scenario was written before the fixes and is judged
+	// by any rule that fires on it.
+	Heldout bool `json:"heldout,omitempty"`
+	// Noticed lists every rule that fired on a held-out scenario: alerts
+	// naming its pod, and alerts about its node that belong to no
+	// namespace (the sensor reporting on itself).
+	Noticed []string `json:"noticed,omitempty"`
 	// AgentRestarts is how many times agent containers restarted while
 	// the scenario ran.
 	AgentRestarts int `json:"agent_restarts,omitempty"`
@@ -322,6 +329,10 @@ func (r *Runner) Run(ctx context.Context, s *Scenario) *Result {
 		}
 		time.Sleep(time.Second)
 	}
+	if s.Heldout {
+		res.Heldout = true
+		res.Noticed = r.noticed(ctx, ns, s, start)
+	}
 	if n, err := c.AgentRestarts(ctx); err == nil && n > restartsBefore {
 		res.AgentRestarts = n - restartsBefore
 	}
@@ -330,4 +341,39 @@ func (r *Runner) Run(ctx context.Context, s *Scenario) *Result {
 	}
 	res.DropsVisible = s.ExpectDrops && res.Drops > 0
 	return res
+}
+
+// noticed lists the rules that fired on a held-out scenario: any alert in
+// its namespace that names the pod the technique ran in, and any alert
+// about that pod's node with no namespace. A query that fails leaves the
+// list as far as it got; the report then shows fewer rules, never more.
+func (r *Runner) noticed(ctx context.Context, ns string, s *Scenario, start time.Time) []string {
+	c := r.Cluster
+	seen := map[string]bool{}
+	add := func(as []*Alert, pod string) {
+		for _, a := range as {
+			if a.Time().Before(start.Add(-2 * time.Second)) {
+				continue
+			}
+			if pod != "" && a.K8s.Pod != pod {
+				continue
+			}
+			seen[a.Rule.ID] = true
+		}
+	}
+	if as, err := c.Alerts(ctx, fmt.Sprintf(`{stream="alert", namespace=%q}`, ns), start.Add(-2*time.Second)); err == nil {
+		add(as, s.AlertPod)
+	}
+	out, err := c.kubectl(ctx, nil, "-n", ns, "get", "pod", s.Run.Pod, "-o", "jsonpath={.spec.nodeName}")
+	if node := strings.TrimSpace(string(out)); err == nil && node != "" {
+		if as, err := c.Alerts(ctx, fmt.Sprintf(`{stream="alert", node=%q, namespace=""}`, node), start.Add(-2*time.Second)); err == nil {
+			add(as, "")
+		}
+	}
+	ids := make([]string, 0, len(seen))
+	for id := range seen {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }

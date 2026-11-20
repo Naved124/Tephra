@@ -1,0 +1,9 @@
+id: E09
+title: Reverse shell through a renamed copy of busybox, shell chosen by argument
+tags: [attack.execution, attack.t1059.004, attack.defense_evasion, attack.t1036.003]
+expect: [R001]
+predicted: missed
+heldout: true
+run:
+  pod: victim
+note: Held out. busybox is copied to /tmp/.cache/busybox and its sh applet is reached through a two-line script that nc -e runs, so the executed file is a shell that carries neither a shell's path nor a shell's name.

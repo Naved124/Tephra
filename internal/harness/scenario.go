@@ -42,6 +42,12 @@ type Scenario struct {
 	// ExpectDrops: the evasion floods the sensor, and ring buffer drops
 	// that the sensor reports count as a visible result.
 	ExpectDrops bool `yaml:"expect_drops"`
+	// Heldout marks an evasion written before the fixes it tests and run
+	// once against them, never tuned afterwards. Its result counts any
+	// rule that fires on the technique, not only the ones in Expect,
+	// because the rule that should catch it may not exist yet when the
+	// scenario is written.
+	Heldout bool `yaml:"heldout"`
 	// Enforce says how the scenario is refused when enforcement covers
 	// its pod. Only scenarios with it run under "harness run --enforce".
 	Enforce *EnforceSpec `yaml:"enforce"`
@@ -111,6 +117,8 @@ func LoadScenario(dir string) (*Scenario, error) {
 		return nil, fmt.Errorf("%s: an evasion scenario needs predicted", path)
 	case s.Predicted != "" && s.Predicted != Detected && s.Predicted != Partial && s.Predicted != Missed:
 		return nil, fmt.Errorf("%s: predicted %q is not detected, partial or missed", path, s.Predicted)
+	case s.Heldout && !strings.HasPrefix(s.ID, "E"):
+		return nil, fmt.Errorf("%s: only an evasion scenario can be held out", path)
 	}
 	if e := s.Enforce; e != nil {
 		if len(e.DryRun) == 0 || len(e.On) == 0 {

@@ -1,0 +1,9 @@
+id: E11
+title: Download and run a file with Python's own HTTP client, no download tool
+tags: [attack.command_and_control, attack.t1105, attack.execution]
+expect: [R004, R025]
+predicted: missed
+heldout: true
+run:
+  pod: victim
+note: Held out. R004 and the first step of R025 name download tools; here the interpreter fetches the file itself.

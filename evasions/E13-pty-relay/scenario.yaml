@@ -1,0 +1,9 @@
+id: E13
+title: Reverse shell through a pseudo-terminal relayed to a socket
+tags: [attack.execution, attack.t1059.004]
+expect: [R001]
+predicted: missed
+heldout: true
+run:
+  pod: victim
+note: Held out. Python connects out, starts /bin/sh on a pseudo-terminal and copies bytes between the two, so the shell's stdin and stdout are a terminal and not a socket.

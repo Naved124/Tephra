@@ -1,0 +1,9 @@
+id: E15
+title: Read /etc/shadow from inside the agent's own cgroup
+tags: [attack.defense_evasion, attack.t1562.001, attack.credential_access, attack.t1003.008]
+expect: [R005]
+predicted: missed
+heldout: true
+run:
+  pod: victim
+note: Held out. The sensor ignores its own cgroup so that it does not report itself. A privileged pod with the host's process namespace and cgroup tree moves a process into that cgroup and reads the file from there.

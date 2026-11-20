@@ -629,6 +629,21 @@ These exist to find the limits. Several are expected to be missed in v1, and the
 | E07 | Kill the agent, act, let it restart | Missed, gap visible | Tamper visibility and why enforcement must live in the kernel |
 | E08 | argv longer than the capture limit with the payload at the end | Partial | Truncation flag and its effect on rules |
 
+### Held-out evasion scenarios
+
+E01, E02 and E07 got past the sensor. Fixing exactly those three would teach the sensor eight tests, not the weaknesses behind them, so the fixes (M14) go after each weakness as a class, and a second set of evasions measures whether they generalise. E09 to E16 were written and committed before any fix existed, with the predictions below for the sensor as it then was. They are run once against the fixed sensor and never tuned afterwards; a miss there gets a write-up like any other. A held-out scenario counts as detected when any rule fires on it, an alert naming its pod or an alert about its node with no namespace, because the rule that should catch it may not exist when it is written.
+
+| ID | Evasion | Weakness class | Predicted before the fixes |
+|---|---|---|---|
+| E09 | Renamed copy of busybox runs its sh applet with a socket as stdin and stdout | Identity by name | Missed |
+| E10 | cat copied over /usr/bin/passwd, which R005 allows, reads /etc/shadow | Allowlist trusts a path | Missed |
+| E11 | Python's own HTTP client downloads a file, which is then run | Tool lists by name | Missed |
+| E12 | Interactive session inside Perl, no program executed | Sessions without an exec | Missed |
+| E13 | Shell on a pseudo-terminal relayed to a socket by Python | Sessions without socket stdio | Missed |
+| E14 | Agent frozen with SIGSTOP, file read, agent killed before it drains its buffer | Sensor tampering | Missed |
+| E15 | A process moves itself into the agent's own cgroup, which the sensor ignores, and reads /etc/shadow | Sensor tampering | Missed |
+| E16 | Connection flood, then a read of /etc/shadow | Buffer exhaustion | Detected or drops reported |
+
 ### False-positive run
 
 Run ordinary workloads for 30 minutes with all rules enabled: an nginx deployment under HTTP load, a PostgreSQL pod under pgbench, an image build job, and a rolling update. The target is zero high or critical alerts. Every alert that does fire is either fixed in the rule or documented under falsepositives.
@@ -752,6 +767,8 @@ A milestone is done when its acceptance test passes in CI or is recorded in docs
 M9, M10, M11 and M12 are independent of each other once M8 is done and can be taken in any order.
 
 M13, correlation rules (needs M8): a sequence block in the rule schema, per-process-tree and per-pod state with a bounded window and memory cap, and two shipped rules (download then execute the downloaded file; service account token read then Kubernetes API connection). Acceptance: both rules fire on A03 and A05, neither fires in the false-positive run, and state memory stays under its cap in the exec-heavy benchmark.
+
+M14, closing evasion classes (needs M9, M12, M13): the held-out scenarios E09 to E16 written and committed first, with predictions, and run on the unchanged sensor as a baseline; then fixes per weakness class, not per scenario: identity of executables by content rather than name or path, detection of sessions that start no program, and tamper resistance (recording across agent restarts, reporting signals sent to the agent, a gap alert from the collector). Acceptance: E01 to E08 all detected or visible; E09 to E16 run once on the fixed sensor and reported as measured, every miss with a write-up; A01 to A22 still detected; zero high or critical alerts in the false-positive run.
 
 Two additions to earlier milestones follow from the decisions in section 11: M3 includes inode_watch and IPv6 connect and accept tests, and M4 includes the environment allowlist and R021.
 
@@ -980,3 +997,8 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
 - **Network is Tephra's weak point.** Every new connection is a connect and an accept event that reaches the agent, about 27,000 a second in this workload, and the agent spends about 70% of a CPU on them whether it exports them or not: "alerts only" saves the export, not the decoding, enrichment and rule evaluation. Tetragon's default policy does not trace connections, so its near-zero cost there is not a like-for-like comparison. Dropping connection events in the kernel when no rule asks for them (as the file watches already do) is the obvious fix; not done in this milestone, so the numbers describe the sensor as it is.
 - **Idle with enforcement on** costs 0.7% of a CPU against 0.1% without. Not investigated.
 - **Sequence state.** After an exec-heavy run (20,000 execs) the M13 gauges read 0 partial sequences held and 0 evicted. A sequence starts only when its first step matches (a download tool, a token read), which `/bin/true` never does, so this shows ordinary execs do not grow the state; it does not exercise the 4096 cap, which the unit tests cover.
+### M14
+
+- **Held-out set first.** E09 to E16 were written, with their predictions in section 8, before any fix, and run on the unchanged sensor (kernel 7.0, EC2, kind) as the baseline in [evasion-baseline.md](evasion-baseline.md): original scenarios 5 of 8 detected, as in M9; held-out 2 of 8. The harness judges a held-out scenario by any rule that fires on it, so the test does not name the rule a later fix adds.
+- **E09 did not run the first time.** busybox's `nc -e` runs a program without its arguments, so the renamed busybox was started without the `sh` that selects its applet and exited ("applet not found"); the harness reported it as not carried out. It now reaches the applet through a two-line script, which is still the same evasion: a shell that has neither a shell's path nor a shell's name. Missed, as predicted.
+- **E13 was caught, but by a broad rule.** R002 fired: it reports a shell with any of a list of server programs among its ancestors, and the list includes `python3`. It caught the relay because the shell's ancestor was Python, not because of anything the relay did, and it would fire the same way for any Python program that starts a shell. That is a result for the held-out table and a false-positive risk for M14 to measure, not a reason to change R002 now.

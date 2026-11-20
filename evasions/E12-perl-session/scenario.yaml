@@ -1,0 +1,9 @@
+id: E12
+title: Interactive session implemented inside Perl, no shell executed
+tags: [attack.execution, attack.t1059.006]
+expect: [R001]
+predicted: missed
+heldout: true
+run:
+  pod: victim
+note: Held out. The session lists a directory and reads /etc/hostname with Perl built-ins; Perl forks once for the operator side and executes nothing.

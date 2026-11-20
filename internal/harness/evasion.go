@@ -18,6 +18,9 @@ const DropsReported = "drops reported"
 // Measured is the verdict of an evasion scenario as measured.
 func (r *Result) Measured() string {
 	v := r.Verdict()
+	if r.Heldout && v != Detected && v != "error" && len(r.Noticed) > 0 {
+		v = Detected
+	}
 	if v == Missed && r.DropsVisible {
 		return DropsReported
 	}
@@ -57,7 +60,9 @@ func (r *EvasionReport) Write(dir string) error {
 
 // Markdown renders the measured results. The explanations of each miss are
 // written by hand under docs/evasions/; this page holds only what was
-// measured.
+// measured. Original and held-out scenarios are reported apart: the fixes
+// were built against the first group, and the second was written before
+// them and run once.
 func (r *EvasionReport) Markdown() string {
 	var b strings.Builder
 	b.WriteString("# Evasion results\n\n")
@@ -66,9 +71,46 @@ func (r *EvasionReport) Markdown() string {
 	b.WriteString("A result that differs from the prediction corrects it and is not a test failure. ")
 	b.WriteString("The analysis of each finding is in [evasions/](evasions/).\n\n")
 	fmt.Fprintf(&b, "Run on %s, sensor %s, kernel %s.\n\n", r.Date, r.Sensor, r.Kernel)
-	b.WriteString("| ID | Evasion | Rules | Predicted | Measured | Prediction | Other rules fired | Drops | Agent restarts |\n")
-	b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
+
+	var orig, held []*Result
 	for _, res := range r.Results {
+		if res.Heldout {
+			held = append(held, res)
+		} else {
+			orig = append(orig, res)
+		}
+	}
+	if len(orig) > 0 {
+		if len(held) > 0 {
+			b.WriteString("## Original scenarios\n\n")
+			b.WriteString("The sensor's fixes were built against these.\n\n")
+		}
+		table(&b, orig, false)
+	}
+	if len(held) > 0 {
+		b.WriteString("## Held-out scenarios\n\n")
+		b.WriteString("Written and committed before any fix they test; after the fixes they are run once and never tuned. ")
+		b.WriteString("A held-out scenario counts as detected when any rule fires on it (an alert naming its pod, or an alert about its node with no namespace), ")
+		b.WriteString("because the rule that should catch it may not have existed when it was written.\n\n")
+		table(&b, held, true)
+	}
+	for _, res := range r.Results {
+		if res.Note != "" {
+			fmt.Fprintf(&b, "- **%s.** %s\n", res.ID, strings.TrimSpace(res.Note))
+		}
+	}
+	return b.String()
+}
+
+func table(b *strings.Builder, results []*Result, heldout bool) {
+	detected, held := 0, 0
+	if heldout {
+		b.WriteString("| ID | Evasion | Rules | Noticed by | Predicted | Measured | Prediction | Drops | Agent restarts |\n")
+	} else {
+		b.WriteString("| ID | Evasion | Rules | Predicted | Measured | Prediction | Other rules fired | Drops | Agent restarts |\n")
+	}
+	b.WriteString("|---|---|---|---|---|---|---|---|---|\n")
+	for _, res := range results {
 		var rules []string
 		for _, rr := range res.Rules {
 			x := rr.Rule + " " + rr.Verdict
@@ -77,24 +119,31 @@ func (r *EvasionReport) Markdown() string {
 			}
 			rules = append(rules, x)
 		}
-		held := "held"
+		prediction := "held"
 		if !res.PredictionHeld() {
-			held = "corrected"
+			prediction = "corrected"
+		} else {
+			held++
 		}
 		if res.Error != "" {
-			held = "not run: " + res.Error
+			prediction = "not run: " + res.Error
 		}
-		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s | %s | %d | %d |\n",
-			res.ID, res.Title, strings.Join(rules, "; "), res.Predicted, res.Measured(), held,
-			dash(strings.Join(res.AlsoFired, ", ")), res.Drops, res.AgentRestarts)
-	}
-	b.WriteString("\n")
-	for _, res := range r.Results {
-		if res.Note != "" {
-			fmt.Fprintf(&b, "- **%s.** %s\n", res.ID, strings.TrimSpace(res.Note))
+		if m := res.Measured(); m == Detected || m == DropsReported {
+			detected++
 		}
+		other := dash(strings.Join(res.AlsoFired, ", "))
+		if heldout {
+			other = dash(strings.Join(res.Noticed, ", "))
+			fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %d | %d |\n",
+				res.ID, res.Title, strings.Join(rules, "; "), other, res.Predicted, res.Measured(), prediction,
+				res.Drops, res.AgentRestarts)
+			continue
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %d | %d |\n",
+			res.ID, res.Title, strings.Join(rules, "; "), res.Predicted, res.Measured(), prediction,
+			other, res.Drops, res.AgentRestarts)
 	}
-	return b.String()
+	fmt.Fprintf(b, "\n%d of %d detected or visible; %d of %d predictions held.\n\n", detected, len(results), held, len(results))
 }
 
 func dash(s string) string {
