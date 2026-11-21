@@ -161,3 +161,23 @@ func TestFloodThenTheAlertThatMatters(t *testing.T) {
 		t.Errorf("%d alerts dropped", q.Stats().DroppedAlerts)
 	}
 }
+
+// A program started again with other arguments is a new kind, sent at once
+// (CI: R004 on a wget with a new URL was held for the summary).
+func TestGrouperProgramStartsByCommandLine(t *testing.T) {
+	g := NewGrouper()
+	now := time.Unix(1000, 0)
+	run := func(cl string) *Record {
+		return &Record{Type: "exec", Rule: &Rule{ID: "R004", Level: "low"}, Process: Process{Image: "/usr/bin/wget", CommandLine: cl},
+			K8s: K8s{Namespace: "ns", Pod: "probe"}}
+	}
+	if g.Add(run("wget http://grafana/"), now) == nil || g.Add(run("wget http://loki/"), now) == nil {
+		t.Fatal("a first download held back")
+	}
+	if g.Add(run("wget http://loki/"), now) != nil {
+		t.Error("the same command again was sent on its own")
+	}
+	if g.Add(run("wget http://127.0.0.1:9/m5-nonce"), now) == nil {
+		t.Error("a new command was held for the summary")
+	}
+}

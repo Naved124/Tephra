@@ -164,7 +164,10 @@ func (g *Grouper) Len() int {
 }
 
 // target is what an alert is about: the file, the remote address, the
-// process a signal or trace was aimed at.
+// process a signal or trace was aimed at, the module, the mount point. For
+// anything else, a program start among them, it is the command line: the
+// same program run with other arguments is doing something new, which must
+// be sent at once and not held for a summary.
 func target(r *Record) string {
 	switch {
 	case r.File != nil:
@@ -181,8 +184,12 @@ func target(r *Record) string {
 		return fmt.Sprintf("signal %d to %d", r.Signal.Number, r.Signal.TargetPID)
 	case r.Ptrace != nil:
 		return fmt.Sprintf("ptrace %d", r.Ptrace.TargetPID)
+	case r.Module != nil:
+		return "module " + r.Module.Name
+	case r.Mount != nil:
+		return "mount " + r.Mount.Target
 	}
-	return ""
+	return r.Process.CommandLine
 }
 
 func contains(xs []string, x string) bool {
