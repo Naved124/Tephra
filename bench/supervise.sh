@@ -18,7 +18,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 RUNS="${1:-5}"
 CONFIGS="${CONFIGS:-none tephra-all tephra-alerts tephra-enforce falco tetragon}"
-WORKLOADS="${WORKLOADS:-idle exec file network}"
+WORKLOADS="${WORKLOADS:-idle exec file network loopback}"
 export CONFIGS WORKLOADS
 
 rm -f bench/DONE

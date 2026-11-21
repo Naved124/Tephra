@@ -29,7 +29,9 @@ type Config struct {
 	// RulesDir holds the detection rules. Empty means no rules.
 	RulesDir string `yaml:"rules_dir"`
 	// NetIgnore lists destinations, as CIDRs, whose connections are
-	// dropped in the kernel.
+	// dropped in the kernel. Empty by default: loopback included, since a
+	// session relayed through a local proxy, or reached through kubectl
+	// port-forward, arrives on loopback (Phase 4 run 1, E02 and E12).
 	NetIgnore []string `yaml:"net_ignore"`
 	// Watch adds file watches to the ones the rules ask for.
 	Watch []Watch `yaml:"watch"`
@@ -111,15 +113,17 @@ type Export struct {
 	Collector string `yaml:"collector"`
 	// Queue is the number of records buffered for the collector.
 	Queue int `yaml:"queue"`
+	// LoopbackEvents exports raw events of loopback connections. When
+	// false, the default, they are judged by the rules and leave the
+	// agent only as alerts: they are most of a node's connections and
+	// never leave it.
+	LoopbackEvents bool `yaml:"loopback_events"`
 }
 
 // Default returns the configuration used when no file is given.
 func Default() *Config {
 	return &Config{
 		RingBufferSize: 16 << 20,
-		// Loopback traffic never leaves the node and is most of the
-		// connect volume on one.
-		NetIgnore: []string{"127.0.0.0/8", "::1/128"},
 		RuntimeBinaries: []string{
 			"/usr/bin/runc", "/usr/sbin/runc", "/usr/local/bin/runc", "/usr/local/sbin/runc",
 			"/usr/bin/crun", "/usr/local/bin/crun",

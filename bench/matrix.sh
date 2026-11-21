@@ -14,7 +14,7 @@ export FALCO_CHART_VERSION TETRAGON_CHART_VERSION
 
 RUNS="${1:-5}"
 CONFIGS="${CONFIGS:-none tephra-all tephra-alerts tephra-enforce falco tetragon}"
-WORKLOADS="${WORKLOADS:-idle exec file network}"
+WORKLOADS="${WORKLOADS:-idle exec file network loopback}"
 
 for config in $CONFIGS; do
 	todo=0

@@ -38,7 +38,7 @@ const ticksPerSecond = 100
 
 var (
 	configs   = []string{"none", "tephra-all", "tephra-alerts", "tephra-enforce", "falco", "tetragon"}
-	workloads = []string{"exec", "file", "network", "idle"}
+	workloads = []string{"exec", "file", "network", "loopback", "idle"}
 	labels    = map[string]string{
 		"none":           "No sensor",
 		"tephra-all":     "Tephra, every event exported",
@@ -48,10 +48,11 @@ var (
 		"tetragon":       "Tetragon (default tracing)",
 	}
 	workloadText = map[string]string{
-		"exec":    "Exec-heavy: 20,000 fork and exec of /bin/true on two CPUs. Throughput in execs per second.",
-		"file":    "File-heavy: unpack and compile BusyBox 1.37.0 on two CPUs. Throughput is builds per hour.",
-		"network": "Network-heavy: 200,000 HTTP requests to nginx, 32 concurrent, a new connection each. Throughput in requests per second; p99 latency in milliseconds, as ApacheBench reports it (whole milliseconds).",
-		"idle":    "Idle: 60 seconds with nothing running. Only the sensor's own cost.",
+		"exec":     "Exec-heavy: 20,000 fork and exec of /bin/true on two CPUs. Throughput in execs per second.",
+		"file":     "File-heavy: unpack and compile BusyBox 1.37.0 on two CPUs. Throughput is builds per hour.",
+		"network":  "Network-heavy: 200,000 HTTP requests to nginx, 32 concurrent, a new connection each. Throughput in requests per second; p99 latency in milliseconds, as ApacheBench reports it (whole milliseconds).",
+		"loopback": "Loopback-heavy: 200,000 HTTP requests to Apache httpd in the same pod over 127.0.0.1, 32 concurrent, a new connection each, as an application talks to a sidecar. Every connection is judged by the rules and, by default, not exported. Throughput in requests per second; p99 latency in milliseconds.",
+		"idle":     "Idle: 60 seconds with nothing running. Only the sensor's own cost.",
 	}
 )
 
@@ -125,7 +126,7 @@ func throughput(w string, c Cell) float64 {
 		return c.Ops / (c.NS / 1e9)
 	case "file":
 		return 3600 / (c.NS / 1e9)
-	case "network":
+	case "network", "loopback":
 		return c.RPS
 	}
 	return 0
@@ -167,7 +168,7 @@ func render(all map[string]map[string][]Cell) string {
 			header += " Throughput | vs no sensor |"
 			sep += "---|---|"
 		}
-		if w == "network" {
+		if w == "network" || w == "loopback" {
 			header += " p99 ms |"
 			sep += "---|"
 		}
@@ -188,7 +189,7 @@ func render(all map[string]map[string][]Cell) string {
 				}
 				row += fmt.Sprintf(" %s | %s |", tp, rel)
 			}
-			if w == "network" {
+			if w == "network" || w == "loopback" {
 				row += fmt.Sprintf(" %s |", of(cs, func(c Cell) float64 { return c.P99MS }))
 			}
 			cpu := of(cs, func(c Cell) float64 { return c.CPUTicks / ticksPerSecond / (c.WallNS / 1e9) * 100 })

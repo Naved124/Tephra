@@ -33,7 +33,7 @@ func TestDefaults(t *testing.T) {
 		}
 	}
 	c, err := Load("")
-	if err != nil || !c.Export.RawEvents || c.RingBufferSize != 16<<20 || len(c.NetIgnore) != 2 {
+	if err != nil || !c.Export.RawEvents || c.RingBufferSize != 16<<20 || len(c.NetIgnore) != 0 || c.Export.LoopbackEvents {
 		t.Errorf("no file: %+v, %v", c, err)
 	}
 }

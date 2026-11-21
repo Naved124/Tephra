@@ -38,9 +38,12 @@ agent:
   # only what the rules need when it is off.
   events: []
   # Destinations whose connections are dropped in the kernel.
-  netIgnore:
-    - 127.0.0.0/8
-    - ::1/128
+  # Empty by default, loopback included: a session relayed through a local
+  # proxy, or reached through kubectl port-forward, arrives on loopback.
+  netIgnore: []
+  # Export raw events of loopback connections too. Off: they are judged by
+  # the rules and leave the agent only as alerts.
+  loopbackEvents: false
   # File watches in addition to the ones the rules ask for, for example
   #   - {path: /etc/kubernetes/, kind: prefix, ops: [write]}
   watch: []

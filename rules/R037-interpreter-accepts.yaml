@@ -1,0 +1,34 @@
+id: R037
+title: Interpreter that is not the container's application accepts a connection
+level: medium
+tags: [attack.command_and_control, attack.t1059.006, attack.execution, attack.t1571]
+event: accept
+detection:
+  by_content:
+    process.identity: interpreter
+  by_name:
+    process.Image|re: '/(python[0-9.]*|perl[0-9.]*|ruby[0-9.]*|node|nodejs|php[0-9.]*|lua[0-9.]*|luajit|tclsh[0-9.]*|pwsh|Rscript)$'
+  inbound:
+    network.direction: inbound
+  main:
+    process.is_main_binary: true
+  entrypoint:
+    parent.container_first: true
+  runtime:
+    process.runtime: true
+  host:
+    k8s.namespace: host
+  condition: (by_content or by_name) and inbound and not (main or entrypoint or runtime or host)
+action: alert
+description: >-
+  A script interpreter that is not the program the container runs accepted
+  a connection: a bind session, the other way round from R028. The
+  interpreter listens, the attacker connects in, and commands run inside
+  the interpreter's own process, so no shell is started (E24). Loopback is
+  included, because kubectl port-forward reaches a pod as a connection from
+  127.0.0.1 inside it. The same processes are left out as in R028: the
+  application itself, an interpreter started directly by the container's
+  first process, the runtime and the node.
+falsepositives:
+  - Debugging servers started by hand with kubectl exec, such as python -m http.server
+  - Sidecar-less containers whose entrypoint starts a helper server from a nested script rather than directly

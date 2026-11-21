@@ -4,7 +4,10 @@
 // sinks that carry it.
 package export
 
-import "sort"
+import (
+	"net/netip"
+	"sort"
+)
 
 // Record is one enriched event. Field names follow Sigma conventions where
 // one exists (Image, CommandLine, User).
@@ -50,6 +53,16 @@ const TypeHealth = "health"
 
 // IsAlert reports whether the record is an alert rather than a raw event.
 func (r *Record) IsAlert() bool { return r.Rule != nil }
+
+// Loopback reports whether a network record is a connection over loopback,
+// which never leaves the node. Unix sockets are not loopback here.
+func (n *Network) Loopback() bool {
+	if n == nil || n.Family == "unix" {
+		return false
+	}
+	a, err := netip.ParseAddr(n.DestinationIP)
+	return err == nil && a.Unmap().IsLoopback()
+}
 
 // Rule identifies the detection rule behind an alert.
 type Rule struct {

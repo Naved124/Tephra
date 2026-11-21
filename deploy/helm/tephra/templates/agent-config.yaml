@@ -16,6 +16,7 @@ data:
     k8s_api: {{ toJson .Values.agent.k8sApi }}
     export:
       raw_events: {{ .Values.agent.rawEvents }}
+      loopback_events: {{ .Values.agent.loopbackEvents }}
       queue: {{ int .Values.agent.exportQueue }}
       {{- if .Values.collector.enabled }}
       collector: "{{ .Release.Name }}-collector.{{ .Release.Namespace }}.svc:4317"

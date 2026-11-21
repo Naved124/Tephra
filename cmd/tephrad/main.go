@@ -64,6 +64,8 @@ type counters struct {
 	nestedOpens  atomic.Uint64
 	// deniedUnwatched counts refused opens of files no watch covers.
 	deniedUnwatched atomic.Uint64
+	// loopbackHeld counts raw loopback events judged but not exported.
+	loopbackHeld atomic.Uint64
 	// whileDown counts events in an adopted ring buffer that were recorded
 	// before this agent started: while no agent was reading. ownDropped
 	// counts the agent's own events reported by an earlier agent's programs.
@@ -329,7 +331,11 @@ func (a *agent) handle(ev events.Event) {
 		a.noteSignal(rec)
 	}
 	if a.cur.cfg.Export.RawEvents {
-		a.emit(rec)
+		if !a.cur.cfg.Export.LoopbackEvents && rec.Network.Loopback() {
+			a.c.loopbackHeld.Add(1)
+		} else {
+			a.emit(rec)
+		}
 	}
 	if rec.Enforce != nil {
 		a.handleEnforce(rec)

@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+# Loopback-heavy: as the network workload, but the server and ApacheBench
+# share one pod and talk over 127.0.0.1, as an application does with a sidecar
+# proxy. Every request is a new loopback connection, a connect and an accept,
+# which the sensor now sees and judges (M14 Phase 5) but does not export.
+# The server is the image's own Apache httpd, so nothing is installed while
+# the clock runs; compare its numbers with no sensor, not with the network
+# workload's nginx.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bench
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: tephra-worker
+  containers:
+    - name: bench
+      image: httpd:2.4.65
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -e
+          taskset -c 3 httpd -k start
+          ab=/usr/local/apache2/bin/ab
+          for i in $(seq 1 50); do $ab -q -n 1 http://127.0.0.1/ >/dev/null 2>&1 && break; sleep 0.2; done
+          out=$(taskset -c 2 $ab -q -n 200000 -c 32 http://127.0.0.1/ 2>&1)
+          echo "$out" | grep -E "Requests per second|Failed requests|  99%"
+          rps=$(echo "$out" | awk '/Requests per second/ {print $4}')
+          p99=$(echo "$out" | awk '$1 == "99%" {print $2}')
+          [ -n "$rps" ] && [ -n "$p99" ] || { echo "$out"; exit 1; }
+          echo "RESULT ops=200000 rps=$rps p99_ms=$p99"
+      resources:
+        requests: {cpu: 10m, memory: 64Mi}
