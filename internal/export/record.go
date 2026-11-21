@@ -83,6 +83,13 @@ type Process struct {
 	// it is not a file the image shipped. Always false outside a
 	// container.
 	ExeModified bool `json:"exe_modified,omitempty"`
+	// IdentityMismatch says the process is in one container's cgroup but
+	// came from another: born there, or still in its mount namespace. The
+	// record names the container it came from.
+	IdentityMismatch bool `json:"identity_mismatch,omitempty"`
+	// InAgentContainer says the process is in the Tephra agent's own
+	// container, by cgroup or mount namespace, and is not the agent.
+	InAgentContainer bool `json:"in_agent_container,omitempty"`
 	// Tree names the tree of processes this one belongs to: its topmost
 	// ancestor in the same cgroup, as "<pid>.<start time>". In a container
 	// that is the container's first process, or the process an exec into
@@ -289,6 +296,9 @@ type Namespaces struct {
 	Changed []string `json:"changed"`
 	// Host lists those of them that are now the node's own namespace.
 	Host []string `json:"host,omitempty"`
+	// OtherPod lists those of them that belong to another container than
+	// the process's own.
+	OtherPod []string `json:"other_pod,omitempty"`
 }
 
 // Signal is set on signal events: a signal another process sent to the

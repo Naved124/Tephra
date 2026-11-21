@@ -66,22 +66,23 @@ func header(typ events.Type, size int) []byte {
 	le.PutUint32(b[48:], 34)   // gid
 	le.PutUint32(b[52:], 11)   // pid_ns
 	le.PutUint32(b[56:], 12)   // mnt_ns
-	copy(b[64:], "ls")
+	le.PutUint32(b[64:], 13)   // net_ns
+	copy(b[72:], "ls")
 	return b
 }
 
 func TestDecodeExec(t *testing.T) {
 	argv := "ls\x00-la\x00/tmp\x00"
-	raw := header(events.TypeExec, 376+len(argv))
+	raw := header(events.TypeExec, 384+len(argv))
 	le := binary.LittleEndian
 	le.PutUint32(raw[60:], events.ExecStdinSock|events.ExecArgvTrunc)
-	le.PutUint64(raw[80:], 9001)     // inode
-	le.PutUint32(raw[88:], 0x800001) // dev
-	le.PutUint32(raw[92:], uint32(len(argv)))
-	le.PutUint64(raw[96:], 0x1ffffffff)                // cap_effective
-	le.PutUint64(raw[112:], 1_800_000_000_000_000_123) // ctime_ns
-	copy(raw[120:], "/usr/bin/ls")
-	copy(raw[376:], argv)
+	le.PutUint64(raw[88:], 9001)     // inode
+	le.PutUint32(raw[96:], 0x800001) // dev
+	le.PutUint32(raw[100:], uint32(len(argv)))
+	le.PutUint64(raw[104:], 0x1ffffffff)               // cap_effective
+	le.PutUint64(raw[120:], 1_800_000_000_000_000_123) // ctime_ns
+	copy(raw[128:], "/usr/bin/ls")
+	copy(raw[384:], argv)
 	// The ring buffer rounds samples up to 8 bytes.
 	raw = append(raw, 0xff, 0xff, 0xff)
 
@@ -96,8 +97,8 @@ func TestDecodeExec(t *testing.T) {
 	want := &events.Exec{
 		Header: events.Header{
 			TSBootNS: 1000, StartTimeNS: 500, CgroupID: 77,
-			Type: events.TypeExec, Size: uint32(376 + len(argv)),
-			PID: 4242, TID: 4243, PPID: 1, UID: 33, GID: 34, PidNS: 11, MntNS: 12,
+			Type: events.TypeExec, Size: uint32(384 + len(argv)),
+			PID: 4242, TID: 4243, PPID: 1, UID: 33, GID: 34, PidNS: 11, MntNS: 12, NetNS: 13,
 			Flags: events.ExecStdinSock | events.ExecArgvTrunc, Comm: "ls",
 		},
 		Inode: 9001, Dev: 0x800001, CapEffective: 0x1ffffffff, CtimeNS: 1_800_000_000_000_000_123,
@@ -120,9 +121,9 @@ func TestDecodeExecArgvEdges(t *testing.T) {
 		"single unclosed":  {"a", []string{"a"}},
 		"only a separator": {"\x00", []string{""}},
 	} {
-		raw := header(events.TypeExec, 376+len(tc.argv))
-		binary.LittleEndian.PutUint32(raw[92:], uint32(len(tc.argv)))
-		copy(raw[376:], tc.argv)
+		raw := header(events.TypeExec, 384+len(tc.argv))
+		binary.LittleEndian.PutUint32(raw[100:], uint32(len(tc.argv)))
+		copy(raw[384:], tc.argv)
 		ev, err := events.Decode(raw)
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
@@ -135,12 +136,12 @@ func TestDecodeExecArgvEdges(t *testing.T) {
 }
 
 func TestDecodeForkExit(t *testing.T) {
-	raw := header(events.TypeFork, 104)
+	raw := header(events.TypeFork, 112)
 	le := binary.LittleEndian
-	le.PutUint32(raw[80:], 5000)
-	le.PutUint32(raw[84:], 4242)
-	le.PutUint64(raw[88:], 600)
-	le.PutUint64(raw[96:], 500)
+	le.PutUint32(raw[88:], 5000)
+	le.PutUint32(raw[92:], 4242)
+	le.PutUint64(raw[96:], 600)
+	le.PutUint64(raw[104:], 500)
 	ev, err := events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -150,8 +151,8 @@ func TestDecodeForkExit(t *testing.T) {
 		t.Errorf("fork decoded as %+v", f)
 	}
 
-	raw = header(events.TypeExit, 88)
-	le.PutUint32(raw[80:], 3<<8)
+	raw = header(events.TypeExit, 96)
+	le.PutUint32(raw[88:], 3<<8)
 	ev, err = events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +160,7 @@ func TestDecodeForkExit(t *testing.T) {
 	if x := ev.(*events.Exit); x.Code() != 3 || x.Signal() != 0 {
 		t.Errorf("exit code %d signal %d, want 3 and 0", x.Code(), x.Signal())
 	}
-	le.PutUint32(raw[80:], 9)
+	le.PutUint32(raw[88:], 9)
 	ev, _ = events.Decode(raw)
 	if x := ev.(*events.Exit); x.Code() != 0 || x.Signal() != 9 {
 		t.Errorf("exit code %d signal %d, want 0 and 9", x.Code(), x.Signal())
@@ -168,25 +169,25 @@ func TestDecodeForkExit(t *testing.T) {
 
 // Malformed records must be rejected, not sliced out of range.
 func TestDecodeRejects(t *testing.T) {
-	short := header(events.TypeExec, 376)[:79]
-	claimsMore := header(events.TypeExec, 376)
+	short := header(events.TypeExec, 384)[:87]
+	claimsMore := header(events.TypeExec, 384)
 	binary.LittleEndian.PutUint32(claimsMore[28:], 4096)
-	execTooShort := header(events.TypeExec, 200)
-	argvOverrun := header(events.TypeExec, 376+4)
-	binary.LittleEndian.PutUint32(argvOverrun[92:], 900)
-	argvHuge := header(events.TypeExec, 376)
-	binary.LittleEndian.PutUint32(argvHuge[92:], 0xffffffff)
-	envOverrun := header(events.TypeExec, 376+1024+4)
-	binary.LittleEndian.PutUint32(envOverrun[104:], 900)
-	netShort := header(events.TypeConnect, 100)
-	netFamily := header(events.TypeAccept, 120)
-	binary.LittleEndian.PutUint16(netFamily[80:], 17)
-	unixHuge := header(events.TypeUnixConnect, 192)
-	binary.LittleEndian.PutUint32(unixHuge[80:], 500)
-	fileOverrun := header(events.TypeFileOpen, 104+8)
-	binary.LittleEndian.PutUint32(fileOverrun[100:], 200)
-	forkShort := header(events.TypeFork, 90)
-	unknown := header(events.Type(31), 80)
+	execTooShort := header(events.TypeExec, 208)
+	argvOverrun := header(events.TypeExec, 384+4)
+	binary.LittleEndian.PutUint32(argvOverrun[100:], 900)
+	argvHuge := header(events.TypeExec, 384)
+	binary.LittleEndian.PutUint32(argvHuge[100:], 0xffffffff)
+	envOverrun := header(events.TypeExec, 384+1024+4)
+	binary.LittleEndian.PutUint32(envOverrun[112:], 900)
+	netShort := header(events.TypeConnect, 108)
+	netFamily := header(events.TypeAccept, 128)
+	binary.LittleEndian.PutUint16(netFamily[88:], 17)
+	unixHuge := header(events.TypeUnixConnect, 200)
+	binary.LittleEndian.PutUint32(unixHuge[88:], 500)
+	fileOverrun := header(events.TypeFileOpen, 112+8)
+	binary.LittleEndian.PutUint32(fileOverrun[108:], 200)
+	forkShort := header(events.TypeFork, 98)
+	unknown := header(events.Type(31), 88)
 
 	for name, raw := range map[string][]byte{
 		"shorter than header":     short,
@@ -212,14 +213,14 @@ func TestDecodeRejects(t *testing.T) {
 // With captured variables the whole of argv is sent, then the variables.
 func TestDecodeExecEnv(t *testing.T) {
 	argv := "sh\x00"
-	raw := header(events.TypeExec, 376+1024+768)
+	raw := header(events.TypeExec, 384+1024+768)
 	le := binary.LittleEndian
 	le.PutUint32(raw[60:], events.ExecEnvTrunc)
-	le.PutUint32(raw[92:], uint32(len(argv)))
-	le.PutUint32(raw[104:], 768)
-	copy(raw[376:], argv)
-	copy(raw[376+1024:], "LD_PRELOAD=/tmp/x.so")
-	copy(raw[376+1024+256:], "LD_AUDIT=/tmp/a.so")
+	le.PutUint32(raw[100:], uint32(len(argv)))
+	le.PutUint32(raw[112:], 768)
+	copy(raw[384:], argv)
+	copy(raw[384+1024:], "LD_PRELOAD=/tmp/x.so")
+	copy(raw[384+1024+256:], "LD_AUDIT=/tmp/a.so")
 	ev, err := events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -235,13 +236,13 @@ func TestDecodeExecEnv(t *testing.T) {
 
 func TestDecodeNet(t *testing.T) {
 	le := binary.LittleEndian
-	raw := header(events.TypeConnect, 120)
-	le.PutUint16(raw[80:], events.AFInet)
-	le.PutUint16(raw[82:], 40000) // lport
-	le.PutUint16(raw[84:], 443)   // rport
-	le.PutUint16(raw[86:], 6)     // tcp
-	copy(raw[88:], []byte{10, 244, 1, 5})
-	copy(raw[104:], []byte{10, 96, 0, 1})
+	raw := header(events.TypeConnect, 128)
+	le.PutUint16(raw[88:], events.AFInet)
+	le.PutUint16(raw[90:], 40000) // lport
+	le.PutUint16(raw[92:], 443)   // rport
+	le.PutUint16(raw[94:], 6)     // tcp
+	copy(raw[96:], []byte{10, 244, 1, 5})
+	copy(raw[112:], []byte{10, 96, 0, 1})
 	ev, err := events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -251,12 +252,12 @@ func TestDecodeNet(t *testing.T) {
 		t.Errorf("connect decoded as %s -> %s proto %d", n.Local, n.Remote, n.Proto)
 	}
 
-	raw = header(events.TypeAccept, 120)
-	le.PutUint16(raw[80:], events.AFInet6)
-	le.PutUint16(raw[82:], 8080)
-	le.PutUint16(raw[84:], 51000)
-	copy(raw[88:], []byte{0xfd, 0, 0x10, 0x96, 15: 1})
-	copy(raw[104:], []byte{0xfd, 0, 0x10, 0x96, 15: 2})
+	raw = header(events.TypeAccept, 128)
+	le.PutUint16(raw[88:], events.AFInet6)
+	le.PutUint16(raw[90:], 8080)
+	le.PutUint16(raw[92:], 51000)
+	copy(raw[96:], []byte{0xfd, 0, 0x10, 0x96, 15: 1})
+	copy(raw[112:], []byte{0xfd, 0, 0x10, 0x96, 15: 2})
 	ev, err = events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -267,7 +268,7 @@ func TestDecodeNet(t *testing.T) {
 	}
 
 	// An IPv4 peer on an IPv6 socket is reported as IPv4.
-	copy(raw[104:], []byte{10: 0xff, 0xff, 192, 0, 2, 7})
+	copy(raw[112:], []byte{10: 0xff, 0xff, 192, 0, 2, 7})
 	ev, _ = events.Decode(raw)
 	if got := ev.(*events.Net).Remote.Addr().String(); got != "192.0.2.7" {
 		t.Errorf("v4-mapped peer decoded as %s", got)
@@ -280,9 +281,9 @@ func TestDecodeUnixAndFile(t *testing.T) {
 		"/run/containerd/containerd.sock\x00": "/run/containerd/containerd.sock",
 		"\x00abstract-name":                   "@abstract-name",
 	} {
-		raw := header(events.TypeUnixConnect, 192)
-		le.PutUint32(raw[80:], uint32(len(path)))
-		copy(raw[84:], path)
+		raw := header(events.TypeUnixConnect, 200)
+		le.PutUint32(raw[88:], uint32(len(path)))
+		copy(raw[92:], path)
 		ev, err := events.Decode(raw)
 		if err != nil {
 			t.Fatal(err)
@@ -293,14 +294,14 @@ func TestDecodeUnixAndFile(t *testing.T) {
 	}
 
 	path := "/etc/shadow\x00"
-	raw := header(events.TypeFileOpen, 104+len(path))
+	raw := header(events.TypeFileOpen, 112+len(path))
 	le.PutUint32(raw[60:], events.FileByInode)
-	le.PutUint64(raw[80:], 1234)
-	le.PutUint32(raw[88:], 0x800001)
-	le.PutUint32(raw[92:], 0o1|events.OTrunc)
-	le.PutUint32(raw[96:], 3)
-	le.PutUint32(raw[100:], uint32(len(path)))
-	copy(raw[104:], path)
+	le.PutUint64(raw[88:], 1234)
+	le.PutUint32(raw[96:], 0x800001)
+	le.PutUint32(raw[100:], 0o1|events.OTrunc)
+	le.PutUint32(raw[104:], 3)
+	le.PutUint32(raw[108:], uint32(len(path)))
+	copy(raw[112:], path)
 	ev, err := events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -314,11 +315,11 @@ func TestDecodeUnixAndFile(t *testing.T) {
 func TestDecodeFileChangeAndDenied(t *testing.T) {
 	le := binary.LittleEndian
 	path := "/etc/ld.so.preload\x00"
-	raw := header(events.TypeFileChange, 104+len(path))
+	raw := header(events.TypeFileChange, 112+len(path))
 	le.PutUint32(raw[60:], events.FileByPath)
-	le.PutUint32(raw[92:], 3) // FILE_OP_RENAME_TO
-	le.PutUint32(raw[100:], uint32(len(path)))
-	copy(raw[104:], path)
+	le.PutUint32(raw[100:], 3) // FILE_OP_RENAME_TO
+	le.PutUint32(raw[108:], uint32(len(path)))
+	copy(raw[112:], path)
 	ev, err := events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -327,17 +328,17 @@ func TestDecodeFileChangeAndDenied(t *testing.T) {
 		t.Errorf("file_change decoded as %+v", c)
 	}
 	for _, op := range []uint32{0, 7} {
-		le.PutUint32(raw[92:], op)
+		le.PutUint32(raw[100:], op)
 		if _, err := events.Decode(raw); err == nil {
 			t.Errorf("file_change with operation %d accepted", op)
 		}
 	}
 
 	// Without a working directory the record ends after the name.
-	raw = header(events.TypeFileDenied, 96+256)
-	le.PutUint32(raw[80:], 13)
-	le.PutUint32(raw[84:], 0o101) // O_WRONLY|O_CREAT
-	copy(raw[96:], "/etc/shadow\x00")
+	raw = header(events.TypeFileDenied, 104+256)
+	le.PutUint32(raw[88:], 13)
+	le.PutUint32(raw[92:], 0o101) // O_WRONLY|O_CREAT
+	copy(raw[104:], "/etc/shadow\x00")
 	ev, err = events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -346,11 +347,11 @@ func TestDecodeFileChangeAndDenied(t *testing.T) {
 		t.Errorf("file_denied decoded as %+v", d)
 	}
 
-	raw = header(events.TypeFileDenied, 96+512)
-	le.PutUint32(raw[80:], 30)
-	le.PutUint32(raw[92:], 5)
-	copy(raw[96:], "shadow\x00")
-	copy(raw[96+256:], "/etc\x00")
+	raw = header(events.TypeFileDenied, 104+512)
+	le.PutUint32(raw[88:], 30)
+	le.PutUint32(raw[100:], 5)
+	copy(raw[104:], "shadow\x00")
+	copy(raw[104+256:], "/etc\x00")
 	ev, err = events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -359,7 +360,7 @@ func TestDecodeFileChangeAndDenied(t *testing.T) {
 		t.Errorf("file_denied with cwd decoded as %+v", d)
 	}
 	// A cwd_len the record cannot hold.
-	short := raw[:96+256+2]
+	short := raw[:104+256+2]
 	if _, err := events.Decode(short); err == nil {
 		t.Error("file_denied with a cwd past the end of the record accepted")
 	}

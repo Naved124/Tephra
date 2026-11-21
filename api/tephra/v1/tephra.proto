@@ -120,6 +120,7 @@ message Mount {
 message Namespaces {
   repeated string changed = 1;
   repeated string host = 2;
+  repeated string other_pod = 3;
 }
 
 message Rule {
@@ -150,6 +151,10 @@ message Process {
   string identity = 13;
   // The binary changed after its container started.
   bool exe_modified = 14;
+  // In one container's cgroup but came from another.
+  bool identity_mismatch = 15;
+  // In the agent's own container and not the agent.
+  bool in_agent_container = 16;
 }
 
 message Exec {

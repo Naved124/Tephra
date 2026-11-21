@@ -1,0 +1,28 @@
+id: R035
+title: Program started inside the Tephra agent's container
+level: critical
+tags: [attack.defense_evasion, attack.t1562.001, attack.t1036]
+event: exec
+detection:
+  selection:
+    process.in_agent_container: true
+  runtime:
+    process.runtime: true
+  agent_binary:
+    process.is_main_binary: true
+  moved:
+    process.identity_mismatch: true
+  condition: selection and not (runtime or (agent_binary and not moved))
+action: alert
+description: >-
+  A program started in the agent's own container, found there by cgroup or by
+  mount namespace, that is not the agent. The agent never starts a program,
+  so anything else in its container came in from outside: moved into its
+  cgroup (E15, E20), entered through its namespaces, or started with kubectl
+  exec. The alert names the pod the program came from, where that is known.
+  The agent's own binary run with kubectl exec, which is how an operator
+  turns detection or enforcement off, is left out: it is the container's
+  main binary. Run from another pod through /proc it is not, since the
+  process is then named under the pod it came from.
+falsepositives:
+  - None expected; the agent image has no shell or other program

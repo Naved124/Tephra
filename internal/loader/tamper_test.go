@@ -8,9 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/cilium/ebpf"
 
 	"github.com/Naved124/tephra/internal/events"
 )
@@ -173,5 +176,44 @@ func TestDetectionNotKept(t *testing.T) {
 	}
 	if ok, err := DetectionOff(dir); ok || err != nil {
 		t.Errorf("DetectionOff on nothing: %v %v", ok, err)
+	}
+}
+
+// A ring buffer written in another record layout is not read: its backlog
+// would decode as garbage. The next agent starts afresh and says why.
+func TestDetectionOtherLayoutNotAdopted(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to load BPF programs")
+	}
+	dir := fmt.Sprintf("/sys/fs/bpf/tephra-layout-test-%d", os.Getpid())
+	t.Cleanup(func() { unpinAll(dir) })
+	opts := Options{RingBufSize: 1 << 20, KeepRecording: true, DetectPinDir: dir}
+
+	first, err := Load(opts)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if v, ok := pinnedLayout(dir); !ok || v != events.LayoutVersion {
+		t.Fatalf("layout pinned %d %v, want %d", v, ok, events.LayoutVersion)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// As an agent of an earlier layout would have left it.
+	m, err := ebpf.LoadPinnedMap(filepath.Join(dir, layoutPin), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Put(uint32(0), uint32(events.LayoutVersion-1)); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.Close()
+
+	second := loadAsAgent(t, opts)
+	if second.Backlog() || !strings.Contains(second.FreshStart(), "record layout") {
+		t.Errorf("backlog %v, fresh start %q", second.Backlog(), second.FreshStart())
+	}
+	if v, ok := pinnedLayout(dir); !ok || v != events.LayoutVersion {
+		t.Errorf("layout after the fresh start %d %v", v, ok)
 	}
 }

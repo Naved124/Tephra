@@ -19,7 +19,7 @@ type Struct struct {
 }
 
 const (
-	hdrSize   = 80
+	hdrSize   = 88
 	commLen   = 16
 	pathLen   = 256
 	argvLen   = 1024
@@ -59,7 +59,8 @@ const (
 	hdrPidNS     = 52
 	hdrMntNS     = 56
 	hdrFlags     = 60
-	hdrComm      = 64
+	hdrNetNS     = 64
+	hdrComm      = 72
 
 	execInode   = hdrSize + 0
 	execDev     = hdrSize + 8
@@ -111,6 +112,14 @@ const (
 	exitCode = hdrSize + 0
 )
 
+// LayoutVersion numbers the layout of the records as a whole. It is pinned
+// next to a ring buffer that outlives its agent, so that the next agent
+// reads a backlog only if it was written in the layout it decodes. Raise it
+// whenever any record's layout changes.
+//
+// 2: the header carries the network namespace (M14).
+const LayoutVersion = 2
+
 // Layout is keyed by C struct name.
 var Layout = map[string]Struct{
 	"event_hdr": {Size: hdrSize, Fields: map[string]Field{
@@ -127,6 +136,8 @@ var Layout = map[string]Struct{
 		"pid_ns":        {hdrPidNS, 4},
 		"mnt_ns":        {hdrMntNS, 4},
 		"flags":         {hdrFlags, 4},
+		"net_ns":        {hdrNetNS, 4},
+		"_pad":          {hdrNetNS + 4, 4},
 		"comm":          {hdrComm, commLen},
 	}},
 	"exec_event": {Size: execSize, Fields: map[string]Field{

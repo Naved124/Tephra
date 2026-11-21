@@ -28,10 +28,15 @@ import (
 type Enricher struct {
 	node string
 	tree *proctree.Tree
-	// agent is the agent's own process, so that access to it is named.
-	agent   proctree.Key
-	procfs  proctree.ProcFS
-	cgroups *k8s.CgroupResolver
+	// agent is the agent's own process, so that access to it is named;
+	// agentContainer and agentMnt are its container and mount namespace.
+	agent          proctree.Key
+	agentContainer string
+	agentMnt       uint32
+	// mntOwners caches the oldest process of each mount namespace.
+	mntOwners map[uint32]proctree.Key
+	procfs    proctree.ProcFS
+	cgroups   *k8s.CgroupResolver
 	// pods is nil when the agent runs outside a cluster.
 	pods  *k8s.PodIndex
 	users *userCache
@@ -81,6 +86,138 @@ func (e *Enricher) SetIdentity(ids Identifier) { e.ids = ids }
 // and its start time.
 func (e *Enricher) SetAgent(pid uint32, startNS uint64) {
 	e.agent = proctree.Key{PID: pid, StartNS: startNS}
+	// Outside a container the agent shares the node's mount namespace,
+	// which is no mark of anything.
+	if p, _, err := e.procfs.Read(pid); err == nil && p.ContainerID != "" {
+		e.agentContainer, e.agentMnt = p.ContainerID, p.MntNS
+	}
+}
+
+// maxMntOwners bounds the mount namespace cache.
+const maxMntOwners = 50000
+
+// mntOwner returns the container of the oldest live process in a mount
+// namespace, and whether there is one.
+func (e *Enricher) mntOwner(mnt uint32) (string, bool) {
+	if mnt == 0 {
+		return "", false
+	}
+	if k, ok := e.mntOwners[mnt]; ok {
+		if p, ok := e.tree.Get(k); ok && p.Exited.IsZero() && p.MntNS == mnt {
+			return p.ContainerID, true
+		}
+	}
+	p, ok := e.tree.MntOwner(mnt)
+	if !ok {
+		return "", false
+	}
+	if e.mntOwners == nil || len(e.mntOwners) >= maxMntOwners {
+		e.mntOwners = map[uint32]proctree.Key{}
+	}
+	e.mntOwners[mnt] = p.Key
+	return p.ContainerID, true
+}
+
+// cameFrom is the container a process came from: the one it was born in,
+// else the one whose mount namespace it is in, else its cgroup's.
+func (e *Enricher) cameFrom(p proctree.Proc, mnt uint32) string {
+	if p.Origin != "" {
+		return p.Origin
+	}
+	if mnt == 0 {
+		mnt = p.MntNS
+	}
+	if owner, ok := e.mntOwner(mnt); ok && owner != "" {
+		return owner
+	}
+	return p.ContainerID
+}
+
+// otherPod lists the namespaces a setns entered that belong to another
+// container than the one the process came from: for a mount namespace,
+// another container; for a pid or network namespace, which the containers
+// of a pod share and the pod's sandbox owns, another pod. The node's own
+// namespaces are R018's and are left out.
+func (e *Enricher) otherPod(p proctree.Proc, ev *events.Setns, host []string) []string {
+	own := e.cameFrom(p, 0)
+	ownPod := e.podOf(own)
+	var out []string
+	for _, kind := range []string{"mnt", "pid", "net"} {
+		if !contains(ev.Changed, kind) || contains(host, kind) {
+			continue
+		}
+		for _, q := range e.tree.InNamespace(kind, ev.Inum[kind]) {
+			if q.ContainerID == "" || q.Key == p.Key {
+				continue
+			}
+			if kind == "mnt" {
+				if q.ContainerID != own {
+					out = append(out, kind)
+				}
+				break
+			}
+			// The sandbox's own process belongs to no known container;
+			// the pod is that of the oldest one that does.
+			pod := e.podOf(q.ContainerID)
+			if pod == "" {
+				continue
+			}
+			if pod != ownPod {
+				out = append(out, kind)
+			}
+			break
+		}
+	}
+	return out
+}
+
+// podOf names the pod of a container as namespace/name, empty if unknown.
+func (e *Enricher) podOf(containerID string) string {
+	if containerID == "" || e.pods == nil {
+		return ""
+	}
+	if a, ok := e.pods.Lookup(containerID, ""); ok && a.Pod != "" {
+		return a.Namespace + "/" + a.Pod
+	}
+	return ""
+}
+
+// checkIdentity compares the container the cgroup names with where the
+// process came from. Moving into another container's cgroup is how a
+// process borrows that container's name and exemptions (E15, E20, E26).
+// Where it came from is, first, the container it was born in, which a move
+// does not change; for a process seeded from /proc, whose birth was not
+// seen, the container whose mount namespace it is in. Only a move between
+// two containers is relabelled: a process on the node that enters a
+// container, or one in a container that enters the node's namespaces, keeps
+// what the cgroup says, and R018 and R036 report the entry.
+func (e *Enricher) checkIdentity(rec *export.Record, p proctree.Proc, mnt uint32) {
+	if rec.Process.Runtime || p.Key == e.agent {
+		return
+	}
+	cgroup := ""
+	if rec.Container != nil {
+		cgroup = rec.Container.ID
+	}
+	if e.agent.PID != 0 && ((e.agentContainer != "" && cgroup == e.agentContainer) || (e.agentMnt != 0 && mnt == e.agentMnt)) {
+		rec.Process.InAgentContainer = true
+	}
+	from := e.cameFrom(p, mnt)
+	if from == "" || cgroup == "" || from == cgroup {
+		return
+	}
+	rec.Process.IdentityMismatch = true
+	a := &k8s.Attribution{ContainerID: from}
+	if e.pods != nil {
+		if found, ok := e.pods.Lookup(from, ""); ok {
+			a = found
+		}
+	}
+	rec.Container = &export.Container{ID: a.ContainerID, Name: a.ContainerName, Image: a.Image}
+	rec.K8s = export.K8s{Namespace: a.Namespace, Pod: a.Pod, Labels: a.Labels}
+	if rec.K8s.Namespace == "" {
+		rec.K8s.Namespace = export.NamespaceUnknown
+	}
 }
 
 // exeSlack is how long after a container's start a binary's change still
@@ -322,9 +459,17 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 	case *events.Fork:
 		// The forking process may predate the agent; make sure the
 		// child has something to inherit from.
-		e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
+		src, _ := e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
 		e.tree.Fork(ev)
-		p, _ = e.tree.Get(proctree.Key{PID: ev.ChildPID, StartNS: ev.ChildStartNS})
+		child := proctree.Key{PID: ev.ChildPID, StartNS: ev.ChildStartNS}
+		// Born in the forking process's container, unless that is the
+		// runtime handing a process in.
+		if !e.isRuntime(src) {
+			if from := e.cameFrom(src, 0); from != "" {
+				e.tree.SetOrigin(child, from)
+			}
+		}
+		p, _ = e.tree.Get(child)
 	case *events.Exit:
 		k := proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS}
 		p, _ = e.known(k)
@@ -381,6 +526,9 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 			if host, ok := e.hostNS[name]; ok && host == ev.Inum[name] {
 				rec.Namespaces.Host = append(rec.Namespaces.Host, name)
 			}
+		}
+		if !e.isRuntime(p) {
+			rec.Namespaces.OtherPod = e.otherPod(p, ev, rec.Namespaces.Host)
 		}
 	case *events.Enforce:
 		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
@@ -472,6 +620,7 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 
 	parent, hasParent := e.ancestry(rec, p, h.CgroupID)
 	e.attribute(rec, p, h.CgroupID)
+	e.checkIdentity(rec, p, h.MntNS)
 	if runtimeCopy {
 		e.tree.SetRuntimeChild(p.Key)
 		rec.Process.Runtime = true
@@ -777,4 +926,13 @@ func (e *Enricher) attribute(rec *export.Record, p proctree.Proc, cgroupID uint6
 	if rec.K8s.Namespace == "" {
 		rec.K8s.Namespace = export.NamespaceUnknown
 	}
+}
+
+func contains(xs []string, x string) bool {
+	for _, y := range xs {
+		if y == x {
+			return true
+		}
+	}
+	return false
 }

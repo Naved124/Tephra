@@ -29,6 +29,9 @@ func ToProto(r *Record) *tephrav1.Record {
 			Tree:         r.Process.Tree,
 			Identity:     r.Process.Identity,
 			ExeModified:  r.Process.ExeModified,
+
+			IdentityMismatch: r.Process.IdentityMismatch,
+			InAgentContainer: r.Process.InAgentContainer,
 		},
 		K8S: &tephrav1.K8S{Namespace: r.K8s.Namespace, Pod: r.K8s.Pod, Labels: r.K8s.Labels},
 	}
@@ -96,7 +99,7 @@ func ToProto(r *Record) *tephrav1.Record {
 		p.Mount = &tephrav1.Mount{Fstype: x.FSType, Flags: x.Flags, Target: x.Target}
 	}
 	if x := r.Namespaces; x != nil {
-		p.Namespaces = &tephrav1.Namespaces{Changed: x.Changed, Host: x.Host}
+		p.Namespaces = &tephrav1.Namespaces{Changed: x.Changed, Host: x.Host, OtherPod: x.OtherPod}
 	}
 	if x := r.Enforce; x != nil {
 		p.Enforce = &tephrav1.Enforce{Action: x.Action, Denied: x.Denied}
@@ -126,6 +129,7 @@ func FromProto(p *tephrav1.Record) *Record {
 			PID: x.GetPid(), StartTimeNS: x.GetStartTimeNs(), Image: x.GetImage(), CommandLine: x.GetCommandLine(),
 			User: x.GetUser(), UID: x.GetUid(), GID: x.GetGid(), CgroupID: x.GetCgroupId(), IsMainBinary: x.GetIsMainBinary(), Runtime: x.GetRuntime(), Tree: x.GetTree(),
 			Identity: x.GetIdentity(), ExeModified: x.GetExeModified(),
+			IdentityMismatch: x.GetIdentityMismatch(), InAgentContainer: x.GetInAgentContainer(),
 		}
 		if e := x.GetExec(); e != nil {
 			r.Process.Exec = &Exec{
@@ -201,6 +205,9 @@ func FromProto(p *tephrav1.Record) *Record {
 		r.Namespaces = &Namespaces{}
 		if len(x.GetChanged()) > 0 {
 			r.Namespaces.Changed = x.GetChanged()
+		}
+		if len(x.GetOtherPod()) > 0 {
+			r.Namespaces.OtherPod = x.GetOtherPod()
 		}
 		if len(x.GetHost()) > 0 {
 			r.Namespaces.Host = x.GetHost()

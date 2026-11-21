@@ -75,6 +75,8 @@ struct event_hdr {
 	__u32 pid_ns; /* inode number of the pid namespace */
 	__u32 mnt_ns; /* inode number of the mount namespace */
 	__u32 flags;  /* per-type flag bits */
+	__u32 net_ns; /* inode number of the network namespace */
+	__u32 _pad;
 	char comm[TASK_COMM_LEN];
 };
 
@@ -643,6 +645,8 @@ static __always_inline bool fill_hdr(struct event_hdr *h,
 	h->gid = uid_gid >> 32;
 	h->pid_ns = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);
 	h->mnt_ns = BPF_CORE_READ(task, nsproxy, mnt_ns, ns.inum);
+	h->net_ns = BPF_CORE_READ(task, nsproxy, net_ns, ns.inum);
+	h->_pad = 0;
 	h->flags = 0;
 	bpf_get_current_comm(h->comm, sizeof(h->comm));
 	return true;

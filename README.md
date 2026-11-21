@@ -115,7 +115,7 @@ export queue are on `/metrics`, port 9090 of each agent pod.
 A rule is a YAML file: one event type, named blocks of field tests, and a
 condition that combines the blocks, or a `sequence:` of two to four such
 steps in one process tree or pod within a time window. [rules/](rules/) holds
-R001 to R030, R032 and R033; section 6 of the design describes the schema. Rules
+R001 to R030 and R032 to R036; section 6 of the design describes the schema. Rules
 can name what a binary is by its content (`process.identity`: shell,
 interpreter, download_tool) and whether it changed after its container
 started (`process.exe_modified`), not only its path.

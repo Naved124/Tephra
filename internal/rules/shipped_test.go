@@ -54,8 +54,8 @@ func TestShippedRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(set.Rules) != 32 {
-		t.Errorf("loaded %d rules, want R001 to R030, R032 and R033", len(set.Rules))
+	if len(set.Rules) != 35 {
+		t.Errorf("loaded %d rules, want R001 to R030 and R032 to R036", len(set.Rules))
 	}
 	for _, r := range set.Rules {
 		if r.Description == "" || len(r.Tags) < 2 {
@@ -164,6 +164,9 @@ func TestShippedWatches(t *testing.T) {
 		{Kind: filter.Name, Path: "authorized_keys2", Bits: filter.Write},
 		{Kind: filter.Name, Path: "release_agent", Bits: filter.Write | filter.Block},
 		{Kind: filter.Name, Path: "core_pattern", Bits: filter.Write | filter.Block},
+		// R034.
+		{Kind: filter.Name, Path: "cgroup.procs", Bits: filter.Write},
+		{Kind: filter.Name, Path: "cgroup.threads", Bits: filter.Write},
 		{Kind: filter.Name, Path: ".bash_history", Bits: filter.Write},
 		{Kind: filter.Name, Path: ".zsh_history", Bits: filter.Write},
 		{Kind: filter.Name, Path: ".ash_history", Bits: filter.Write},

@@ -112,6 +112,7 @@ func init() {
 		"mount.flags":                sub(kInt, "mount", mountOf, func(m *export.Mount) value { return integer(int64(m.Flags)) }),
 		"namespaces.changed":         sub(kStrings, "setns", nsOf, func(n *export.Namespaces) value { return value{ss: n.Changed, ok: true} }),
 		"namespaces.host":            sub(kStrings, "setns", nsOf, func(n *export.Namespaces) value { return value{ss: n.Host, ok: true} }),
+		"namespaces.other_pod":       sub(kStrings, "setns", nsOf, func(n *export.Namespaces) value { return value{ss: n.OtherPod, ok: true} }),
 	} {
 		fields[name] = f
 	}
@@ -180,6 +181,9 @@ var fields = map[string]field{
 	"process.runtime":        {kind: kBool, get: func(r *export.Record) value { return boolean(r.Process.Runtime) }},
 	"process.identity":       {kind: kString, get: func(r *export.Record) value { return present(r.Process.Identity) }},
 	"process.exe_modified":   {kind: kBool, get: func(r *export.Record) value { return boolean(r.Process.ExeModified) }},
+
+	"process.identity_mismatch":  {kind: kBool, get: func(r *export.Record) value { return boolean(r.Process.IdentityMismatch) }},
+	"process.in_agent_container": {kind: kBool, get: func(r *export.Record) value { return boolean(r.Process.InAgentContainer) }},
 
 	"process.stdin_is_socket":  execField(kBool, func(e *export.Exec) value { return boolean(e.StdinIsSocket) }),
 	"process.stdout_is_socket": execField(kBool, func(e *export.Exec) value { return boolean(e.StdoutIsSocket) }),

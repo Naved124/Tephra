@@ -131,6 +131,12 @@ func (fs ProcFS) Read(pid uint32) (Proc, uint32, error) {
 	if cg, err := os.ReadFile(filepath.Join(dir, "cgroup")); err == nil {
 		p.ContainerID = k8s.ContainerID(cgroupV2Path(cg))
 	}
+	for name, dst := range map[string]*uint32{"mnt": &p.MntNS, "pid_for_children": &p.PidNS, "net": &p.NetNS} {
+		var ns unix.Stat_t
+		if unix.Stat(filepath.Join(dir, "ns", name), &ns) == nil {
+			*dst = uint32(ns.Ino)
+		}
+	}
 	return p, ppid, nil
 }
 

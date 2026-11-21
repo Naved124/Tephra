@@ -1,0 +1,25 @@
+id: R036
+title: Process entered another pod's namespaces
+level: high
+tags: [attack.lateral_movement, attack.defense_evasion, attack.t1036, attack.privilege_escalation, attack.t1611]
+event: setns
+detection:
+  selection:
+    namespaces.other_pod: [mnt, pid, net]
+  runtime:
+    process.runtime: true
+  host:
+    k8s.namespace: host
+  condition: selection and not (runtime or host)
+action: alert
+description: >-
+  A process in a pod switched into a namespace of another pod, as nsenter
+  does. In another container's mount namespace it sees that container's
+  files as its own; in another pod's network namespace it connects out with
+  that pod's address, past network policies meant for its own pod; in
+  another pod's pid namespace it sees and signals that pod's processes. R018
+  covers the node's own namespaces; this rule covers the other pods'. With a
+  move into the other container's cgroup it is how a process takes on that
+  container's identity (E26).
+falsepositives:
+  - Privileged debugging pods that use nsenter on purpose

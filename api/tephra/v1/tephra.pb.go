@@ -894,6 +894,7 @@ type Namespaces struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Changed       []string               `protobuf:"bytes,1,rep,name=changed,proto3" json:"changed,omitempty"`
 	Host          []string               `protobuf:"bytes,2,rep,name=host,proto3" json:"host,omitempty"`
+	OtherPod      []string               `protobuf:"bytes,3,rep,name=other_pod,json=otherPod,proto3" json:"other_pod,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -938,6 +939,13 @@ func (x *Namespaces) GetChanged() []string {
 func (x *Namespaces) GetHost() []string {
 	if x != nil {
 		return x.Host
+	}
+	return nil
+}
+
+func (x *Namespaces) GetOtherPod() []string {
+	if x != nil {
+		return x.OtherPod
 	}
 	return nil
 }
@@ -1031,9 +1039,13 @@ type Process struct {
 	// What the binary is by its content: shell, interpreter, download_tool.
 	Identity string `protobuf:"bytes,13,opt,name=identity,proto3" json:"identity,omitempty"`
 	// The binary changed after its container started.
-	ExeModified   bool `protobuf:"varint,14,opt,name=exe_modified,json=exeModified,proto3" json:"exe_modified,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ExeModified bool `protobuf:"varint,14,opt,name=exe_modified,json=exeModified,proto3" json:"exe_modified,omitempty"`
+	// In one container's cgroup but came from another.
+	IdentityMismatch bool `protobuf:"varint,15,opt,name=identity_mismatch,json=identityMismatch,proto3" json:"identity_mismatch,omitempty"`
+	// In the agent's own container and not the agent.
+	InAgentContainer bool `protobuf:"varint,16,opt,name=in_agent_container,json=inAgentContainer,proto3" json:"in_agent_container,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Process) Reset() {
@@ -1160,6 +1172,20 @@ func (x *Process) GetIdentity() string {
 func (x *Process) GetExeModified() bool {
 	if x != nil {
 		return x.ExeModified
+	}
+	return false
+}
+
+func (x *Process) GetIdentityMismatch() bool {
+	if x != nil {
+		return x.IdentityMismatch
+	}
+	return false
+}
+
+func (x *Process) GetInAgentContainer() bool {
+	if x != nil {
+		return x.InAgentContainer
 	}
 	return false
 }
@@ -1880,16 +1906,17 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x05Mount\x12\x16\n" +
 	"\x06fstype\x18\x01 \x01(\tR\x06fstype\x12\x14\n" +
 	"\x05flags\x18\x02 \x01(\x04R\x05flags\x12\x16\n" +
-	"\x06target\x18\x03 \x01(\tR\x06target\":\n" +
+	"\x06target\x18\x03 \x01(\tR\x06target\"W\n" +
 	"\n" +
 	"Namespaces\x12\x18\n" +
 	"\achanged\x18\x01 \x03(\tR\achanged\x12\x12\n" +
-	"\x04host\x18\x02 \x03(\tR\x04host\"V\n" +
+	"\x04host\x18\x02 \x03(\tR\x04host\x12\x1b\n" +
+	"\tother_pod\x18\x03 \x03(\tR\botherPod\"V\n" +
 	"\x04Rule\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12\x14\n" +
 	"\x05level\x18\x03 \x01(\tR\x05level\x12\x12\n" +
-	"\x04tags\x18\x04 \x03(\tR\x04tags\"\x85\x03\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\"\xe0\x03\n" +
 	"\aProcess\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\rR\x03pid\x12\"\n" +
 	"\rstart_time_ns\x18\x02 \x01(\x04R\vstartTimeNs\x12\x14\n" +
@@ -1905,7 +1932,9 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\aruntime\x18\v \x01(\bR\aruntime\x12\x12\n" +
 	"\x04tree\x18\f \x01(\tR\x04tree\x12\x1a\n" +
 	"\bidentity\x18\r \x01(\tR\bidentity\x12!\n" +
-	"\fexe_modified\x18\x0e \x01(\bR\vexeModified\"\xf1\x03\n" +
+	"\fexe_modified\x18\x0e \x01(\bR\vexeModified\x12+\n" +
+	"\x11identity_mismatch\x18\x0f \x01(\bR\x10identityMismatch\x12,\n" +
+	"\x12in_agent_container\x18\x10 \x01(\bR\x10inAgentContainer\"\xf1\x03\n" +
 	"\x04Exec\x12&\n" +
 	"\x0fstdin_is_socket\x18\x01 \x01(\bR\rstdinIsSocket\x12(\n" +
 	"\x10stdout_is_socket\x18\x02 \x01(\bR\x0estdoutIsSocket\x12\x1a\n" +

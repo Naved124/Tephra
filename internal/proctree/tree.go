@@ -6,6 +6,7 @@ package proctree
 
 import (
 	"container/list"
+	"sort"
 	"sync"
 	"time"
 
@@ -59,8 +60,19 @@ type Proc struct {
 	// an event yet.
 	CgroupID uint64
 	MntNS    uint32
+	// PidNS is the pid namespace the process's children are born in;
+	// NetNS its network namespace.
+	PidNS uint32
+	NetNS uint32
 	// ContainerID is set at seeding, from /proc/<pid>/cgroup.
 	ContainerID string
+	// Origin is the container the process was born in: the container of
+	// the nearest ancestor that was not the runtime. It does not follow
+	// the process into another cgroup, so a process that moves itself
+	// into another container's cgroup still shows where it came from.
+	// Empty for a process born on the node or handed in by the runtime,
+	// and for one seeded from /proc.
+	Origin string
 	// Seeded entries come from /proc, whose start time is only precise to
 	// one clock tick.
 	Seeded bool
@@ -184,6 +196,8 @@ func (t *Tree) Fork(ev *events.Fork) {
 		UID:      ev.UID,
 		CgroupID: ev.CgroupID,
 		MntNS:    ev.MntNS,
+		PidNS:    ev.PidNS,
+		NetNS:    ev.NetNS,
 	}
 	// The forking task and the real parent differ only with CLONE_PARENT;
 	// either way the child's image is the forking task's.
@@ -196,6 +210,7 @@ func (t *Tree) Fork(ev *events.Fork) {
 		child.Identity = src.Identity
 		child.ExeModified = src.ExeModified
 		child.ContainerID = src.ContainerID
+		child.Origin = src.Origin
 		child.Attr = src.Attr
 	}
 	t.insert(child)
@@ -232,6 +247,8 @@ func (t *Tree) Exec(ev *events.Exec) Proc {
 		p.Attr = nil
 	}
 	p.MntNS = ev.MntNS
+	p.PidNS = ev.PidNS
+	p.NetNS = ev.NetNS
 	return *p
 }
 
@@ -264,6 +281,52 @@ func (t *Tree) OldestInContainer(containerID string) (Proc, bool) {
 	var best *Proc
 	for _, p := range t.procs {
 		if p.ContainerID == containerID && (best == nil || p.Key.StartNS < best.Key.StartNS) {
+			best = p
+		}
+	}
+	if best == nil {
+		return Proc{}, false
+	}
+	return *best, true
+}
+
+// SetOrigin records the container a process was born in.
+func (t *Tree) SetOrigin(k Key, id string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if p := t.get(k); p != nil {
+		p.Origin = id
+	}
+}
+
+// InNamespace returns the live processes in a namespace of a kind (mnt,
+// pid or net), oldest first.
+func (t *Tree) InNamespace(kind string, inum uint32) []Proc {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var out []Proc
+	for _, p := range t.procs {
+		if !p.Exited.IsZero() {
+			continue
+		}
+		switch {
+		case kind == "mnt" && p.MntNS == inum, kind == "pid" && p.PidNS == inum, kind == "net" && p.NetNS == inum:
+			out = append(out, *p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key.StartNS < out[j].Key.StartNS })
+	return out
+}
+
+// MntOwner returns the oldest live process in a mount namespace. A
+// container's mount namespace is made for its first program, so that
+// process is older than anything that enters the namespace later.
+func (t *Tree) MntOwner(mnt uint32) (Proc, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var best *Proc
+	for _, p := range t.procs {
+		if p.MntNS == mnt && p.Exited.IsZero() && (best == nil || p.Key.StartNS < best.Key.StartNS) {
 			best = p
 		}
 	}

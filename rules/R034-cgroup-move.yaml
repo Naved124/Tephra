@@ -1,0 +1,25 @@
+id: R034
+title: A pod moved a process into a cgroup
+level: high
+tags: [attack.defense_evasion, attack.t1036, attack.privilege_escalation, attack.t1611]
+event: file_open
+detection:
+  selection:
+    file.path|endswith: [/cgroup.procs, /cgroup.threads]
+    file.write: true
+  runtime:
+    process.runtime: true
+  host:
+    k8s.namespace: host
+  condition: selection and not (runtime or host)
+action: alert
+description: >-
+  Writing a process ID into a cgroup.procs or cgroup.threads file moves that
+  process into the cgroup. The container runtime and the node do that when
+  they start containers; a process in a pod does it to take on another
+  container's identity, such as the Tephra agent's (E15, E20) or a
+  bystander's (E26). The file is matched by name, wherever the cgroup
+  filesystem is mounted, and the alert names the pod that made the move.
+falsepositives:
+  - Pods that run their own container runtime (Docker in Docker, build tools that start containers)
+  - systemd running as a container's first process

@@ -939,3 +939,134 @@ func TestMainBinaryOfContainerSeenStarting(t *testing.T) {
 		t.Error("a later program became the main binary")
 	}
 }
+
+// Two more pods for the identity tests: the agent's and a bystander's.
+const (
+	agentCID     = "a9e00000000000000000000000000000000000000000000000000000000000bb"
+	bystanderCID = "b7500000000000000000000000000000000000000000000000000000000000cc"
+	agentScope   = "kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podaaaa0000_1111_2222_3333_444455556666.slice/cri-containerd-" + agentCID + ".scope"
+	byScope      = "kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-podbbbb0000_1111_2222_3333_444455556666.slice/cri-containerd-" + bystanderCID + ".scope"
+)
+
+func (f *fixture) identityPods() (web, agent, bystander uint64) {
+	f.webPod()
+	f.pods.Update(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "tephra-agent-x1", Namespace: "tephra", UID: "aaaa0000-1111-2222-3333-444455556666"},
+		Status:     corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{Name: "agent", Image: "tephra/tephrad", ContainerID: "containerd://" + agentCID}}},
+	})
+	f.pods.Update(&corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "bystander", Namespace: "shop", UID: "bbbb0000-1111-2222-3333-444455556666"},
+		Status:     corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{{Name: "bystander", Image: "busybox", ContainerID: "containerd://" + bystanderCID}}},
+	})
+	return f.cgroup(scope), f.cgroup(agentScope), f.cgroup(byScope)
+}
+
+// A process that moves into another container's cgroup is named where it
+// came from (E15, E20, E26), and one in the agent's container that is not the
+// agent is marked.
+func TestBorrowedIdentity(t *testing.T) {
+	f := newFixture(t)
+	web, agentCg, byCg := f.identityPods()
+	const webMnt, agentMnt, byMnt = 4026530001, 4026530002, 4026530003
+	f.e.agent, f.e.agentContainer, f.e.agentMnt = proctree.Key{PID: 7000, StartNS: 7000 * 1000}, agentCID, agentMnt
+
+	exec := func(pid, ppid uint32, cg uint64, mnt uint32, path string) *export.Record {
+		return f.e.Handle(&events.Exec{
+			Header: events.Header{Type: events.TypeExec, PID: pid, StartTimeNS: uint64(pid) * 1000, PPID: ppid, CgroupID: cg, MntNS: mnt},
+			Path:   path, Argv: []string{path},
+		}, time.Now())
+	}
+	fork := func(parent, child uint32, cg uint64, mnt uint32) {
+		f.e.Handle(&events.Fork{
+			Header:    events.Header{Type: events.TypeFork, PID: parent, StartTimeNS: uint64(parent) * 1000, CgroupID: cg, MntNS: mnt},
+			ParentPID: parent, ParentStartNS: uint64(parent) * 1000, ChildPID: child, ChildStartNS: uint64(child) * 1000,
+		}, time.Now())
+	}
+	// The containers' own programs, oldest in their namespaces.
+	exec(100, 1, web, webMnt, "/bin/sh")
+	exec(200, 1, byCg, byMnt, "/bin/sleep")
+
+	// E15 and E20: a child of the web pod's shell moves into the agent's
+	// cgroup and runs cat there.
+	fork(100, 101, web, webMnt)
+	rec := exec(101, 100, agentCg, webMnt, "/bin/cat")
+	if rec.K8s.Pod != "web-7c9d8-xk2lp" || !rec.Process.IdentityMismatch || !rec.Process.InAgentContainer {
+		t.Errorf("in the agent's cgroup: pod %q mismatch %v in agent %v", rec.K8s.Pod, rec.Process.IdentityMismatch, rec.Process.InAgentContainer)
+	}
+
+	// E26: into the bystander's cgroup and mount namespace.
+	fork(100, 102, web, webMnt)
+	rec = exec(102, 100, byCg, byMnt, "/bin/cat")
+	if rec.K8s.Pod != "web-7c9d8-xk2lp" || !rec.Process.IdentityMismatch || rec.Process.InAgentContainer {
+		t.Errorf("as the bystander: pod %q mismatch %v in agent %v", rec.K8s.Pod, rec.Process.IdentityMismatch, rec.Process.InAgentContainer)
+	}
+	// Entering the bystander's mount namespace is entering another pod's.
+	ns := f.e.Handle(&events.Setns{
+		Header:  events.Header{Type: events.TypeSetns, PID: 102, StartTimeNS: 102000, CgroupID: byCg, MntNS: byMnt},
+		Changed: []string{"mnt"}, Inum: map[string]uint32{"mnt": byMnt},
+	}, time.Now())
+	if ns.Namespaces == nil || !reflect.DeepEqual(ns.Namespaces.OtherPod, []string{"mnt"}) {
+		t.Errorf("setns into the bystander: %+v", ns.Namespaces)
+	}
+
+	// Network and pid namespaces are judged by pod. The pod's sandbox
+	// (pause) owns them and belongs to no known container, so it is
+	// skipped; entering one's own pod's namespace is not reported.
+	const webNet, byNet = 4026540001, 4026540003
+	f.tree.Add(proctree.Proc{Key: proctree.Key{PID: 90, StartNS: 1}, Image: "/pause", ContainerID: "pause0000", NetNS: webNet, PidNS: 4026550001})
+	f.tree.Add(proctree.Proc{Key: proctree.Key{PID: 91, StartNS: 2}, Image: "/pause", ContainerID: "pause0001", NetNS: byNet})
+	for _, x := range []struct {
+		pid      uint32
+		cg       uint64
+		mnt, net uint32
+		path     string
+	}{{100, web, webMnt, webNet, "/bin/sh"}, {200, byCg, byMnt, byNet, "/bin/sleep"}} {
+		f.e.Handle(&events.Exec{
+			Header: events.Header{Type: events.TypeExec, PID: x.pid, StartTimeNS: uint64(x.pid) * 1000, PPID: 1, CgroupID: x.cg, MntNS: x.mnt, NetNS: x.net},
+			Path:   x.path, Argv: []string{x.path},
+		}, time.Now())
+	}
+	fork(100, 104, web, webMnt)
+	setns := func(pid uint32, cg uint64, kind string, inum uint32) []string {
+		r := f.e.Handle(&events.Setns{
+			Header:  events.Header{Type: events.TypeSetns, PID: pid, StartTimeNS: uint64(pid) * 1000, CgroupID: cg, MntNS: webMnt},
+			Changed: []string{kind}, Inum: map[string]uint32{kind: inum},
+		}, time.Now())
+		return r.Namespaces.OtherPod
+	}
+	if got := setns(104, web, "net", byNet); !reflect.DeepEqual(got, []string{"net"}) {
+		t.Errorf("setns into the bystander's network: %v", got)
+	}
+	if got := setns(104, web, "net", webNet); got != nil {
+		t.Errorf("setns into its own pod's network: %v", got)
+	}
+
+	// A process whose birth was not seen, in the bystander's cgroup but
+	// the web pod's mount namespace, is named by the mount namespace.
+	f.tree.Add(proctree.Proc{Key: proctree.Key{PID: 103, StartNS: 103000}, Parent: proctree.Key{PID: 1}, Image: "/bin/sh", ContainerID: bystanderCID, MntNS: webMnt, Seeded: true})
+	rec = exec(103, 1, byCg, webMnt, "/bin/cat")
+	if rec.K8s.Pod != "web-7c9d8-xk2lp" || !rec.Process.IdentityMismatch {
+		t.Errorf("seeded intruder: pod %q mismatch %v", rec.K8s.Pod, rec.Process.IdentityMismatch)
+	}
+
+	// kubectl exec: the runtime hands a process in. Nothing to report.
+	f.e.SetRuntimes(fakeRuntimes{{8, 100}: true})
+	f.e.Handle(&events.Exec{
+		Header: events.Header{Type: events.TypeExec, PID: 300, StartTimeNS: 300000, PPID: 1, CgroupID: f.cgroup("system.slice/containerd.service"), MntNS: 4026531840},
+		Path:   "/usr/local/sbin/runc", Dev: 8, Inode: 100, Argv: []string{"runc", "exec"},
+	}, time.Now())
+	fork(300, 301, byCg, byMnt)
+	rec = exec(301, 300, byCg, byMnt, "/bin/sh")
+	if rec.K8s.Pod != "bystander" || rec.Process.IdentityMismatch || rec.Process.InAgentContainer {
+		t.Errorf("kubectl exec: pod %q mismatch %v in agent %v", rec.K8s.Pod, rec.Process.IdentityMismatch, rec.Process.InAgentContainer)
+	}
+	// kubectl exec into the agent's own container is marked.
+	fork(300, 302, agentCg, agentMnt)
+	if rec = exec(302, 300, agentCg, agentMnt, "/bin/sh"); !rec.Process.InAgentContainer || rec.Process.IdentityMismatch {
+		t.Errorf("exec into the agent: in agent %v mismatch %v", rec.Process.InAgentContainer, rec.Process.IdentityMismatch)
+	}
+	// The agent itself is not.
+	if rec = exec(7000, 1, agentCg, agentMnt, "/tephrad"); rec.Process.InAgentContainer {
+		t.Error("the agent is marked as a stranger in its own container")
+	}
+}

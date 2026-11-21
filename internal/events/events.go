@@ -171,6 +171,7 @@ type Header struct {
 	PidNS       uint32
 	MntNS       uint32
 	Flags       uint32
+	NetNS       uint32
 	Comm        string
 }
 
@@ -387,6 +388,7 @@ func Decode(raw []byte) (Event, error) {
 		PidNS:       le.Uint32(raw[hdrPidNS:]),
 		MntNS:       le.Uint32(raw[hdrMntNS:]),
 		Flags:       le.Uint32(raw[hdrFlags:]),
+		NetNS:       le.Uint32(raw[hdrNetNS:]),
 		Comm:        cstr(raw[hdrComm : hdrComm+commLen]),
 	}
 	// The ring buffer pads records to 8 bytes, so the sample may be longer

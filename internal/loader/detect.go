@@ -149,3 +149,57 @@ func DetectionOff(dir string) (bool, error) {
 func (s *Sensor) Own(h *events.Header) bool {
 	return h.StartTimeNS == s.self.StartNS && h.PID == uint32(os.Getpid())
 }
+
+// layoutPin holds events.LayoutVersion next to the pinned ring buffer.
+const layoutPin = "layout"
+
+// pinnedLayout reads the record layout a pinned ring buffer was written in.
+func pinnedLayout(dir string) (uint32, bool) {
+	if dir == "" {
+		return 0, false
+	}
+	m, err := ebpf.LoadPinnedMap(filepath.Join(dir, layoutPin), nil)
+	if err != nil {
+		return 0, false
+	}
+	defer func() { _ = m.Close() }()
+	var v uint32
+	if err := m.Lookup(uint32(0), &v); err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// hasPins reports whether any of names is pinned in dir.
+func hasPins(dir string, names []string) bool {
+	if dir == "" {
+		return false
+	}
+	for _, n := range names {
+		if _, err := os.Stat(filepath.Join(dir, n)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// pinLayout pins the record layout this version writes.
+func pinLayout(dir string) error {
+	if dir == "" {
+		return nil
+	}
+	m, err := ebpf.NewMap(&ebpf.MapSpec{Name: "tephra_layout", Type: ebpf.Array, KeySize: 4, ValueSize: 4, MaxEntries: 1})
+	if err != nil {
+		return fmt.Errorf("layout map: %w", err)
+	}
+	defer func() { _ = m.Close() }()
+	if err := m.Put(uint32(0), uint32(events.LayoutVersion)); err != nil {
+		return fmt.Errorf("layout map: %w", err)
+	}
+	path := filepath.Join(dir, layoutPin)
+	_ = os.Remove(path)
+	if err := m.Pin(path); err != nil {
+		return fmt.Errorf("pin %s: %w", path, err)
+	}
+	return nil
+}

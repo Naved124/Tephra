@@ -12,6 +12,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 
+	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/filter"
 )
 
@@ -110,6 +111,17 @@ func (s *Sensor) newCollection(spec *ebpf.CollectionSpec) (*ebpf.Collection, err
 	if err != nil {
 		return nil, fmt.Errorf("enforcement pin directory: %w", err)
 	}
+	if v, ok := pinnedLayout(s.detectDir); ok && v != events.LayoutVersion || !ok && hasPins(s.detectDir, detectMaps) {
+		// Recorded in another record layout: the backlog cannot be
+		// decoded, and is not adopted.
+		s.freshStart = fmt.Sprintf("the pinned ring buffer was written in record layout %d, this version reads %d", v, events.LayoutVersion)
+		if !ok {
+			s.freshStart = fmt.Sprintf("the pinned ring buffer has no record layout, so an earlier version wrote it; this version reads layout %d", events.LayoutVersion)
+		}
+		for _, name := range append([]string{layoutPin}, detectMaps...) {
+			_ = os.Remove(filepath.Join(s.detectDir, name))
+		}
+	}
 	detect, err := adoptPinned(s.detectDir, detectMaps)
 	if err != nil {
 		closeMaps(enforce)
@@ -155,6 +167,10 @@ func (s *Sensor) newCollection(spec *ebpf.CollectionSpec) (*ebpf.Collection, err
 		return nil, err
 	}
 	if err := pinNew(coll, s.detectDir, detectMaps, detect); err != nil {
+		coll.Close()
+		return nil, err
+	}
+	if err := pinLayout(s.detectDir); err != nil {
 		coll.Close()
 		return nil, err
 	}
