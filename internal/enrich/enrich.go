@@ -213,6 +213,9 @@ type mainBinary struct {
 	image string
 	dev   uint32
 	inode uint64
+	// runtime: the oldest process seen so far is the runtime setting the
+	// container up, so the main binary is still to come.
+	runtime bool
 }
 
 // maxMains bounds the main-binary cache; entries are cheap to recompute.
@@ -536,6 +539,12 @@ func (e *Enricher) identify(ev *events.Exec, rec *export.Record, p proctree.Proc
 // isMainBinary reports whether p runs the binary its container started
 // with. The first process of a container is the oldest one the tree knows in
 // it; if that process execs again, the main binary follows.
+//
+// A container watched while it starts has the runtime in it first: runc's
+// setup processes are older than the program they hand over to, and that
+// program runs in another of them. So while the oldest process is the
+// runtime, the first program executed that is not the runtime becomes the
+// main binary. Read from /proc later, the runtime is already gone.
 func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool) bool {
 	m := e.mains[containerID]
 	switch {
@@ -547,10 +556,17 @@ func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool
 		if len(e.mains) >= maxMains {
 			e.mains = map[string]*mainBinary{}
 		}
-		m = &mainBinary{key: first.Key, image: first.Image, dev: first.ExeDev, inode: first.ExeInode}
+		m = &mainBinary{key: first.Key, image: first.Image, dev: first.ExeDev, inode: first.ExeInode, runtime: e.isRuntime(first)}
 		e.mains[containerID] = m
-	case isExec && p.Key == m.key:
-		m.image, m.dev, m.inode = p.Image, p.ExeDev, p.ExeInode
+		if m.runtime && isExec && !e.isRuntime(p) {
+			m.key, m.image, m.dev, m.inode, m.runtime = p.Key, p.Image, p.ExeDev, p.ExeInode, false
+		}
+	case isExec && (p.Key == m.key || m.runtime && !e.isRuntime(p)):
+		m.key, m.image, m.dev, m.inode = p.Key, p.Image, p.ExeDev, p.ExeInode
+		m.runtime = e.isRuntime(p)
+	}
+	if m.runtime {
+		return false
 	}
 	// A binary written after the container started is never the main
 	// one, even at the main one's path: copying a tool over the

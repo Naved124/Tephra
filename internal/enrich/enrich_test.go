@@ -903,3 +903,39 @@ func TestPtraceTargetIsAgent(t *testing.T) {
 		}
 	}
 }
+
+// A container watched while it starts has runc in it before its program, in
+// another process. The program runc hands over to is the main binary, not
+// runc, and a terminal it gives a shell is the application's (Phase 4 run
+// 1: R029 fired on a notebook's terminals until the agent restarted).
+func TestMainBinaryOfContainerSeenStarting(t *testing.T) {
+	f := newFixture(t)
+	f.webPod()
+	f.e.SetRuntimes(fakeRuntimes{{8, 100}: true})
+	host := f.cgroup("system.slice/containerd.service")
+	pod := f.cgroup(scope)
+	exec := func(pid, ppid uint32, cg uint64, path string, dev uint32, inode uint64, argv ...string) *export.Record {
+		return f.e.Handle(&events.Exec{
+			Header: events.Header{Type: events.TypeExec, PID: pid, StartTimeNS: uint64(pid) * 1000, PPID: ppid, CgroupID: cg},
+			Path:   path, Dev: dev, Inode: inode, Argv: argv,
+		}, time.Now())
+	}
+	// runc's first setup process, already in the container's cgroup.
+	exec(80, 1, host, "/usr/local/sbin/runc", 8, 100, "runc", "create")
+	if rec := exec(80, 1, pod, "/usr/local/sbin/runc", 8, 100, "runc", "init"); !rec.Process.Runtime || rec.Process.IsMainBinary {
+		t.Fatalf("runc init: runtime %v, main %v", rec.Process.Runtime, rec.Process.IsMainBinary)
+	}
+	// The second one executes the container's program.
+	exec(81, 80, pod, "/usr/local/sbin/runc", 8, 100, "runc", "init")
+	if rec := exec(81, 80, pod, "/usr/local/bin/python3", 9, 7000, "python3", "-c", "notebook"); !rec.Process.IsMainBinary {
+		t.Error("the program runc handed over to is not the main binary")
+	}
+	// A terminal shell the notebook starts: its parent is the application.
+	if rec := exec(90, 81, pod, "/bin/sh", 9, 7100, "sh", "-c", "ls /"); rec.Parent == nil || !rec.Parent.IsMainBinary || rec.Process.IsMainBinary {
+		t.Errorf("shell under the application: parent %+v, main %v", rec.Parent, rec.Process.IsMainBinary)
+	}
+	// Something executed later never takes the place.
+	if rec := exec(95, 1, pod, "/usr/bin/perl", 9, 7200, "perl"); rec.Process.IsMainBinary {
+		t.Error("a later program became the main binary")
+	}
+}
