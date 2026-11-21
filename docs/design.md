@@ -704,6 +704,16 @@ Phase 4 run 1 found four weaknesses. Each has a new held-out scenario, written a
 | E21 | A Perl session through a proxy sidecar on loopback, relayed to a listener pod | Loopback connections ignored in the kernel | Missed: R028 never sees the connect |
 | E22 | A token projected as /opt/svc/creds, read with dd | Tokens found by path | Missed: R006 names only the standard prefixes |
 
+Planning the fixes by attack class rather than by scenario showed other ways to reach the same four goals. Each gets a held-out scenario of its own, also committed before any fix, so the fixes are judged on the class:
+
+| ID | Evasion | Class | Predicted |
+|---|---|---|---|
+| E23 | As E19, but the flood comes from 200 copies of cat under different names | Drowning the alert that matters | Partial: R030 queued before the flood; the read is dropped |
+| E24 | A Python that is not the application listens, and an operator pod connects in (bind session) | Session channel the sensor does not see | Missed: R028 looks at outbound connections only |
+| E25 | As E21, but through a proxy sidecar's Unix socket in a shared volume | Session channel the sensor does not see | Missed: no network connection at all |
+| E26 | Move into a bystander pod's cgroup and mount namespace, then read /etc/shadow | Borrowed identity | Missed: R005 names the bystander, and nothing looks at the move |
+| E27 | Another pod's token read from the node's side of its volume, under /var/lib/kubelet | Credential found by path | Missed: R006 names the path a container sees |
+
 ### False-positive run
 
 Run ordinary workloads for 30 minutes with all rules enabled: an nginx deployment under HTTP load, a PostgreSQL pod under pgbench, an image build job, and a rolling update. The target is zero high or critical alerts. Every alert that does fire is either fixed in the rule or documented under falsepositives.
@@ -1124,3 +1134,4 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
     
     E09 to E16 are no longer held out: a re-run after fixes is labelled as such.
 - **Before the fixes to run 1's findings: the harness waits for each scenario to be gone.** A scenario's namespace was deleted without waiting, so E06's loop was still reading /etc/shadow when E07 ran. Each scenario now deletes its namespace and waits for it; the next one starts only when no namespace of an earlier one is left, and is reported as not run if one still is after two minutes. A fix to the measuring tool; no scenario changed. Held-out set 2 (E19 to E22, section 8) was committed with it, before any fix.
+- **Held-out set 2b (E23 to E27), before any fix.** Planning the fixes by attack class, every way to the same goal was listed, not only the scenario's. The ways the first four scenarios did not cover became five more held-out scenarios, committed before any fix code: a flood from many programs, a bind session, a Unix-socket relay, full impersonation of another pod, and a token read from the node's side of its volume.

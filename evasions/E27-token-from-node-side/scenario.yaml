@@ -1,0 +1,14 @@
+id: E27
+title: Read another pod's service account token from the node's side of its volume
+tags: [attack.credential_access, attack.t1528, attack.privilege_escalation, attack.t1611]
+expect: [R006]
+predicted: missed
+heldout: true
+run:
+  pod: victim
+note: >-
+  Held out, written before the fix it tests. A pod with the kubelet's
+  directory mounted from the node finds another pod's projected token where
+  the kubelet keeps it, /var/lib/kubelet/pods/<uid>/volumes/..., and reads
+  it with dd. Predicted missed: R006 names the token by the path a container
+  sees it at, and this read uses the node's path.

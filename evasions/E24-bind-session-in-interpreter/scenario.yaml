@@ -1,0 +1,15 @@
+id: E24
+title: Interactive Python session that listens for its operator instead of connecting out
+tags: [attack.execution, attack.t1059.006, attack.command_and_control]
+expect: [R028]
+predicted: missed
+heldout: true
+timeout: 60s
+run:
+  pod: victim
+note: >-
+  Held out, written before the fix it tests. A bind session: a Python that is
+  not the container's application listens on a port, an operator pod
+  connects in, and the commands run inside Python, so no program is
+  started. Predicted missed: R028 looks at outbound connections only, and the
+  inbound one is accepted by Python, which no rule looks at.

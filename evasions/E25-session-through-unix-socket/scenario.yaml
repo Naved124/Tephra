@@ -1,0 +1,15 @@
+id: E25
+title: Interactive Perl session relayed through a proxy sidecar's Unix socket
+tags: [attack.execution, attack.t1059, attack.command_and_control, attack.t1090.001]
+expect: [R028]
+predicted: missed
+heldout: true
+timeout: 60s
+run:
+  pod: victim
+  container: app
+note: >-
+  Held out, written before the fix it tests. As E21, but the proxy sidecar
+  listens on a Unix socket in a volume the two containers share, so the Perl
+  session makes no network connection at all. Predicted missed: R028 looks
+  at network connections only.

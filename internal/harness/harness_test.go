@@ -376,8 +376,8 @@ func TestShippedEvasions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 22 {
-		t.Fatalf("%d evasion scenarios, want 22", len(all))
+	if len(all) != 27 {
+		t.Fatalf("%d evasion scenarios, want 27", len(all))
 	}
 	for _, s := range all {
 		if !strings.HasPrefix(s.ID, "E") || s.Predicted == "" {
@@ -385,7 +385,7 @@ func TestShippedEvasions(t *testing.T) {
 		}
 		// E01 to E08 are the ones the first fixes were built against;
 		// E09 to E16 were held out from them; E17 and E18 are checks;
-		// E19 to E22 are held out from the fixes after Phase 4 run 1.
+		// E19 to E27 are held out from the fixes after Phase 4 run 1.
 		heldout := (s.ID >= "E09" && s.ID <= "E16") || s.ID >= "E19"
 		if s.Heldout != heldout {
 			t.Errorf("%s: heldout %v, want %v", s.ID, s.Heldout, heldout)

@@ -1,0 +1,15 @@
+id: E26
+title: Move into another pod's cgroup and mount namespace, then read /etc/shadow
+tags: [attack.defense_evasion, attack.t1036, attack.credential_access, attack.t1003.008]
+expect: [R005]
+predicted: missed
+heldout: true
+run:
+  pod: victim
+note: >-
+  Held out, written before the fix it tests. A privileged pod with the
+  host's process namespace and cgroup tree moves a process into a bystander
+  pod's cgroup and enters its mount namespace, so that the read looks like
+  the bystander's in every respect the sensor uses to find a pod. Predicted
+  missed: R005 fires, but names the bystander, and no rule looks at the move
+  into another pod's cgroup or namespace.

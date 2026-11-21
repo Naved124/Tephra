@@ -1,0 +1,16 @@
+id: E23
+title: Flood alerts from 200 differently named programs, kill the agent, read /etc/shadow
+tags: [attack.defense_evasion, attack.t1562.001, attack.credential_access, attack.t1003.008]
+expect: [R005, R030]
+predicted: partial
+heldout: true
+timeout: 120s
+run:
+  pod: victim
+note: >-
+  Held out, written before the fix it tests. Like E19, but the flooding pod
+  reads /etc/shadow with 200 copies of cat under different names, so that a
+  fix grouping repeated alerts by program cannot fold them into one. Each
+  copy is also a program that was not in the image. Predicted partial, as
+  E19: R030 is queued before the flood fills the queue, the read with dd is
+  dropped.
