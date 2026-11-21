@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Naved124/tephra/internal/events"
+	"github.com/Naved124/tephra/internal/export"
 	"github.com/Naved124/tephra/internal/k8s"
 )
 
@@ -97,6 +98,11 @@ func metricsHandler(a *agent, pods *k8s.PodIndex) http.Handler {
 			b.WriteString("# TYPE tephra_export_dropped_total counter\n")
 			fmt.Fprintf(&b, "tephra_export_dropped_total{stream=\"event\"} %d\n", st.DroppedEvents)
 			fmt.Fprintf(&b, "tephra_export_dropped_total{stream=\"alert\"} %d\n", st.DroppedAlerts)
+			b.WriteString("# HELP tephra_export_dropped_alerts_total Alerts discarded because the export queue was full, by level.\n")
+			b.WriteString("# TYPE tephra_export_dropped_alerts_total counter\n")
+			for _, l := range export.Levels {
+				fmt.Fprintf(&b, "tephra_export_dropped_alerts_total{level=%q} %d\n", l, st.DroppedByLevel[l])
+			}
 		}
 
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")

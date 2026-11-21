@@ -71,6 +71,9 @@ func ToProto(r *Record) *tephrav1.Record {
 	if x := r.Signal; x != nil {
 		p.Signal = &tephrav1.Signal{Number: x.Number, Name: x.Name, TargetPid: x.TargetPID}
 	}
+	if x := r.Repeats; x != nil {
+		p.Repeats = &tephrav1.Repeats{Count: x.Count, First: x.First, Last: x.Last, Folded: x.Folded, Samples: x.Samples}
+	}
 	if x := r.Ptrace; x != nil {
 		p.Ptrace = &tephrav1.Ptrace{TargetPid: x.TargetPID, TargetImage: x.TargetImage, TargetCommandLine: x.TargetCommandLine, Mode: x.Mode, TargetIsAgent: x.TargetIsAgent}
 	}
@@ -169,6 +172,9 @@ func FromProto(p *tephrav1.Record) *Record {
 	}
 	if x := p.GetSignal(); x != nil {
 		r.Signal = &Signal{Number: x.GetNumber(), Name: x.GetName(), TargetPID: x.GetTargetPid()}
+	}
+	if x := p.GetRepeats(); x != nil {
+		r.Repeats = &Repeats{Count: x.GetCount(), First: x.GetFirst(), Last: x.GetLast(), Folded: x.GetFolded(), Samples: x.GetSamples()}
 	}
 	if x := p.GetPtrace(); x != nil {
 		r.Ptrace = &Ptrace{TargetPID: x.GetTargetPid(), TargetImage: x.GetTargetImage(), TargetCommandLine: x.GetTargetCommandLine(), Mode: x.GetMode(), TargetIsAgent: x.GetTargetIsAgent()}

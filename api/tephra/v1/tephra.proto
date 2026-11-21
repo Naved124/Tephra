@@ -51,6 +51,17 @@ message Record {
   Namespaces namespaces = 20;
   Enforce enforce = 21;
   Signal signal = 22;
+  Repeats repeats = 23;
+}
+
+// The summary of a group of repeated alerts: how many more of the same kind
+// came after the first, which was sent on its own.
+message Repeats {
+  uint64 count = 1;
+  string first = 2;
+  string last = 3;
+  bool folded = 4;
+  repeated string samples = 5;
 }
 
 // An action the kernel refused (denied), or in dry-run mode would have.

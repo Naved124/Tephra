@@ -14,7 +14,10 @@ type Record struct {
 	Node string `json:"node"`
 	// Rule is set on alerts only. An alert is the event that matched,
 	// with the rule in front.
-	Rule      *Rule      `json:"rule,omitempty"`
+	Rule *Rule `json:"rule,omitempty"`
+	// Repeats is set on the summary of a group of repeated alerts; the
+	// rest of the record is the alert that opened the group.
+	Repeats   *Repeats   `json:"repeats,omitempty"`
 	Process   Process    `json:"process"`
 	Parent    *Parent    `json:"parent,omitempty"`
 	Ancestors []string   `json:"ancestors,omitempty"`

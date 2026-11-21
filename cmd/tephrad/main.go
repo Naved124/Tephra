@@ -80,9 +80,13 @@ type counters struct {
 	enforceWouldDeny atomic.Uint64
 	exported         atomic.Uint64
 	exportErrors     atomic.Uint64
-	reloads          atomic.Uint64
-	reloadErrors     atomic.Uint64
-	rulesLoaded      atomic.Int64
+	// grouped counts alerts counted into a group instead of sent;
+	// summaries counts the summaries sent for them.
+	grouped      atomic.Uint64
+	summaries    atomic.Uint64
+	reloads      atomic.Uint64
+	reloadErrors atomic.Uint64
+	rulesLoaded  atomic.Int64
 
 	mu     sync.Mutex
 	alerts map[alertKey]uint64
@@ -227,7 +231,10 @@ type agent struct {
 	enricher     *enrich.Enricher
 	stdout       *export.JSONLines
 	grpc         *export.GRPC
-	c            *counters
+	// groups folds repeated alerts, so that a flood of them cannot push
+	// out the one that matters.
+	groups *export.Grouper
+	c      *counters
 	// seqEvicted is the eviction count last read from the rule set.
 	seqEvicted uint64
 	// started is when the agent started; stop who last asked it to stop.
@@ -346,6 +353,26 @@ func (a *agent) handle(ev events.Event) {
 }
 
 func (a *agent) emit(rec *export.Record) {
+	if a.groups != nil && a.groups.Add(rec, time.Now()) == nil {
+		a.c.grouped.Add(1)
+		return
+	}
+	a.send(rec)
+}
+
+// flushGroups sends the summaries of the groups of alerts whose window has
+// ended; all of them when now is far enough ahead.
+func (a *agent) flushGroups(now time.Time) {
+	if a.groups == nil {
+		return
+	}
+	for _, s := range a.groups.Flush(now) {
+		a.c.summaries.Add(1)
+		a.send(s)
+	}
+}
+
+func (a *agent) send(rec *export.Record) {
 	if err := a.stdout.Write(rec); err != nil {
 		a.c.exportErrors.Add(1)
 	} else {
@@ -402,6 +429,11 @@ func (a *agent) sendHealth(node string, now time.Time, stopping bool) {
 	h["export_queue_depth"] = uint64(st.Queued)
 	h["export_dropped_events"] = st.DroppedEvents
 	h["export_dropped_alerts"] = st.DroppedAlerts
+	for l, n := range st.DroppedByLevel {
+		h["export_dropped_alerts_"+l] = n
+	}
+	h["alerts_grouped"] = a.c.grouped.Load()
+	h["alert_summaries"] = a.c.summaries.Load()
 	h["export_retries"] = st.Retries
 	a.grpc.Offer(&export.Record{
 		TS:     now.UTC().Format("2006-01-02T15:04:05.000000Z"),
@@ -522,6 +554,7 @@ func run(log *slog.Logger, o options) error {
 		ids:          identity.New(o.procRoot),
 		enricher:     enrich.New(node, tree, procfs, k8s.NewCgroupResolver(o.cgroupRoot), pods),
 		stdout:       export.NewJSONLines(os.Stdout),
+		groups:       export.NewGrouper(),
 		c:            c,
 		started:      started,
 	}
@@ -581,12 +614,18 @@ func run(log *slog.Logger, o options) error {
 	defer gc.Stop()
 	health := time.NewTicker(15 * time.Second)
 	defer health.Stop()
+	groups := time.NewTicker(time.Second)
+	defer groups.Stop()
 	for {
 		select {
 		case now := <-health.C:
 			a.health(node, now)
+		case now := <-groups.C:
+			a.flushGroups(now)
 		case <-ctx.Done():
 			log.Info("signal received, shutting down")
+			// What was counted so far is sent, not lost with the agent.
+			a.flushGroups(time.Now().Add(export.GroupWindow))
 			if sensor.KeepsRecording() {
 				if planned, why := a.awaitStop(queue); planned {
 					// The last health record says the silence that
@@ -600,6 +639,7 @@ func run(log *slog.Logger, o options) error {
 			}
 			return a.stdout.Flush()
 		case err := <-readErr:
+			a.flushGroups(time.Now().Add(export.GroupWindow))
 			_ = a.stdout.Flush()
 			return fmt.Errorf("ring buffer reader stopped: %w", err)
 		case <-hup:

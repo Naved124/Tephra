@@ -5,6 +5,7 @@ package export
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -41,13 +42,17 @@ type GRPCStats struct {
 	// was full.
 	DroppedEvents uint64
 	DroppedAlerts uint64
+	// DroppedByLevel splits DroppedAlerts by the rule's level.
+	DroppedByLevel map[string]uint64
 	// Retries counts streams that failed and were sent again.
 	Retries uint64
 }
 
 // GRPC streams records to the collector. A bounded queue sits in front of
-// the stream. When it is full, raw events are dropped before alerts, and
-// every drop is counted.
+// the stream. When it is full, raw events are dropped before alerts; when it
+// holds only alerts, the oldest alert of the lowest level goes before
+// anything higher, so a flood of low-level alerts cannot push out a critical
+// one. Every drop is counted, alerts by level.
 //
 // A record leaves the queue only when the collector has acknowledged the
 // stream that carried it, so a collector restart loses nothing that was
@@ -67,6 +72,7 @@ type GRPC struct {
 	wake     chan struct{}
 
 	acked, rejected, droppedEvents, droppedAlerts, retries atomic.Uint64
+	droppedLevel                                           [len(Levels)]atomic.Uint64
 
 	// Backoff is the wait before the given retry (0 for the first). The
 	// default doubles from 1 to 30 seconds. Set before Run.
@@ -115,9 +121,21 @@ func (g *GRPC) Offer(r *Record) bool {
 		g.events = g.events[1:]
 		g.droppedEvents.Add(1)
 	default:
-		g.mu.Unlock()
-		g.droppedAlerts.Add(1)
-		return false
+		// Only alerts: the oldest of the lowest level goes, unless the
+		// new one is no higher.
+		low := 0
+		for i, a := range g.alerts {
+			if LevelRank(a.Rule.Level) < LevelRank(g.alerts[low].Rule.Level) {
+				low = i
+			}
+		}
+		if len(g.alerts) == 0 || LevelRank(r.Rule.Level) <= LevelRank(g.alerts[low].Rule.Level) {
+			g.mu.Unlock()
+			g.dropAlert(r)
+			return false
+		}
+		g.dropAlert(g.alerts[low])
+		g.alerts = append(g.alerts[:low], g.alerts[low+1:]...)
 	}
 	if r.IsAlert() {
 		g.alerts = append(g.alerts, r)
@@ -132,11 +150,21 @@ func (g *GRPC) Offer(r *Record) bool {
 	return true
 }
 
-// take removes up to maxBatch records, alerts first, and marks them in
-// flight.
+func (g *GRPC) dropAlert(r *Record) {
+	g.droppedAlerts.Add(1)
+	g.droppedLevel[LevelRank(r.Rule.Level)].Add(1)
+}
+
+// take removes up to maxBatch records, alerts first and the highest levels
+// of those first, and marks them in flight.
 func (g *GRPC) take() (batch []*Record, hasAlert bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if len(g.alerts) > maxBatch {
+		sort.SliceStable(g.alerts, func(i, j int) bool {
+			return LevelRank(g.alerts[i].Rule.Level) > LevelRank(g.alerts[j].Rule.Level)
+		})
+	}
 	n := min(len(g.alerts), maxBatch)
 	batch = append(batch, g.alerts[:n]...)
 	g.alerts = g.alerts[n:]
@@ -274,6 +302,27 @@ func (g *GRPC) Stats() GRPCStats {
 		Rejected:      g.rejected.Load(),
 		DroppedEvents: g.droppedEvents.Load(),
 		DroppedAlerts: g.droppedAlerts.Load(),
-		Retries:       g.retries.Load(),
+		DroppedByLevel: func() map[string]uint64 {
+			m := map[string]uint64{}
+			for i, l := range Levels {
+				m[l] = g.droppedLevel[i].Load()
+			}
+			return m
+		}(),
+		Retries: g.retries.Load(),
 	}
+}
+
+// Levels are the rule levels, lowest first.
+var Levels = [...]string{"info", "low", "medium", "high", "critical"}
+
+// LevelRank orders rule levels, lowest first; an unknown level ranks as
+// medium, so that it is neither the first nor the last to go.
+func LevelRank(level string) int {
+	for i, l := range Levels {
+		if l == level {
+			return i
+		}
+	}
+	return 2
 }
