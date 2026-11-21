@@ -3,6 +3,8 @@
 package harness
 
 import (
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -374,20 +376,21 @@ func TestShippedEvasions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 18 {
-		t.Fatalf("%d evasion scenarios, want 18", len(all))
+	if len(all) != 22 {
+		t.Fatalf("%d evasion scenarios, want 22", len(all))
 	}
 	for _, s := range all {
 		if !strings.HasPrefix(s.ID, "E") || s.Predicted == "" {
 			t.Errorf("%s: predicted %q", s.ID, s.Predicted)
 		}
-		// E01 to E08 are the ones the fixes were built against; E09 to
-		// E16 are held out; from E17 on they are checks written after the
-		// fixes.
-		if want := s.ID >= "E09" && s.ID <= "E16"; s.Heldout != want {
-			t.Errorf("%s: heldout %v, want %v", s.ID, s.Heldout, want)
+		// E01 to E08 are the ones the first fixes were built against;
+		// E09 to E16 were held out from them; E17 and E18 are checks;
+		// E19 to E22 are held out from the fixes after Phase 4 run 1.
+		heldout := (s.ID >= "E09" && s.ID <= "E16") || s.ID >= "E19"
+		if s.Heldout != heldout {
+			t.Errorf("%s: heldout %v, want %v", s.ID, s.Heldout, heldout)
 		}
-		if want := s.ID >= "E17"; s.Check != want {
+		if want := s.ID == "E17" || s.ID == "E18"; s.Check != want {
 			t.Errorf("%s: check %v, want %v", s.ID, s.Check, want)
 		}
 	}
@@ -398,5 +401,27 @@ func TestShippedEvasions(t *testing.T) {
 func TestNodeAlertSelector(t *testing.T) {
 	if got, want := nodeAlerts("lab-worker"), `{stream="alert", node="lab-worker", namespace="host"}`; got != want {
 		t.Errorf("selector %s, want %s", got, want)
+	}
+}
+
+// A scenario starts only once every namespace of an earlier one is gone.
+func TestAwaitHarnessGone(t *testing.T) {
+	calls := 0
+	c := &Cluster{run: func(context.Context, io.Reader, ...string) ([]byte, error) {
+		calls++
+		if calls < 3 {
+			return []byte("namespace/tephra-e06-abc\n"), nil
+		}
+		return nil, nil
+	}}
+	if err := c.awaitHarnessGone(context.Background(), time.Minute); err != nil || calls != 3 {
+		t.Fatalf("err %v after %d calls, want nil after 3", err, calls)
+	}
+	c.run = func(context.Context, io.Reader, ...string) ([]byte, error) {
+		return []byte("namespace/tephra-e06-abc\n"), nil
+	}
+	err := c.awaitHarnessGone(context.Background(), time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "tephra-e06-abc") {
+		t.Fatalf("err %v, want the namespace left behind named", err)
 	}
 }

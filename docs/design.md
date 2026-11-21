@@ -693,6 +693,17 @@ Two questions the M14 fixes left open, written as scenarios after the fixes and 
 | E17 | A service account token projected at a custom path (/var/run/app/token), read with cat | Path coverage | Missed: R006 names only the standard prefixes, so the kernel never reports the open |
 | E18 | The application's token read from a second container of the pod through /proc/<pid>/root | Path coverage | Detected: bpf_d_path walks up to the application container's root, giving the standard path |
 
+### Held-out set 2 (after Phase 4 run 1)
+
+Phase 4 run 1 found four weaknesses. Each has a new held-out scenario, written and committed before its fix, with a prediction for the sensor as it was then. They run once against the fixed sensor. E09 to E16 are no longer held out: their results have been seen, so later runs report them as runs after fixes.
+
+| ID | Evasion | Weakness | Predicted |
+|---|---|---|---|
+| E19 | A second pod floods R005, the victim kills the agent and reads /etc/shadow with dd while it is down | Alerts dropped when the export queue holds only alerts | Partial: R030 is queued before the flood fills the queue; the read is dropped |
+| E20 | The pod's service account token read from inside the agent's cgroup | Pods found by cgroup alone | Missed: R006 fires but names the agent's pod |
+| E21 | A Perl session through a proxy sidecar on loopback, relayed to a listener pod | Loopback connections ignored in the kernel | Missed: R028 never sees the connect |
+| E22 | A token projected as /opt/svc/creds, read with dd | Tokens found by path | Missed: R006 names only the standard prefixes |
+
 ### False-positive run
 
 Run ordinary workloads for 30 minutes with all rules enabled: an nginx deployment under HTTP load, a PostgreSQL pod under pgbench, an image build job, and a rolling update. The target is zero high or critical alerts. Every alert that does fire is either fixed in the rule or documented under falsepositives.
@@ -1112,3 +1123,4 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
     4. a full re-run on both kernels with blocking and the Falco and Tetragon benchmarks, which becomes the baseline from then on.
     
     E09 to E16 are no longer held out: a re-run after fixes is labelled as such.
+- **Before the fixes to run 1's findings: the harness waits for each scenario to be gone.** A scenario's namespace was deleted without waiting, so E06's loop was still reading /etc/shadow when E07 ran. Each scenario now deletes its namespace and waits for it; the next one starts only when no namespace of an earlier one is left, and is reported as not run if one still is after two minutes. A fix to the measuring tool; no scenario changed. Held-out set 2 (E19 to E22, section 8) was committed with it, before any fix.

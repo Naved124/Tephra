@@ -1,0 +1,14 @@
+id: E20
+title: Read the pod's service account token from inside the agent's cgroup
+tags: [attack.defense_evasion, attack.t1562.001, attack.credential_access, attack.t1528]
+expect: [R006]
+predicted: missed
+heldout: true
+run:
+  pod: victim
+note: >-
+  Held out, written before the fix it tests. A privileged pod with the
+  host's process namespace and cgroup tree moves a process into the agent's
+  cgroup and reads its own service account token from there. Predicted
+  missed: R006 fires, but pods are found by cgroup, so the alert names the
+  agent's pod and not the victim.

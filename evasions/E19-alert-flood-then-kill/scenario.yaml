@@ -1,0 +1,17 @@
+id: E19
+title: Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program
+tags: [attack.defense_evasion, attack.t1562.001, attack.credential_access, attack.t1003.008]
+expect: [R005, R030]
+predicted: partial
+heldout: true
+timeout: 120s
+run:
+  pod: victim
+note: >-
+  Held out, written before the fix it tests. A second pod on the same node
+  reads /etc/shadow in a loop, each read a new process, so the agent's queue
+  to the collector fills with R005 alerts. The victim then kills the agent
+  and reads /etc/shadow with dd while it is down. Predicted partial: the
+  signal is recorded before the backlog's flood, so R030 is queued while
+  there is room; the read with dd comes after tens of thousands of R005
+  alerts and is dropped with them.

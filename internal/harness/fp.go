@@ -23,9 +23,9 @@ func (r *Runner) FalsePositives(ctx context.Context, manifest string, d time.Dur
 	}
 	if !r.Keep {
 		defer func() {
-			cleanup, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			cleanup, cancel := context.WithTimeout(context.Background(), cleanupWait+30*time.Second)
 			defer cancel()
-			_, _ = c.kubectl(cleanup, nil, "delete", "namespace", FPNamespace, "--wait=false")
+			_ = c.deleteNamespace(cleanup, FPNamespace)
 		}()
 	}
 	if _, err := c.kubectl(ctx, nil, "-n", FPNamespace, "apply", "-f", manifest); err != nil {

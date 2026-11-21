@@ -254,6 +254,13 @@ func (r *Runner) Run(ctx context.Context, s *Scenario) *Result {
 		return res
 	}
 
+	// A scenario still running would be judged with this one: E06's
+	// loop reading /etc/shadow ran on into E07 in Phase 4 run 1.
+	if !r.Keep {
+		if err := c.awaitHarnessGone(ctx, cleanupWait); err != nil {
+			return fail("previous scenario still running", err)
+		}
+	}
 	if _, err := c.kubectl(ctx, nil, "create", "namespace", ns); err != nil {
 		return fail("create namespace", err)
 	}
@@ -262,12 +269,14 @@ func (r *Runner) Run(ctx context.Context, s *Scenario) *Result {
 			r.logf("  namespace %s kept", ns)
 			return
 		}
-		cleanup, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		cleanup, cancel := context.WithTimeout(context.Background(), cleanupWait+30*time.Second)
 		defer cancel()
 		if _, err := os.Stat(filepath.Join(s.Dir, "cleanup.sh")); err == nil {
 			_, _ = c.execScript(cleanup, ns, s.Run, filepath.Join(s.Dir, "cleanup.sh"))
 		}
-		_, _ = c.kubectl(cleanup, nil, "delete", "namespace", ns, "--wait=false")
+		if err := c.deleteNamespace(cleanup, ns); err != nil {
+			r.logf("  namespace %s not gone yet: %v", ns, err)
+		}
 	}()
 	_, _ = c.kubectl(ctx, nil, "label", "namespace", ns, "tephra.dev/harness=true")
 

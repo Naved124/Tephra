@@ -35,11 +35,17 @@ type Cluster struct {
 	user     string
 	password string
 	forward  *exec.Cmd
+
+	// run replaces the kubectl binary in tests.
+	run func(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error)
 }
 
 func (c *Cluster) kubectl(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
 	if c.Context != "" {
 		args = append([]string{"--context", c.Context}, args...)
+	}
+	if c.run != nil {
+		return c.run(ctx, stdin, args...)
 	}
 	cmd := exec.CommandContext(ctx, "kubectl", args...)
 	cmd.Stdin = stdin
@@ -391,4 +397,40 @@ func (c *Cluster) execScript(ctx context.Context, namespace string, t Target, sc
 		args = append(args, "-c", t.Container)
 	}
 	return c.kubectl(ctx, f, append(args, "--", "sh", "-s")...)
+}
+
+// cleanupWait bounds how long a scenario's namespace may take to go away.
+const cleanupWait = 120 * time.Second
+
+// deleteNamespace deletes a namespace and waits until it and its pods are
+// gone.
+func (c *Cluster) deleteNamespace(ctx context.Context, ns string) error {
+	_, err := c.kubectl(ctx, nil, "delete", "namespace", ns, "--ignore-not-found", "--wait=true",
+		"--timeout="+cleanupWait.String())
+	return err
+}
+
+// awaitHarnessGone waits until no namespace made by an earlier scenario is
+// left, so that nothing it started is still running when the next one is
+// judged.
+func (c *Cluster) awaitHarnessGone(ctx context.Context, limit time.Duration) error {
+	deadline := time.Now().Add(limit)
+	for {
+		out, err := c.kubectl(ctx, nil, "get", "namespace", "-l", "tephra.dev/harness=true", "-o", "name")
+		left := strings.Fields(string(out))
+		if err == nil && len(left) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("namespaces left after %s: %s", limit, strings.Join(left, " "))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
 }

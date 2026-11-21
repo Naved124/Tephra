@@ -1,0 +1,18 @@
+id: E21
+title: Interactive Perl session relayed to a listener through a proxy sidecar on loopback
+tags: [attack.execution, attack.t1059, attack.command_and_control, attack.t1090.001]
+expect: [R028]
+predicted: missed
+heldout: true
+timeout: 60s
+run:
+  pod: victim
+  container: app
+note: >-
+  Held out, written before the fix it tests. The pod has a proxy sidecar,
+  as a service mesh would, whose own program forwards 127.0.0.1:9001 to a
+  listener pod. A Perl session in the application container connects to the
+  proxy on loopback and runs the listener's commands in its own process.
+  Predicted missed: the sensor ignores loopback connections in the kernel,
+  so R028 never sees Perl connect, and the proxy is its container's own
+  program, which no rule questions.
