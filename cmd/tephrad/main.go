@@ -75,6 +75,10 @@ type counters struct {
 	// ghosts counts processes found gone while the process tree still had
 	// them as live, their exits lost with ring buffer drops.
 	ghosts atomic.Uint64
+	// lagMax is the furthest behind the kernel the agent was in the
+	// current window, in nanoseconds; lagWindow is the last full window's.
+	lagMax    atomic.Uint64
+	lagWindow atomic.Uint64
 	// seqHeld is the number of partial rule sequences in memory;
 	// seqEvicted counts those dropped to stay under the cap.
 	seqHeld    atomic.Uint64
@@ -350,6 +354,7 @@ func (a *agent) startRing() uint32 { return uint32(a.o.ringBufSize) }
 
 // handle runs one event through enrichment, the rules and the sinks.
 func (a *agent) handle(ev events.Event) {
+	a.noteLag(ev.Hdr().TSBootNS)
 	rec := a.enricher.Handle(ev, time.Now())
 	if rec == nil {
 		if _, denied := ev.(*events.FileDenied); denied {
@@ -427,6 +432,29 @@ func (a *agent) health(node string, now time.Time) {
 	a.sendHealth(node, now, false)
 }
 
+// noteLag records how long ago the kernel recorded the event being handled:
+// how far behind the agent is.
+func (a *agent) noteLag(ts uint64) {
+	var now unix.Timespec
+	if unix.ClockGettime(unix.CLOCK_BOOTTIME, &now) != nil {
+		return
+	}
+	n := uint64(now.Nano())
+	if n <= ts {
+		return
+	}
+	lag := n - ts
+	for {
+		cur := a.c.lagMax.Load()
+		if lag <= cur || a.c.lagMax.CompareAndSwap(cur, lag) {
+			return
+		}
+	}
+}
+
+// lagBehind is when the agent's lag is worth a log line.
+const lagBehind = 2 * time.Second
+
 // kernelDropped is the ring buffer's drops so far, over every event type.
 func (a *agent) kernelDropped() uint64 {
 	var n uint64
@@ -453,6 +481,7 @@ func (a *agent) sendHealth(node string, now time.Time, stopping bool) {
 		"recorded_while_down": a.c.whileDown.Load(),
 		"own_events_dropped":  a.c.ownDropped.Load(),
 		"proctree_ghosts":     a.c.ghosts.Load(),
+		"processing_lag_ms":   a.c.lagWindow.Load() / 1e6,
 	}
 	if a.sensor.KeepsRecording() {
 		h["keeps_recording"] = 1
@@ -593,6 +622,7 @@ func run(log *slog.Logger, o options) error {
 	log.Info("process tree seeded", "processes", n)
 
 	c := &counters{}
+	cgroups := k8s.NewCgroupResolver(o.cgroupRoot)
 	a := &agent{
 		ownNamespace: os.Getenv("POD_NAMESPACE"),
 		log:          log,
@@ -604,7 +634,7 @@ func run(log *slog.Logger, o options) error {
 		pods:         pods,
 		runtimes:     runtimeid.New(o.procRoot, nil),
 		ids:          identity.New(o.procRoot),
-		enricher:     enrich.New(node, tree, procfs, k8s.NewCgroupResolver(o.cgroupRoot), pods),
+		enricher:     enrich.New(node, tree, procfs, cgroups, pods),
 		stdout:       export.NewJSONLines(os.Stdout),
 		groups:       export.NewGrouper(),
 		c:            c,
@@ -673,6 +703,10 @@ func run(log *slog.Logger, o options) error {
 	defer creds.Stop()
 	reap := time.NewTicker(10 * time.Second)
 	defer reap.Stop()
+	// A cgroup that lives only between two lookups is still seen, and
+	// remembered once it is gone, for events handled late.
+	cgScan := time.NewTicker(2 * time.Second)
+	defer cgScan.Stop()
 	// Exits lost with ring buffer drops leave ghosts in the tree. A sweep
 	// against /proc follows any new drops, and the adoption of a backlog,
 	// which was recorded while no agent read and may have lost some; at
@@ -729,7 +763,14 @@ func run(log *slog.Logger, o options) error {
 				log.Info("process tree swept after lost events", "ghosts", found, "checked", checked, "took", time.Since(start).String())
 			}
 			a.c.ghosts.Store(a.enricher.Ghosts())
+			lag := a.c.lagMax.Swap(0)
+			a.c.lagWindow.Store(lag)
+			if time.Duration(lag) > lagBehind {
+				log.Warn("agent behind the kernel", "max_lag", time.Duration(lag).Round(time.Millisecond).String())
+			}
 			tree.Reap(now)
+		case <-cgScan.C:
+			cgroups.Refresh()
 		case <-gc.C:
 			// Identity watches of containers that are gone.
 			live := map[string]bool{}

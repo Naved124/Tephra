@@ -95,7 +95,25 @@ type CgroupResolver struct {
 	paths    map[uint64]string
 	lastScan time.Time
 	scans    uint64
+	// gone keeps the paths of cgroups that disappeared, for cgroupLinger:
+	// an event handled late, from a backlog or while the agent catches up
+	// after a flood, still names the pod whose cgroup it came from.
+	gone map[uint64]goneCgroup
 }
+
+type goneCgroup struct {
+	path  string
+	since time.Time
+}
+
+const (
+	// cgroupLinger is how long a removed cgroup still resolves. Cgroup IDs
+	// are not reused while the node is up, so an old path is never wrong,
+	// only late.
+	cgroupLinger = 5 * time.Minute
+	// maxGone bounds the removed cgroups remembered.
+	maxGone = 20000
+)
 
 // NewCgroupResolver returns a resolver for the hierarchy mounted at root.
 func NewCgroupResolver(root string) *CgroupResolver {
@@ -103,6 +121,7 @@ func NewCgroupResolver(root string) *CgroupResolver {
 		root:      root,
 		minRescan: 50 * time.Millisecond,
 		paths:     make(map[uint64]string),
+		gone:      make(map[uint64]goneCgroup),
 	}
 }
 
@@ -115,12 +134,23 @@ func (r *CgroupResolver) Path(id uint64) (string, bool) {
 	if p, ok := r.paths[id]; ok {
 		return p, true
 	}
+	if g, ok := r.gone[id]; ok && time.Since(g.since) < cgroupLinger {
+		return g.path, true
+	}
 	if time.Since(r.lastScan) < r.minRescan {
 		return "", false
 	}
 	r.scan()
 	p, ok := r.paths[id]
 	return p, ok
+}
+
+// Refresh rescans the hierarchy, so that a cgroup that lives only between
+// two lookups is still seen while it exists, and remembered once it is gone.
+func (r *CgroupResolver) Refresh() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.scan()
 }
 
 // Alive reports whether the cgroup with this ID still exists.
@@ -172,8 +202,19 @@ func (r *CgroupResolver) scan() {
 		paths[st.Ino] = rel
 		return nil
 	})
+	now := time.Now()
+	for id, g := range r.gone {
+		if now.Sub(g.since) >= cgroupLinger {
+			delete(r.gone, id)
+		}
+	}
+	for id, p := range r.paths {
+		if _, ok := paths[id]; !ok && len(r.gone) < maxGone {
+			r.gone[id] = goneCgroup{p, now}
+		}
+	}
 	r.paths = paths
-	r.lastScan = time.Now()
+	r.lastScan = now
 	r.scans++
 }
 

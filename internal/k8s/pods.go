@@ -20,9 +20,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// podLinger is how long a deleted pod stays resolvable, matching the process
-// tree: the last events of a container arrive after its pod is gone.
-const podLinger = 60 * time.Second
+// podLinger is how long a deleted pod stays resolvable, as long as a removed
+// cgroup does: the last events of a container arrive after its pod is gone,
+// and an agent catching up on a backlog or after a flood handles them later
+// still.
+const podLinger = 5 * time.Minute
 
 type podEntry struct {
 	uid        string

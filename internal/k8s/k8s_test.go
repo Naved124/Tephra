@@ -122,14 +122,15 @@ func TestCgroupResolver(t *testing.T) {
 		t.Errorf("scans went from %d to %d, want one more", before, r.Scans())
 	}
 
-	// A removed cgroup drops out at the next scan.
+	// A removed cgroup leaves the live index at the next scan: Alive says
+	// it is gone, and its path is remembered (TestCgroupRemembersRemoved).
 	gone := inode(t, late)
 	if err := os.Remove(late); err != nil {
 		t.Fatal(err)
 	}
 	r.Path(1 << 60) // unknown ID forces a rescan
-	if _, ok := r.Path(gone); ok {
-		t.Error("removed cgroup still resolves")
+	if r.Alive(gone) {
+		t.Error("removed cgroup is alive")
 	}
 }
 
@@ -269,5 +270,39 @@ func TestTokenMounts(t *testing.T) {
 	x.Delete(pod, time.Now())
 	if n := len(x.Tokens()); n != 0 {
 		t.Errorf("%d tokens of a deleted pod", n)
+	}
+}
+
+// A cgroup removed after a scan still resolves for a while, so that an event
+// handled late names the pod it came from; Alive says it is gone. One that
+// was never scanned while it existed is unknown.
+func TestCgroupRemembersRemoved(t *testing.T) {
+	root := t.TempDir()
+	scope := filepath.Join(root, "kubepods.slice", "cri-containerd-"+cidA+".scope")
+	if err := os.MkdirAll(scope, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	id := inode(t, scope)
+	r := NewCgroupResolver(root)
+	r.Refresh()
+	if err := os.Remove(scope); err != nil {
+		t.Fatal(err)
+	}
+	r.Refresh()
+	if p, ok := r.Path(id); !ok || ContainerID(p) != cidA {
+		t.Errorf("removed cgroup: Path = %q, %v", p, ok)
+	}
+	if r.Alive(id) {
+		t.Error("a removed cgroup is alive")
+	}
+	// Past the linger period it is forgotten.
+	r.mu.Lock()
+	g := r.gone[id]
+	g.since = time.Now().Add(-cgroupLinger)
+	r.gone[id] = g
+	r.mu.Unlock()
+	r.minRescan = time.Hour
+	if _, ok := r.Path(id); ok {
+		t.Error("a cgroup removed long ago still resolves")
 	}
 }
