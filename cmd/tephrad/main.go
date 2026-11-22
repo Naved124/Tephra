@@ -72,6 +72,9 @@ type counters struct {
 	// counts the agent's own events reported by an earlier agent's programs.
 	whileDown  atomic.Uint64
 	ownDropped atomic.Uint64
+	// ghosts counts processes found gone while the process tree still had
+	// them as live, their exits lost with ring buffer drops.
+	ghosts atomic.Uint64
 	// seqHeld is the number of partial rule sequences in memory;
 	// seqEvicted counts those dropped to stay under the cap.
 	seqHeld    atomic.Uint64
@@ -424,6 +427,17 @@ func (a *agent) health(node string, now time.Time) {
 	a.sendHealth(node, now, false)
 }
 
+// kernelDropped is the ring buffer's drops so far, over every event type.
+func (a *agent) kernelDropped() uint64 {
+	var n uint64
+	for _, t := range events.Types {
+		if st, err := a.sensor.ReadStats(t); err == nil {
+			n += st.Dropped
+		}
+	}
+	return n
+}
+
 // sendHealth sends the counters; stopping marks the last record of a planned
 // stop, after which the collector expects silence.
 func (a *agent) sendHealth(node string, now time.Time, stopping bool) {
@@ -438,6 +452,7 @@ func (a *agent) sendHealth(node string, now time.Time, stopping bool) {
 		"agent_start_unix":    uint64(a.started.Unix()),
 		"recorded_while_down": a.c.whileDown.Load(),
 		"own_events_dropped":  a.c.ownDropped.Load(),
+		"proctree_ghosts":     a.c.ghosts.Load(),
 	}
 	if a.sensor.KeepsRecording() {
 		h["keeps_recording"] = 1
@@ -658,6 +673,14 @@ func run(log *slog.Logger, o options) error {
 	defer creds.Stop()
 	reap := time.NewTicker(10 * time.Second)
 	defer reap.Stop()
+	// Exits lost with ring buffer drops leave ghosts in the tree. A sweep
+	// against /proc follows any new drops, and the adoption of a backlog,
+	// which was recorded while no agent read and may have lost some; at
+	// most once per reap tick, so a flood cannot make it a cost of its own.
+	sweepDrops := ^uint64(0)
+	if !sensor.Backlog() {
+		sweepDrops = a.kernelDropped()
+	}
 	gc := time.NewTicker(time.Minute)
 	defer gc.Stop()
 	health := time.NewTicker(15 * time.Second)
@@ -698,6 +721,13 @@ func run(log *slog.Logger, o options) error {
 			log.Info("SIGHUP received, reloading")
 			a.reload()
 		case now := <-reap.C:
+			if d := a.kernelDropped(); d != sweepDrops {
+				sweepDrops = d
+				if n := a.enricher.Sweep(now); n > 0 {
+					log.Info("process tree swept after lost events", "ghosts", n)
+				}
+			}
+			a.c.ghosts.Store(a.enricher.Ghosts())
 			tree.Reap(now)
 		case <-gc.C:
 			// Identity watches of containers that are gone.

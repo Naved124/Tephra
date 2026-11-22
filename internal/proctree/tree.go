@@ -262,6 +262,34 @@ func (t *Tree) Exit(ev *events.Exit, now time.Time) {
 	}
 }
 
+// MarkExited marks a live process as exited whose exit event never arrived,
+// lost with the ring buffer's drops. It reports whether it was live.
+func (t *Tree) MarkExited(k Key, now time.Time) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if p := t.get(k); p != nil && p.Exited.IsZero() {
+		p.Exited = now
+		t.exited.PushBack(p)
+		return true
+	}
+	return false
+}
+
+// Prune marks as exited every live process that alive says is gone, and
+// returns how many. When the ring buffer drops records, exits are among
+// them, and the tree keeps the processes as live: ghosts, which a later
+// lookup can take for the owner of a reused namespace number (E26). alive
+// is called without the tree's lock held.
+func (t *Tree) Prune(alive func(Proc) bool, now time.Time) int {
+	n := 0
+	for _, p := range t.Live() {
+		if !alive(p) && t.MarkExited(p.Key, now) {
+			n++
+		}
+	}
+	return n
+}
+
 // ByPID returns a copy of the most recent process seen with a pid.
 func (t *Tree) ByPID(pid uint32) (Proc, bool) {
 	t.mu.Lock()

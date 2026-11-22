@@ -58,6 +58,7 @@ func metricsHandler(a *agent, pods *k8s.PodIndex) http.Handler {
 		c.mu.Unlock()
 
 		counter(&b, "tephra_agent_decode_errors_total", "Ring buffer records the agent could not decode.", c.decodeErrors.Load())
+		counter(&b, "tephra_agent_proctree_ghosts_total", "Processes found gone while the process tree still had them as live, their exits lost with ring buffer drops.", c.ghosts.Load())
 		counter(&b, "tephra_agent_nested_opens_total", "File opens dropped as the second report of one overlayfs open.", c.nestedOpens.Load())
 		counter(&b, "tephra_agent_denied_unwatched_total", "Refused opens dropped because no watch covers the file.", c.deniedUnwatched.Load())
 		counter(&b, "tephra_agent_loopback_held_total", "Raw events of loopback connections judged by the rules but not exported (export.loopback_events off).", c.loopbackHeld.Load())

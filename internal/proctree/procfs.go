@@ -140,6 +140,34 @@ func (fs ProcFS) Read(pid uint32) (Proc, uint32, error) {
 	return p, ppid, nil
 }
 
+// Alive reports whether a process is still running: its /proc entry exists
+// with the same start time, to the clock tick, and, when mnt is not zero, the
+// same mount namespace. A missing entry or another start time means it
+// exited, or its pid now belongs to another process. Any other failure to
+// read says nothing, and the process counts as alive: an unreadable /proc
+// must not turn every process into a ghost.
+func (fs ProcFS) Alive(k Key, mnt uint32) bool {
+	dir := filepath.Join(fs.Root, strconv.FormatUint(uint64(k.PID), 10))
+	stat, err := os.ReadFile(filepath.Join(dir, "stat"))
+	if err != nil {
+		return !errors.Is(err, os.ErrNotExist) && !errors.Is(err, unix.ESRCH)
+	}
+	_, _, ticks, err := parseStat(stat)
+	if err != nil {
+		return true
+	}
+	if ticks != k.StartNS/nsPerTick {
+		return false
+	}
+	if mnt != 0 {
+		var ns unix.Stat_t
+		if unix.Stat(filepath.Join(dir, "ns", "mnt"), &ns) == nil && uint32(ns.Ino) != mnt {
+			return false
+		}
+	}
+	return true
+}
+
 // parseStat extracts comm, ppid and starttime (in clock ticks) from
 // /proc/<pid>/stat. comm is in parentheses and may itself contain spaces and
 // parentheses, so fields are counted from the last ')'.

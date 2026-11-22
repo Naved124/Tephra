@@ -34,10 +34,15 @@ type Enricher struct {
 	agent          proctree.Key
 	agentContainer string
 	agentMnt       uint32
-	// mntOwners caches the oldest process of each mount namespace.
-	mntOwners map[uint32]proctree.Key
-	procfs    proctree.ProcFS
-	cgroups   *k8s.CgroupResolver
+	// mntOwners caches the oldest process of each mount namespace and
+	// when it was last found alive.
+	mntOwners map[uint32]ownerMark
+	// alive checks a process against /proc; ghosts counts the processes
+	// it found gone while the tree still had them as live.
+	alive   func(p proctree.Proc, mnt uint32) bool
+	ghosts  uint64
+	procfs  proctree.ProcFS
+	cgroups *k8s.CgroupResolver
 	// pods is nil when the agent runs outside a cluster.
 	pods  *k8s.PodIndex
 	users *userCache
@@ -96,29 +101,79 @@ func (e *Enricher) SetAgent(pid uint32, startNS uint64) {
 	}
 }
 
-// maxMntOwners bounds the mount namespace cache.
-const maxMntOwners = 50000
+const (
+	// maxMntOwners bounds the mount namespace cache.
+	maxMntOwners = 50000
+	// ownerRecheck is how long an owner found alive is trusted before it
+	// is checked against /proc again.
+	ownerRecheck = 10 * time.Second
+	// maxGhosts bounds the candidates tried for one namespace.
+	maxGhosts = 8
+)
+
+type ownerMark struct {
+	key     proctree.Key
+	checked time.Time
+}
+
+// Ghosts is the number of processes found gone, at a lookup or a sweep,
+// while the tree still had them as live.
+func (e *Enricher) Ghosts() uint64 { return e.ghosts }
+
+// Sweep checks every live process in the tree against /proc and marks those
+// that are gone as exited: run after the ring buffer reports drops, which
+// can lose exits. It returns how many it found.
+func (e *Enricher) Sweep(now time.Time) int {
+	n := e.tree.Prune(func(p proctree.Proc) bool { return e.alive(p, 0) }, now)
+	e.ghosts += uint64(n)
+	if n > 0 {
+		e.mntOwners = nil
+	}
+	return n
+}
 
 // mntOwner returns the container of the oldest live process in a mount
-// namespace, and whether there is one.
+// namespace, and whether there is one. The tree's view of who is live can be
+// wrong: an exit lost with a ring buffer drop leaves a ghost, and Linux hands
+// a freed namespace number to the next namespace made, so a ghost can sit
+// in a new pod's namespace number, older than anything really in it (E26).
+// The owner is therefore checked against /proc, with its start time and
+// mount namespace, before it is trusted.
 func (e *Enricher) mntOwner(mnt uint32) (string, bool) {
 	if mnt == 0 {
 		return "", false
 	}
-	if k, ok := e.mntOwners[mnt]; ok {
-		if p, ok := e.tree.Get(k); ok && p.Exited.IsZero() && p.MntNS == mnt {
-			return p.ContainerID, true
+	now := time.Now()
+	if m, ok := e.mntOwners[mnt]; ok {
+		if p, ok := e.tree.Get(m.key); ok && p.Exited.IsZero() && p.MntNS == mnt {
+			if now.Sub(m.checked) < ownerRecheck {
+				return p.ContainerID, true
+			}
+			if e.alive(p, mnt) {
+				e.mntOwners[mnt] = ownerMark{p.Key, now}
+				return p.ContainerID, true
+			}
 		}
+		delete(e.mntOwners, mnt)
 	}
-	p, ok := e.tree.MntOwner(mnt)
-	if !ok {
-		return "", false
+	for range maxGhosts {
+		p, ok := e.tree.MntOwner(mnt)
+		if !ok {
+			return "", false
+		}
+		if !e.alive(p, mnt) {
+			if e.tree.MarkExited(p.Key, now) {
+				e.ghosts++
+			}
+			continue
+		}
+		if e.mntOwners == nil || len(e.mntOwners) >= maxMntOwners {
+			e.mntOwners = map[uint32]ownerMark{}
+		}
+		e.mntOwners[mnt] = ownerMark{p.Key, now}
+		return p.ContainerID, true
 	}
-	if e.mntOwners == nil || len(e.mntOwners) >= maxMntOwners {
-		e.mntOwners = map[uint32]proctree.Key{}
-	}
-	e.mntOwners[mnt] = p.Key
-	return p.ContainerID, true
+	return "", false
 }
 
 // cameFrom is the container a process came from: the one it was born in,
@@ -130,7 +185,9 @@ func (e *Enricher) cameFrom(p proctree.Proc, mnt uint32) string {
 	if mnt == 0 {
 		mnt = p.MntNS
 	}
-	if owner, ok := e.mntOwner(mnt); ok && owner != "" {
+	// An owner the pod index does not know is no better a guess than the
+	// cgroup: it is a container that is gone, or not a pod's.
+	if owner, ok := e.mntOwner(mnt); ok && owner != "" && (e.pods == nil || e.podOf(owner) != "") {
 		return owner
 	}
 	return p.ContainerID
@@ -212,9 +269,14 @@ func (e *Enricher) checkIdentity(rec *export.Record, p proctree.Proc, mnt uint32
 	rec.Process.IdentityMismatch = true
 	a := &k8s.Attribution{ContainerID: from}
 	if e.pods != nil {
-		if found, ok := e.pods.Lookup(from, ""); ok {
-			a = found
+		found, ok := e.pods.Lookup(from, "")
+		if !ok {
+			// Never trade a known pod for no pod: the container it came
+			// from is gone or not a pod's, and the cgroup's pod is the
+			// better name. The mismatch stays marked.
+			return
 		}
+		a = found
 	}
 	rec.Container = &export.Container{ID: a.ContainerID, Name: a.ContainerName, Image: a.Image}
 	rec.K8s = export.K8s{Namespace: a.Namespace, Pod: a.Pod, Labels: a.Labels}
@@ -394,6 +456,7 @@ func New(node string, tree *proctree.Tree, procfs proctree.ProcFS, cgroups *k8s.
 		mains:    map[string]*mainBinary{},
 		lastOpen: map[uint32]openMark{},
 		hostNS:   readHostNS(procfs.Root),
+		alive:    func(p proctree.Proc, mnt uint32) bool { return procfs.Alive(p.Key, mnt) },
 	}
 }
 

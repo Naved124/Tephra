@@ -39,6 +39,7 @@ type fixture struct {
 	tree    *proctree.Tree
 	pods    *k8s.PodIndex
 	e       *Enricher
+	dead    map[uint32]bool
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -51,6 +52,10 @@ func newFixture(t *testing.T) *fixture {
 	}
 	f.e = New("kind-worker", f.tree, proctree.ProcFS{Root: f.proc}, k8s.NewCgroupResolver(f.cgroups), f.pods)
 	f.e.boot = time.Date(2026, 11, 10, 8, 0, 0, 0, time.UTC)
+	// Processes made from events have no /proc entry here; the ones a
+	// test kills are gone.
+	f.dead = map[uint32]bool{}
+	f.e.alive = func(p proctree.Proc, _ uint32) bool { return !f.dead[p.Key.PID] }
 	return f
 }
 
@@ -1107,5 +1112,63 @@ func TestCredentialRecord(t *testing.T) {
 	h.Flags = events.FileByPath
 	if got := open(0x200005, "/opt/svc/creds"); got.K8sCredential != "" {
 		t.Errorf("matched by path: %+v", got)
+	}
+}
+
+// E26 after E23: a flood lost the exits of a deleted pod's processes, and a
+// new pod got that pod's mount namespace number. The ghost, oldest in the
+// number, must not be taken for its owner, and an owner the pod index does
+// not know must never turn a known pod into no pod.
+func TestGhostNamespaceOwner(t *testing.T) {
+	const deadCID = "dead0000000000000000000000000000000000000000000000000000000000dd"
+	const deadScope = "kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-poddddd0000_1111_2222_3333_444455556666.slice/cri-containerd-" + deadCID + ".scope"
+	const reused = 4026530009
+
+	exec := func(f *fixture, pid uint32, cg uint64, path string) *export.Record {
+		return f.e.Handle(&events.Exec{
+			Header: events.Header{Type: events.TypeExec, PID: pid, StartTimeNS: uint64(pid) * 1000, PPID: 1, CgroupID: cg, MntNS: reused},
+			Path:   path, Argv: []string{path},
+		}, time.Now())
+	}
+	setup := func(ghostGone bool) (*fixture, uint64) {
+		f := newFixture(t)
+		f.dead[50] = ghostGone
+		web, _, _ := f.identityPods()
+		// The deleted pod's process: its exit was lost, and its pod is no
+		// longer in the index.
+		exec(f, 50, f.cgroup(deadScope), "/bin/cat")
+		// The web pod's first program, in the reused number.
+		exec(f, 100, web, "/bin/sh")
+		return f, web
+	}
+
+	// The ghost is gone from /proc: it is passed over, marked exited and
+	// counted, and the web pod's process is named under the web pod.
+	f, web := setup(true)
+	rec := exec(f, 101, web, "/bin/cat")
+	if rec.K8s.Pod != "web-7c9d8-xk2lp" || rec.Process.IdentityMismatch {
+		t.Errorf("ghost owner: pod %q namespace %q mismatch %v", rec.K8s.Pod, rec.K8s.Namespace, rec.Process.IdentityMismatch)
+	}
+	if f.e.Ghosts() != 1 {
+		t.Errorf("ghosts: %d, want 1", f.e.Ghosts())
+	}
+	if p, ok := f.tree.ByPID(50); !ok || p.Exited.IsZero() {
+		t.Error("the ghost is still live in the tree")
+	}
+
+	// The safety net: even when the stale owner passes the check, a
+	// container the pod index does not know never replaces the cgroup's
+	// pod.
+	f, web = setup(false)
+	rec = exec(f, 101, web, "/bin/cat")
+	if rec.K8s.Pod != "web-7c9d8-xk2lp" || rec.K8s.Namespace == export.NamespaceUnknown {
+		t.Errorf("unknown owner: pod %q namespace %q", rec.K8s.Pod, rec.K8s.Namespace)
+	}
+
+	// A sweep after drops finds every ghost at once.
+	f, _ = setup(false)
+	f.dead[50] = true
+	if n := f.e.Sweep(time.Now()); n != 1 || f.e.Ghosts() != 1 {
+		t.Errorf("sweep: %d found, %d counted, want 1", n, f.e.Ghosts())
 	}
 }

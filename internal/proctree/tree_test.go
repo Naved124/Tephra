@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"syscall"
 	"testing"
 	"time"
 
@@ -298,5 +299,66 @@ func TestSeedFromProc(t *testing.T) {
 	}
 	if _, ok := tr.Lookup(ProcFS{Root: root}, 9999); ok {
 		t.Error("Lookup of a missing pid succeeded")
+	}
+}
+
+// A process counts as alive while /proc has it with the same start time and
+// mount namespace; a missing entry or a reused pid is gone.
+func TestAlive(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "42")
+	if err := os.MkdirAll(filepath.Join(dir, "ns"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// starttime, field 22, is 500 ticks.
+	stat := "42 (sh) S 1 42 42 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 500 0 0"
+	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(stat), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mntFile := filepath.Join(dir, "ns", "mnt")
+	if err := os.WriteFile(mntFile, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(mntFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mnt := uint32(st.Sys().(*syscall.Stat_t).Ino)
+
+	fs := ProcFS{Root: root}
+	for _, c := range []struct {
+		name string
+		k    Key
+		mnt  uint32
+		want bool
+	}{
+		{"same process", Key{42, 500*nsPerTick + 3}, 0, true},
+		{"same process and namespace", Key{42, 500 * nsPerTick}, mnt, true},
+		{"other namespace", Key{42, 500 * nsPerTick}, mnt + 1, false},
+		{"pid reused", Key{42, 400 * nsPerTick}, 0, false},
+		{"no entry", Key{43, 500 * nsPerTick}, 0, false},
+	} {
+		if got := fs.Alive(c.k, c.mnt); got != c.want {
+			t.Errorf("%s: Alive = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Prune marks the processes whose exits were lost as exited, and leaves the
+// rest.
+func TestPrune(t *testing.T) {
+	tr := New(0, 0)
+	for pid := uint32(1); pid <= 4; pid++ {
+		tr.Exec(execEv(Key{pid, uint64(pid)}, "/bin/sh"))
+	}
+	gone := map[uint32]bool{2: true, 4: true}
+	if n := tr.Prune(func(p Proc) bool { return !gone[p.Key.PID] }, time.Now()); n != 2 {
+		t.Fatalf("Prune = %d, want 2", n)
+	}
+	if got := len(tr.Live()); got != 2 {
+		t.Errorf("live after prune: %d, want 2", got)
+	}
+	if p, _ := tr.MntOwner(0); p.Key.PID != 1 {
+		t.Errorf("oldest live: pid %d, want 1", p.Key.PID)
 	}
 }
