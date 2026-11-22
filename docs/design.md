@@ -192,9 +192,13 @@ struct event_hdr {
     __u32 pid_ns;          // inode number of the pid namespace
     __u32 mnt_ns;          // inode number of the mount namespace
     __u32 flags;           // per-type flag bits
+    __u32 net_ns;          // inode number of the network namespace (M14)
+    __u32 _pad;
     char  comm[16];
-};
+};                         // 88 bytes
 ```
+
+The ring buffer outlives its agent, so a record layout version (`events.LayoutVersion`) is pinned next to it, and an agent adopts a leftover buffer only if it was written in the layout it decodes.
 
 ### Event payloads
 
@@ -252,10 +256,10 @@ The two socket flags on exec are the basis of reverse-shell detection: the progr
 | cfg | ARRAY, 1 entry | index, struct tephra_cfg | Agent | Enabled event bitmask, agent tgid |
 | stats | PERCPU_ARRAY | event type, {seen, filtered, emitted, dropped} | Kernel | Per-hook counters, exported as metrics |
 | path_watch | LPM_TRIE | {prefixlen, path[128]}, watch bits | Agent | Path prefixes that file_open should emit; an exact path is stored with its terminating NUL |
-| inode_watch | HASH | {inode, dev}, watch bits | Agent | Files watched by identity |
+| inode_watch | HASH | {inode, dev}, watch bits | Agent | Files watched by identity. An entry with inode 0 watches every file on its device: a Kubernetes credential volume, a tmpfs of its own (M14) |
 | name_watch | HASH | name[32], watch bits | Agent | Files watched by their last path component, wherever they are |
 | agent_tasks | HASH | kernel tgid, start time of the process | Agent | Skip the agent's own process. Keyed by process, not cgroup: a process moved into the agent's cgroup is still seen (E15). The start time is compared too, so a process that later gets a dead agent's pid number is not skipped |
-| net_ignore_v4, net_ignore_v6 | LPM_TRIE | CIDR, 1 byte | Agent | Destinations never emitted (loopback, node-local) |
+| net_ignore_v4, net_ignore_v6 | LPM_TRIE | CIDR, 1 byte | Agent | Destinations never emitted. Empty by default: loopback is seen since M14 |
 
 ### In-kernel filtering
 
@@ -263,12 +267,12 @@ Filtering in the kernel is what keeps overhead low, because the expensive part o
 
 - Each program first checks its bit in cfg.enabled and returns if clear.
 - It then skips the agent's own process, looked up in agent_tasks.
-- file_open checks inode_watch, then name_watch, then resolves the path into scratch and does one path_watch lookup. No match means no event. The watch bits say whether an entry reports reads, writes or both, so a rule about writes costs nothing for reads. This is the only way file monitoring is affordable; unfiltered opens are the highest-volume event on any node.
+- file_open checks inode_watch (the file, then its whole device), then name_watch, then resolves the path into scratch and does one path_watch lookup. No match means no event. The watch bits say whether an entry reports reads, writes or both, so a rule about writes costs nothing for reads. This is the only way file monitoring is affordable; unfiltered opens are the highest-volume event on any node.
 - connect and accept check the remote address against the ignore tries.
 - Events are built in scratch and sent with bpf_ringbuf_output using the actual length, so a short argv does not consume 1.3 KiB of ring space. The cost is one extra copy compared with bpf_ringbuf_reserve.
 - If the ring buffer is full, the program increments stats.dropped for its type and returns. Drops are never silent: the agent exports the counter and the coverage report prints it.
 
-File watching also matches by identity. A second map, inode_watch (HASH, key {dev, inode}, value watch bits), is checked before path_watch, so a watched file opened through a hard link or an unexpected path is still emitted. The agent fills it by resolving each exact-file rule path to its inode: on the host at start-up, and inside each container when the container starts, through /proc/<pid>/root. Prefix rules for directories stay path-based.
+File watching also matches by identity. A second map, inode_watch (HASH, key {dev, inode}, value watch bits), is checked before path_watch, so a watched file opened through a hard link or an unexpected path is still emitted. The agent fills it by resolving each exact-file rule path to its inode: on the host at start-up, and inside each container when the container starts, through /proc/<pid>/root. Prefix rules for directories stay path-based. It also fills it with every service account token the pod specs name, whatever its path (M14): a token's volume is watched as a whole device, because the kubelet writes a new file at every rotation, and the agent matches each open on it against the token's name.
 
 ### Portability and kernel requirements
 
@@ -337,6 +341,8 @@ Events from cgroups with no container ID are labelled as host processes (`k8s.na
 
 A container's first processes run before its status reaches the API server. Until it does, the pod is resolved through the pod UID in the cgroup path, and the event carries namespace, pod and labels but no container name or image.
 
+A cgroup can be changed from inside a pod: a process moved into another container's cgroup would be named under that container. Since M14 the process tree also keeps the container each process was born in, and for a process seeded from /proc, the container whose mount namespace it is in. When that disagrees with the cgroup, the event is named under the container the process came from and marked `process.identity_mismatch`. The informer also keeps, from each pod's spec, where its service account tokens are mounted.
+
 In kind, each node is itself a container, so pod cgroups are nested under the node container's cgroup on the VM. The path-matching step must handle that extra prefix, and the M2 acceptance test runs on kind for exactly this reason.
 
 kind has a second consequence. All its nodes share one kernel, so every agent's programs see every node's processes, and the pids the kernel reports in the root namespace are not the pids the node's /proc shows. At start-up the agent runs a small program in its own context to learn its pid namespace (depth and inode) and its cgroup. The kernel programs then report pids as numbered in that namespace and drop tasks outside it. On a real node the namespace is the root one and nothing is dropped.
@@ -368,12 +374,14 @@ An alert is the same object wrapped with rule.id, rule.title, rule.level and rul
 ### Export
 
 - stdout: always on. One JSON object per line, so kubectl logs works with no backend.
-- gRPC: optional, enabled when a collector address is configured. A bounded queue (default 8,192 records) sits in front of the stream; when it is full, raw events are dropped before alerts and the drop is counted. Records are sent in batches of up to 512, one stream each, and stay in the queue until the collector acknowledges the stream, so a failed stream is sent again.
+- Grouping (M14): the first alert of a kind (rule, pod, container, program and target) is sent at once; repeats within 10 seconds become one summary with a count and sample command lines. A pod that opens more than 50 kinds in 10 seconds has the rest grouped by rule alone.
+- Loopback connections (M14) are judged by the rules but leave the agent only as alerts, unless `export.loopback_events` is on; what is held back is counted.
+- gRPC: optional, enabled when a collector address is configured. A bounded queue (default 8,192 records) sits in front of the stream; when it is full, raw events are dropped before alerts, and when it holds only alerts, the oldest of the lowest level goes first. Every drop is counted, alerts by level. Records are sent in batches of up to 512, one stream each, and stay in the queue until the collector acknowledges the stream, so a failed stream is sent again.
 - Reconnect uses exponential backoff from 1 to 30 seconds.
 
 ### Configuration
 
-One YAML file mounted from a ConfigMap, reloaded on SIGHUP together with the rules: enabled event types, ring buffer size, the network ignore list, extra file watches, rules directory, collector address, whether raw events are exported or only alerts. If the new file or any rule is invalid, the agent keeps running on what it had and logs the reason. The ring buffer size, the collector address and the metrics address are read at start-up only.
+One YAML file mounted from a ConfigMap, reloaded on SIGHUP together with the rules: enabled event types, ring buffer size, the network ignore list (empty by default), extra file watches, rules directory, collector address, whether raw events are exported or only alerts, and whether raw events of loopback connections are exported too (off by default). If the new file or any rule is invalid, the agent keeps running on what it had and logs the reason. The ring buffer size, the collector address and the metrics address are read at start-up only.
 
 ## 6. Rule engine
 
@@ -577,6 +585,8 @@ What is reported instead:
 | Any process asking to attach to the agent or read or write its memory | R033, critical (and R015 from a container) |
 | An agent silent for 45 s without announcing a stop | R031, high, once per silence |
 | An agent that came back as a new process without announcing a stop (killed, crashed, out of memory) | R031, medium, with the count of events recorded while it was down |
+
+Debugging a pod by entering its namespaces from another pod (`nsenter` from a privileged debug pod, or from a `kubectl debug node/...` pod) raises R036, high: from a pod it cannot be told apart from an intruder doing the same. Debug through `kubectl exec` or `kubectl debug` into the pod itself instead, which goes through the runtime and raises nothing of its own.
 
 An attacker who is a cluster administrator, or root on the node, can use the same doors. That is not something a sensor can prevent; what Tephra guarantees is that it cannot be stopped silently from inside a workload, and that every way of stopping it leaves a record somewhere off the node.
 
@@ -844,7 +854,7 @@ M9, M10, M11 and M12 are independent of each other once M8 is done and can be ta
 
 M13, correlation rules (needs M8): a sequence block in the rule schema, per-process-tree and per-pod state with a bounded window and memory cap, and two shipped rules (download then execute the downloaded file; service account token read then Kubernetes API connection). Acceptance: both rules fire on A03 and A05, neither fires in the false-positive run, and state memory stays under its cap in the exec-heavy benchmark.
 
-M14, closing evasion classes (needs M9, M12, M13): the held-out scenarios E09 to E16 written and committed first, with predictions, and run on the unchanged sensor as a baseline; then fixes per weakness class, not per scenario: identity of executables by content rather than name or path, detection of sessions that start no program, and tamper resistance (recording across agent restarts, reporting signals sent to the agent, a gap alert from the collector). Acceptance: E01 to E08 all detected or visible; E09 to E16 run once on the fixed sensor and reported as measured, every miss with a write-up; A01 to A22 still detected; zero high or critical alerts in the false-positive run.
+M14, closing evasion classes (needs M9, M12, M13): the held-out scenarios E09 to E16 written and committed first, with predictions, and run on the unchanged sensor as a baseline; then fixes per weakness class, not per scenario: identity of executables by content rather than name or path, detection of sessions that start no program, and tamper resistance (recording across agent restarts, reporting signals sent to the agent, a gap alert from the collector). Acceptance: E01 to E08 all detected or visible; E09 to E16 run once on the fixed sensor and reported as measured, every miss with a write-up; A01 to A22 still detected; zero high or critical alerts in the false-positive run. After Phase 4 run 1, the fixes were planned again by class (borrowed identity, drowning the alert, hidden session channels, credentials found by path), with held-out sets 2 and 2b (E19 to E27) written before them; a full re-run on 7.0 and 5.15 is the new baseline, with E19 to E27 run once and reported as measured.
 
 M15, application behaviour profiles (after v0.2.0; needs M14): learn what each workload's application normally does in its first period of life (files opened, destinations connected to, programs started) and alert on what is new, so that code running inside the application's own process is no longer exempt by being the application. Acceptance to be set when the milestone is planned.
 
@@ -1172,3 +1182,4 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
   - **New fields.** `file.k8s_credential: sa_token`, `file.credential_pod` (whose token) and `file.credential_other_pod`. R006 now matches the credential, not the path. The standard-path test stays, for the moments before a container is resolved. A main binary reading another pod's token is not left out; the kubelet (a runtime binary), which reads the tokens it writes to check them, is.
   - **Tests:** token mounts from a pod spec (automount, custom name, subPath, a container without the volume); the watcher on a fake container root (any path and name, the volume's other files not, rotation on a volume watched by inode, removal with the container); the record fields, another pod's token included; and in the kernel, a whole-device watch catching a file written after it, and nothing on another device.
   - **Not covered:** ordinary Secret volumes (database passwords and the like) are the same class, but entrypoints read them all the time, so a rule needs to know what the application normally does (M15). The field is built to take `secret` later. Tokens in legacy Secret-based service account volumes are not projections and are not covered; Kubernetes has not made them by default since 1.24. A token the application copies elsewhere is a new file; reading the copy is not a token read, though the read made to copy it is, unless the application itself made it.
+- **Docs brought in step with the fixes.** Sections 4, 5 and 7 described the sensor before them: the 88-byte header and its pinned layout version, inode_watch's whole-device entries, the empty network ignore list, attribution by birth container, credentials from the pod specs, grouping and level-ordered drops, the loopback setting, and R036 for debugging by `nsenter` in "Operating Tephra". The README counts 36 rule files (R031 is raised by the collector). Section 10 records the re-planned fixes and the re-run as M14's new baseline.

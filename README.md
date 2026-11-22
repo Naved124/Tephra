@@ -31,13 +31,14 @@ Milestones follow section 10 of the design.
 | M10 Benchmarks | Done: against Falco and Tetragon, in [docs/benchmarks.md](docs/benchmarks.md) |
 | M12 Enforcement | Done; kernel tests pass on 5.15, 6.8 and 7.0 |
 | M13 Correlation rules | Done; kernel tests pass on 5.15, 6.8 and 7.0 |
+| M14 Closing evasion classes | In progress: first run measured, fixes by attack class done, full re-run on 7.0 and 5.15 next |
 
 What works today: the agent watches process starts and exits, connections
 (IPv4, IPv6 and Unix sockets), opens of watched files, opens of those files
 that the kernel refused, watched files being deleted, renamed, replaced or
 linked, ptrace attach, credential changes, mounts, namespace switches, kernel
 module loads, BPF program loads and memfd creation on its node. It attributes
-each event to a pod, evaluates the 32 detection rules in [rules/](rules/), and writes events
+each event to a pod, evaluates the 36 detection rules in [rules/](rules/), and writes events
 and alerts as JSON lines on stdout. A collector forwards both to Loki, and a
 Grafana dashboard shows the alerts and the sensor's own health.
 
@@ -252,7 +253,12 @@ and is meant for a lab or a demo. To use your own Loki, set
 An agent keeps a record until the collector confirms that Loki stored it, so
 a collector restart loses nothing that was queued. The queue is bounded
 (8,192 records by default); when it overflows, raw events are dropped before
-alerts and every drop is counted in `tephra_export_dropped_total`.
+alerts, and when it holds only alerts the oldest of the lowest level goes
+first, so a flood cannot push out a critical alert. Every drop is counted in
+`tephra_export_dropped_total`, and alerts by level in
+`tephra_export_dropped_alerts_total`. Before the queue, repeats of
+an alert within 10 seconds are sent as one summary with a count; the first
+one is always sent at once.
 
 ## Requirements
 
