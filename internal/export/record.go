@@ -184,7 +184,7 @@ type File struct {
 	Inode    uint64 `json:"inode"`
 	Dev      uint32 `json:"dev"`
 	// MatchedBy is the kernel filter that let the event through: "path",
-	// "name" or "inode".
+	// "name", "inode" or "device" (a watched credential volume).
 	MatchedBy string `json:"matched_by"`
 	// Op is set on file_change: what was done to the name (unlink,
 	// rename_from, rename_to, link, symlink, truncate).
@@ -192,6 +192,15 @@ type File struct {
 	// Error is set on file_denied: why the kernel refused the open
 	// (EACCES, EPERM or EROFS).
 	Error string `json:"error,omitempty"`
+	// K8sCredential is set when the file is a Kubernetes credential,
+	// known from the pod spec whatever path was used: "sa_token".
+	K8sCredential string `json:"k8s_credential,omitempty"`
+	// CredentialPod is the pod the credential belongs to, as
+	// namespace/name.
+	CredentialPod string `json:"credential_pod,omitempty"`
+	// CredentialOtherPod: the credential belongs to another pod than the
+	// one that opened it.
+	CredentialOtherPod bool `json:"credential_other_pod,omitempty"`
 }
 
 // Parent is the process's parent as the process tree knows it.

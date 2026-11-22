@@ -231,10 +231,13 @@ var fields = map[string]field{
 		}
 		return value{ss: []string{f.Path}, ok: true}
 	}),
-	"file.flags":      fileField(kInt, func(f *export.File) value { return integer(int64(f.Flags)) }),
-	"file.write":      fileField(kBool, func(f *export.File) value { return boolean(f.Write) }),
-	"file.truncate":   fileField(kBool, func(f *export.File) value { return boolean(f.Truncate) }),
-	"file.matched_by": fileField(kString, func(f *export.File) value { return str(f.MatchedBy) }),
+	"file.flags":                fileField(kInt, func(f *export.File) value { return integer(int64(f.Flags)) }),
+	"file.write":                fileField(kBool, func(f *export.File) value { return boolean(f.Write) }),
+	"file.truncate":             fileField(kBool, func(f *export.File) value { return boolean(f.Truncate) }),
+	"file.matched_by":           fileField(kString, func(f *export.File) value { return str(f.MatchedBy) }),
+	"file.k8s_credential":       fileField(kString, func(f *export.File) value { return str(f.K8sCredential) }),
+	"file.credential_pod":       fileField(kString, func(f *export.File) value { return str(f.CredentialPod) }),
+	"file.credential_other_pod": fileField(kBool, func(f *export.File) value { return boolean(f.CredentialOtherPod) }),
 	"file.op": {kind: kString, events: []string{"file_change"}, get: func(r *export.Record) value {
 		if r.File == nil {
 			return value{}

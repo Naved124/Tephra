@@ -229,4 +229,10 @@ message File {
   string op = 9;
   // Set on file_denied: EACCES, EPERM or EROFS.
   string error = 10;
+  // Set when the file is a Kubernetes credential: sa_token.
+  string k8s_credential = 11;
+  // The pod the credential belongs to, namespace/name.
+  string credential_pod = 12;
+  // The credential belongs to another pod than the one that opened it.
+  bool credential_other_pod = 13;
 }

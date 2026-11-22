@@ -26,6 +26,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 
 	"github.com/Naved124/tephra/internal/config"
+	"github.com/Naved124/tephra/internal/credwatch"
 	"github.com/Naved124/tephra/internal/enrich"
 	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/export"
@@ -228,11 +229,14 @@ type agent struct {
 	sensor       *loader.Sensor
 	tree         *proctree.Tree
 	tracker      *inodewatch.Tracker
-	runtimes     *runtimeid.Set
-	ids          *identity.Catalog
-	enricher     *enrich.Enricher
-	stdout       *export.JSONLines
-	grpc         *export.GRPC
+	creds        *credwatch.Watcher
+	// pods is nil outside a cluster.
+	pods     *k8s.PodIndex
+	runtimes *runtimeid.Set
+	ids      *identity.Catalog
+	enricher *enrich.Enricher
+	stdout   *export.JSONLines
+	grpc     *export.GRPC
 	// groups folds repeated alerts, so that a flood of them cannot push
 	// out the one that matters.
 	groups *export.Grouper
@@ -280,6 +284,31 @@ func (a *agent) apply(s *settings) error {
 	a.log.Info("configuration loaded", "rules", len(s.rules.Rules), "file_watches", len(f.Watches),
 		"inode_watches", inodes, "roots", roots, "runtime_binaries", runtimeBinaries, "net_ignore", len(f.NetIgnore), "events", on, "raw_events", s.cfg.Export.RawEvents)
 	return nil
+}
+
+// resolveCredentials watches the service account token of every container
+// that runs on the node, resolved in its own root filesystem through one of
+// its processes.
+func (a *agent) resolveCredentials() {
+	if a.pods == nil {
+		return
+	}
+	byContainer := map[string][]k8s.TokenMount{}
+	for _, t := range a.pods.Tokens() {
+		byContainer[t.ContainerID] = append(byContainer[t.ContainerID], t)
+	}
+	if len(byContainer) == 0 {
+		return
+	}
+	done := map[string]bool{}
+	for _, p := range a.tree.Live() {
+		ts := byContainer[p.ContainerID]
+		if len(ts) == 0 || done[p.ContainerID] {
+			continue
+		}
+		done[p.ContainerID] = true
+		a.creds.Resolve(p.Key.PID, ts)
+	}
 }
 
 // observeRoots resolves the watched files in the node's own root and in the
@@ -556,6 +585,8 @@ func run(log *slog.Logger, o options) error {
 		sensor:       sensor,
 		tree:         tree,
 		tracker:      inodewatch.New(o.procRoot, sensor),
+		creds:        credwatch.New(o.procRoot, sensor, filter.Read),
+		pods:         pods,
 		runtimes:     runtimeid.New(o.procRoot, nil),
 		ids:          identity.New(o.procRoot),
 		enricher:     enrich.New(node, tree, procfs, k8s.NewCgroupResolver(o.cgroupRoot), pods),
@@ -565,6 +596,7 @@ func run(log *slog.Logger, o options) error {
 		started:      started,
 	}
 	a.enricher.ObserveRoots(a.tracker)
+	a.enricher.SetCredentials(a.creds)
 	a.enricher.SetRuntimes(a.runtimes)
 	a.enricher.SetIdentity(a.ids)
 	a.enricher.SetAgent(uint32(os.Getpid()), sensor.Self().StartNS)
@@ -614,6 +646,16 @@ func run(log *slog.Logger, o options) error {
 	}
 	go func() { readErr <- read(sensor.Events(), queue, c, log, sensor.Own, backlogBefore) }()
 
+	// Credentials: resolved now, when a pod changes (a new container's ID
+	// arrives with its status), and every 30 seconds, which picks up a
+	// token rotated on a volume watched by inode.
+	a.resolveCredentials()
+	var podsChanged <-chan struct{}
+	if pods != nil {
+		podsChanged = pods.Changed()
+	}
+	creds := time.NewTicker(30 * time.Second)
+	defer creds.Stop()
 	reap := time.NewTicker(10 * time.Second)
 	defer reap.Stop()
 	gc := time.NewTicker(time.Minute)
@@ -626,6 +668,10 @@ func run(log *slog.Logger, o options) error {
 		select {
 		case now := <-health.C:
 			a.health(node, now)
+		case <-podsChanged:
+			a.resolveCredentials()
+		case <-creds.C:
+			a.resolveCredentials()
 		case now := <-groups.C:
 			a.flushGroups(now)
 		case <-ctx.Done():
@@ -660,6 +706,7 @@ func run(log *slog.Logger, o options) error {
 				live[p.ContainerID] = true
 			}
 			a.tracker.GC(func(owner string) bool { return live[owner] })
+			a.creds.GC(func(container string) bool { return live[container] })
 			// A runtime upgraded since the last look.
 			a.runtimes.Refresh()
 		case ev := <-queue:

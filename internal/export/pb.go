@@ -69,6 +69,7 @@ func ToProto(r *Record) *tephrav1.Record {
 		p.File = &tephrav1.File{
 			Path: x.Path, Target: x.Target, Flags: x.Flags, Write: x.Write, Truncate: x.Truncate,
 			Inode: x.Inode, Dev: x.Dev, MatchedBy: x.MatchedBy, Op: x.Op, Error: x.Error,
+			K8SCredential: x.K8sCredential, CredentialPod: x.CredentialPod, CredentialOtherPod: x.CredentialOtherPod,
 		}
 	}
 	if x := r.Signal; x != nil {
@@ -172,6 +173,7 @@ func FromProto(p *tephrav1.Record) *Record {
 		r.File = &File{
 			Path: x.GetPath(), Target: x.GetTarget(), Flags: x.GetFlags(), Write: x.GetWrite(), Truncate: x.GetTruncate(),
 			Inode: x.GetInode(), Dev: x.GetDev(), MatchedBy: x.GetMatchedBy(), Op: x.GetOp(), Error: x.GetError(),
+			K8sCredential: x.GetK8SCredential(), CredentialPod: x.GetCredentialPod(), CredentialOtherPod: x.GetCredentialOtherPod(),
 		}
 	}
 	if x := p.GetSignal(); x != nil {

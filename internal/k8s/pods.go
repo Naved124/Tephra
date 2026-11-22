@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,23 @@ type podEntry struct {
 	name       string
 	labels     map[string]string
 	containers []string // container IDs indexed for this pod
-	deleted    time.Time
+	// tokens are the service account tokens mounted in each container,
+	// by container ID.
+	tokens  map[string][]TokenMount
+	deleted time.Time
+}
+
+// TokenMount is a service account token projected into a container, as the
+// pod spec says.
+type TokenMount struct {
+	ContainerID string
+	Namespace   string
+	Pod         string
+	// Path is where the container sees the token.
+	Path string
+	// Rel is the token's path inside its volume, as the projection names
+	// it ("token" for the automounted one).
+	Rel string
 }
 
 // PodIndex maps container IDs and pod UIDs to pods on this node.
@@ -37,6 +54,8 @@ type PodIndex struct {
 	mu          sync.Mutex
 	pods        map[string]*podEntry    // by pod UID
 	byContainer map[string]*Attribution // by container ID
+	// changed is signalled, without blocking, when a pod changes.
+	changed chan struct{}
 }
 
 // NewPodIndex returns an empty index.
@@ -44,7 +63,79 @@ func NewPodIndex() *PodIndex {
 	return &PodIndex{
 		pods:        make(map[string]*podEntry),
 		byContainer: make(map[string]*Attribution),
+		changed:     make(chan struct{}, 1),
 	}
+}
+
+// Changed is signalled when a pod was added or changed since the last
+// signal.
+func (x *PodIndex) Changed() <-chan struct{} { return x.changed }
+
+// Tokens lists the service account tokens mounted in the containers of the
+// pods that have not been deleted.
+func (x *PodIndex) Tokens() []TokenMount {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	var out []TokenMount
+	for _, e := range x.pods {
+		if !e.deleted.IsZero() {
+			continue
+		}
+		for _, ts := range e.tokens {
+			out = append(out, ts...)
+		}
+	}
+	return out
+}
+
+// tokenMounts finds the service account tokens a pod's spec projects into
+// each of its containers, by container name: every serviceAccountToken
+// source of a projected volume, at every place a container mounts it.
+func tokenMounts(pod *corev1.Pod) map[string][]TokenMount {
+	vols := map[string][]string{} // volume name to token paths in it
+	for _, v := range pod.Spec.Volumes {
+		if v.Projected == nil {
+			continue
+		}
+		for _, src := range v.Projected.Sources {
+			if src.ServiceAccountToken != nil && src.ServiceAccountToken.Path != "" {
+				vols[v.Name] = append(vols[v.Name], path.Clean(src.ServiceAccountToken.Path))
+			}
+		}
+	}
+	if len(vols) == 0 {
+		return nil
+	}
+	out := map[string][]TokenMount{}
+	add := func(name string, mounts []corev1.VolumeMount) {
+		for _, m := range mounts {
+			for _, rel := range vols[m.Name] {
+				p := path.Join(m.MountPath, rel)
+				if sub := path.Clean(m.SubPath); m.SubPath != "" {
+					// Only the subpath is mounted, at the mount path.
+					switch {
+					case sub == rel:
+						p = m.MountPath
+					case strings.HasPrefix(rel, sub+"/"):
+						p = path.Join(m.MountPath, strings.TrimPrefix(rel, sub+"/"))
+					default:
+						continue
+					}
+				}
+				out[name] = append(out[name], TokenMount{Namespace: pod.Namespace, Pod: pod.Name, Path: p, Rel: rel})
+			}
+		}
+	}
+	for _, c := range pod.Spec.InitContainers {
+		add(c.Name, c.VolumeMounts)
+	}
+	for _, c := range pod.Spec.Containers {
+		add(c.Name, c.VolumeMounts)
+	}
+	for _, c := range pod.Spec.EphemeralContainers {
+		add(c.Name, c.VolumeMounts)
+	}
+	return out
 }
 
 // Update records the current state of a pod.
@@ -62,6 +153,14 @@ func (x *PodIndex) Update(pod *corev1.Pod) {
 	e.name = pod.Name
 	e.labels = pod.Labels
 	e.deleted = time.Time{}
+	byName := tokenMounts(pod)
+	e.tokens = map[string][]TokenMount{}
+	defer func() {
+		select {
+		case x.changed <- struct{}{}:
+		default:
+		}
+	}()
 
 	// A restarted container gets a new ID. Old IDs stay until the pod is
 	// purged, because the old container's last events can still arrive.
@@ -78,6 +177,14 @@ func (x *PodIndex) Update(pod *corev1.Pod) {
 			}
 			if _, known := x.byContainer[id]; !known {
 				e.containers = append(e.containers, id)
+			}
+			// The running container: a restarted one's old ID is not
+			// resolved again.
+			if cs.State.Running != nil || cs.State.Waiting == nil && cs.State.Terminated == nil {
+				for _, t := range byName[cs.Name] {
+					t.ContainerID = id
+					e.tokens[id] = append(e.tokens[id], t)
+				}
 			}
 			x.byContainer[id] = &Attribution{
 				ContainerID:   id,

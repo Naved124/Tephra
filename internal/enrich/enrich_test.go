@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/Naved124/tephra/internal/credwatch"
 	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/export"
 	"github.com/Naved124/tephra/internal/identity"
@@ -1068,5 +1069,43 @@ func TestBorrowedIdentity(t *testing.T) {
 	// The agent itself is not.
 	if rec = exec(7000, 1, agentCg, agentMnt, "/tephrad"); rec.Process.InAgentContainer {
 		t.Error("the agent is marked as a stranger in its own container")
+	}
+}
+
+type fakeCreds map[uint32]credwatch.Credential
+
+func (c fakeCreds) Lookup(dev uint32, _ uint64, path string) (credwatch.Credential, bool) {
+	cr, ok := c[dev]
+	return cr, ok && !strings.HasSuffix(path, "ca.crt")
+}
+
+// A file the pod specs name as a credential is marked, whatever its path,
+// and so is a credential that belongs to another pod than the reader's.
+func TestCredentialRecord(t *testing.T) {
+	f := newFixture(t)
+	f.e.SetCredentials(fakeCreds{
+		0x200005: {Kind: credwatch.KindSAToken, Namespace: "shop", Pod: "web-7c9d8-xk2lp"},
+		0x200006: {Kind: credwatch.KindSAToken, Namespace: "bank", Pod: "payments-0"},
+	})
+	h := f.webShell("/bin/dd", "dd", "if=/opt/svc/creds")
+	h.Type = events.TypeFileOpen
+	h.Flags = events.FileByDev
+	open := func(dev uint32, path string) *export.File {
+		return f.e.Handle(&events.FileOpen{Header: h, Inode: 7, Dev: dev, WatchBits: 1, Path: path}, time.Now()).File
+	}
+	if got := open(0x200005, "/opt/svc/..2026_11_22_10_00_00.1/creds"); got.K8sCredential != "sa_token" ||
+		got.CredentialPod != "shop/web-7c9d8-xk2lp" || got.CredentialOtherPod || got.MatchedBy != "device" {
+		t.Errorf("own token: %+v", got)
+	}
+	if got := open(0x200006, "/hostkubelet/pods/u/volumes/kubernetes.io~projected/t/token"); got.K8sCredential != "sa_token" || !got.CredentialOtherPod {
+		t.Errorf("another pod's token: %+v", got)
+	}
+	if got := open(0x200005, "/opt/svc/ca.crt"); got.K8sCredential != "" || got.CredentialPod != "" {
+		t.Errorf("not the token: %+v", got)
+	}
+	// Matched by path alone: not looked up.
+	h.Flags = events.FileByPath
+	if got := open(0x200005, "/opt/svc/creds"); got.K8sCredential != "" {
+		t.Errorf("matched by path: %+v", got)
 	}
 }

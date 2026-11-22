@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/Naved124/tephra/internal/credwatch"
 	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/export"
 	"github.com/Naved124/tephra/internal/identity"
@@ -46,6 +47,8 @@ type Enricher struct {
 	mains map[string]*mainBinary
 	// inodes, if set, is told about every exec in a container.
 	inodes RootObserver
+	// creds, if set, says which files are Kubernetes credentials.
+	creds CredentialLookup
 	// apiServers are the addresses of the Kubernetes API.
 	apiServers map[netip.AddrPort]bool
 	// lastOpen is the latest file_open reported for each thread.
@@ -358,6 +361,15 @@ type mainBinary struct {
 // maxMains bounds the main-binary cache; entries are cheap to recompute.
 const maxMains = 4096
 
+// CredentialLookup says whether an open file is a Kubernetes credential;
+// credwatch.Watcher implements it.
+type CredentialLookup interface {
+	Lookup(dev uint32, inode uint64, path string) (credwatch.Credential, bool)
+}
+
+// SetCredentials sets who says which files are credentials.
+func (e *Enricher) SetCredentials(c CredentialLookup) { e.creds = c }
+
 // ObserveRoots sets who is told about execs in containers.
 func (e *Enricher) ObserveRoots(o RootObserver) { e.inodes = o }
 
@@ -588,6 +600,12 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 				rec.File.Target = target
 			}
 		}
+		if e.creds != nil && ev.Flags&(events.FileByDev|events.FileByInode) != 0 {
+			if c, ok := e.creds.Lookup(ev.Dev, ev.Inode, ev.Path); ok {
+				rec.File.K8sCredential = c.Kind
+				rec.File.CredentialPod = c.Namespace + "/" + c.Pod
+			}
+		}
 	}
 	if p.Key.PID == 0 {
 		// Not in the tree and already gone from /proc: report what the
@@ -621,6 +639,9 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 	parent, hasParent := e.ancestry(rec, p, h.CgroupID)
 	e.attribute(rec, p, h.CgroupID)
 	e.checkIdentity(rec, p, h.MntNS)
+	if f := rec.File; f != nil && f.CredentialPod != "" {
+		f.CredentialOtherPod = f.CredentialPod != rec.K8s.Namespace+"/"+rec.K8s.Pod
+	}
 	if runtimeCopy {
 		e.tree.SetRuntimeChild(p.Key)
 		rec.Process.Runtime = true
@@ -775,6 +796,8 @@ func matchedBy(flags uint32) string {
 		return "inode"
 	case flags&events.FileByName != 0:
 		return "name"
+	case flags&events.FileByDev != 0:
+		return "device"
 	}
 	return "path"
 }

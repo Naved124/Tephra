@@ -1719,9 +1719,15 @@ type File struct {
 	// truncate.
 	Op string `protobuf:"bytes,9,opt,name=op,proto3" json:"op,omitempty"`
 	// Set on file_denied: EACCES, EPERM or EROFS.
-	Error         string `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Error string `protobuf:"bytes,10,opt,name=error,proto3" json:"error,omitempty"`
+	// Set when the file is a Kubernetes credential: sa_token.
+	K8SCredential string `protobuf:"bytes,11,opt,name=k8s_credential,json=k8sCredential,proto3" json:"k8s_credential,omitempty"`
+	// The pod the credential belongs to, namespace/name.
+	CredentialPod string `protobuf:"bytes,12,opt,name=credential_pod,json=credentialPod,proto3" json:"credential_pod,omitempty"`
+	// The credential belongs to another pod than the one that opened it.
+	CredentialOtherPod bool `protobuf:"varint,13,opt,name=credential_other_pod,json=credentialOtherPod,proto3" json:"credential_other_pod,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *File) Reset() {
@@ -1822,6 +1828,27 @@ func (x *File) GetError() string {
 		return x.Error
 	}
 	return ""
+}
+
+func (x *File) GetK8SCredential() string {
+	if x != nil {
+		return x.K8SCredential
+	}
+	return ""
+}
+
+func (x *File) GetCredentialPod() string {
+	if x != nil {
+		return x.CredentialPod
+	}
+	return ""
+}
+
+func (x *File) GetCredentialOtherPod() bool {
+	if x != nil {
+		return x.CredentialOtherPod
+	}
+	return false
 }
 
 var File_api_tephra_v1_tephra_proto protoreflect.FileDescriptor
@@ -1988,7 +2015,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x10destination_port\x18\a \x01(\rR\x0fdestinationPort\x12\x1b\n" +
 	"\tunix_path\x18\b \x01(\tR\bunixPath\x12\x1c\n" +
 	"\n" +
-	"is_k8s_api\x18\t \x01(\bR\bisK8sApi\"\xe7\x01\n" +
+	"is_k8s_api\x18\t \x01(\bR\bisK8sApi\"\xe7\x02\n" +
 	"\x04File\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x14\n" +
@@ -2001,7 +2028,10 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"matched_by\x18\b \x01(\tR\tmatchedBy\x12\x0e\n" +
 	"\x02op\x18\t \x01(\tR\x02op\x12\x14\n" +
 	"\x05error\x18\n" +
-	" \x01(\tR\x05error29\n" +
+	" \x01(\tR\x05error\x12%\n" +
+	"\x0ek8s_credential\x18\v \x01(\tR\rk8sCredential\x12%\n" +
+	"\x0ecredential_pod\x18\f \x01(\tR\rcredentialPod\x120\n" +
+	"\x14credential_other_pod\x18\r \x01(\bR\x12credentialOtherPod29\n" +
 	"\bExporter\x12-\n" +
 	"\x06Export\x12\x11.tephra.v1.Record\x1a\x0e.tephra.v1.Ack(\x01B3Z1github.com/Naved124/tephra/api/tephra/v1;tephrav1b\x06proto3"
 

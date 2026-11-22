@@ -5,6 +5,7 @@ package k8s
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"syscall"
 	"testing"
 	"time"
@@ -209,5 +210,64 @@ func TestInitAndEphemeralContainersIndexed(t *testing.T) {
 	}
 	if a, ok := x.Lookup(cidB, ""); !ok || a.ContainerName != "debug" {
 		t.Errorf("ephemeral container = %+v, %v", a, ok)
+	}
+}
+
+// Every service account token a pod projects is found, at every place a
+// container mounts it, under the name the projection gives it.
+func TestTokenMounts(t *testing.T) {
+	sat := func(p string) corev1.VolumeProjection {
+		return corev1.VolumeProjection{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{Path: p}}
+	}
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{UID: "u1", Namespace: "shop", Name: "web"},
+		Spec: corev1.PodSpec{
+			Volumes: []corev1.Volume{
+				{Name: "kube-api-access-x", VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{
+					Sources: []corev1.VolumeProjection{sat("token"), {ConfigMap: &corev1.ConfigMapProjection{}}}}}},
+				{Name: "svc", VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{
+					Sources: []corev1.VolumeProjection{sat("creds")}}}},
+				{Name: "data", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+			},
+			Containers: []corev1.Container{
+				{Name: "app", VolumeMounts: []corev1.VolumeMount{
+					{Name: "kube-api-access-x", MountPath: "/var/run/secrets/kubernetes.io/serviceaccount"},
+					{Name: "svc", MountPath: "/opt/svc"},
+					{Name: "svc", MountPath: "/etc/one-file", SubPath: "creds"},
+					{Name: "data", MountPath: "/data"},
+				}},
+				{Name: "plain", VolumeMounts: []corev1.VolumeMount{{Name: "data", MountPath: "/data"}}},
+			},
+		},
+		Status: corev1.PodStatus{ContainerStatuses: []corev1.ContainerStatus{
+			{Name: "app", ContainerID: "containerd://aaa", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+			{Name: "plain", ContainerID: "containerd://bbb", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+		}},
+	}
+	x := NewPodIndex()
+	x.Update(pod)
+	select {
+	case <-x.Changed():
+	default:
+		t.Error("no change signalled")
+	}
+	got := map[string]string{}
+	for _, tm := range x.Tokens() {
+		if tm.ContainerID != "aaa" || tm.Namespace != "shop" || tm.Pod != "web" {
+			t.Errorf("token mount %+v", tm)
+		}
+		got[tm.Path] = tm.Rel
+	}
+	want := map[string]string{
+		"/var/run/secrets/kubernetes.io/serviceaccount/token": "token",
+		"/opt/svc/creds": "creds",
+		"/etc/one-file":  "creds",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("tokens %v, want %v", got, want)
+	}
+	x.Delete(pod, time.Now())
+	if n := len(x.Tokens()); n != 0 {
+		t.Errorf("%d tokens of a deleted pod", n)
 	}
 }

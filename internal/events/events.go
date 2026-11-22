@@ -122,6 +122,9 @@ const (
 	// FileKernelCreds marks an open made under credentials the kernel
 	// substituted, such as overlayfs opening a backing file.
 	FileKernelCreds = 1 << 4
+	// FileByDev: the file is on a device watched as a whole, a
+	// Kubernetes credential volume.
+	FileByDev = 1 << 5
 )
 
 // FileOps are the operations of a file_change, enum file_op in bpf/common.h,

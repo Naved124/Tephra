@@ -48,6 +48,15 @@ int BPF_PROG(tephra_file_open, struct file *file)
 		match = FILE_F_BY_INODE;
 		watch = *bits;
 	}
+	if (!match) {
+		struct inode_key dk = {.dev = ik.dev};
+
+		bits = bpf_map_lookup_elem(&inode_watch, &dk);
+		if (bits && (*bits & want)) {
+			match = FILE_F_BY_DEV;
+			watch = *bits;
+		}
+	}
 
 	if (!match) {
 		bpf_probe_read_kernel_str(

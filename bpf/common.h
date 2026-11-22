@@ -153,6 +153,8 @@ struct unix_event {
  * task's own: a filesystem opening a file on the task's behalf, as overlayfs
  * does for the backing file of every open. */
 #define FILE_F_KERNEL_CREDS (1U << 4)
+/* Matched an inode_watch entry with inode 0: every file on that device. */
+#define FILE_F_BY_DEV (1U << 5)
 
 /* Only path_len bytes of path are sent. */
 struct file_event {
@@ -467,7 +469,9 @@ struct {
 } path_watch SEC(".maps");
 
 /* Files watched by identity, so a hard link or an unexpected path to a
- * watched file is still reported. */
+ * watched file is still reported. An entry with inode 0 watches every file on
+ * its device: a Kubernetes credential volume is a filesystem of its own, and
+ * its files are replaced at every rotation (no real inode is 0). */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, 65536);

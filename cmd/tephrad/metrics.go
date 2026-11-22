@@ -82,6 +82,8 @@ func metricsHandler(a *agent, pods *k8s.PodIndex) http.Handler {
 		gauge(&b, "tephra_pods_known", "Pods in the pod index.", uint64(pods.Len()))
 		inodes, roots, errs := a.tracker.Stats()
 		gauge(&b, "tephra_inode_watches", "Files watched by identity.", uint64(inodes))
+		credWatches, _ := a.creds.Stats()
+		gauge(&b, "tephra_credential_watches", "Kubernetes credential volumes and files watched, from the pod specs.", uint64(credWatches))
 		gauge(&b, "tephra_watched_roots", "Root filesystems in which watched files were resolved.", uint64(roots))
 		counter(&b, "tephra_inode_watch_errors_total", "Failed writes to the inode watch map.", errs)
 		digests, files, idErrs := a.ids.Stats()

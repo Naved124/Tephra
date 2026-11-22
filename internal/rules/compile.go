@@ -20,6 +20,8 @@ import (
 //	file.path: /etc/shadow                    exact path, and by inode
 //	file.path|startswith: /etc/cron.d/        path prefix
 //	file.path|endswith: /authorized_keys      file name, in any directory
+//	file.k8s_credential: sa_token             the agent watches every credential
+//	                                          the pod specs name (credwatch)
 //
 // The whole condition is covered when every way of satisfying it goes
 // through a covered block.
@@ -96,6 +98,11 @@ func cover(e expr, blocks map[string]*block) ([]filter.Watch, bool, error) {
 
 func blockWatches(b *block) ([]filter.Watch, bool, error) {
 	for _, t := range b.tests {
+		if t.field == "file.k8s_credential" && t.modifier == "equals" && len(t.strs) > 0 {
+			// Watched by the agent from the pod specs, whatever the
+			// rules say: no watch of the rule's own is needed.
+			return []filter.Watch{}, true, nil
+		}
 		if t.field != "file.path" {
 			continue
 		}

@@ -497,3 +497,64 @@ func TestExecStdio(t *testing.T) {
 		}
 	}
 }
+
+// An identity watch with inode 0 watches every file on its device, as for a
+// Kubernetes credential volume, a tmpfs of its own whose files the kubelet
+// replaces at every rotation. Files on other devices are not reported.
+func TestFileOpenWholeDevice(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("needs root to mount a tmpfs")
+	}
+	dir, err := os.MkdirTemp("/tmp", "td")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	vol := filepath.Join(dir, "vol")
+	if err := os.Mkdir(vol, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mount("tmpfs", vol, "tmpfs", 0, "size=1m"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Unmount(vol, unix.MNT_DETACH) })
+	var (
+		token   = filepath.Join(vol, "..2026_11_22_10_00_00.1", "creds")
+		rotated = filepath.Join(vol, "..2026_11_22_11_00_00.2", "creds")
+		outside = filepath.Join(dir, "creds")
+	)
+	for _, p := range []string{token, rotated} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	touch(t, token)
+	touch(t, outside)
+
+	s := loadForTest(t, Options{})
+	var st unix.Stat_t
+	if err := unix.Stat(vol, &st); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutInode(KernelDev(unix.Major(st.Dev), unix.Minor(st.Dev)), 0, filter.Read); err != nil {
+		t.Fatal(err)
+	}
+	// Written after the watch, as a rotation would be.
+	touch(t, rotated)
+
+	for _, p := range []string{token, rotated} {
+		openFlags(t, p, os.O_RDONLY)
+		e := next(t, s, 5*time.Second, func(f *events.FileOpen) bool { return f.PID == self() && f.Path == p })
+		if e == nil {
+			t.Errorf("no file_open event for %s", p)
+			continue
+		}
+		if e.Flags&events.FileByDev == 0 || e.Inode == 0 {
+			t.Errorf("%s: flags %#x inode %d", p, e.Flags, e.Inode)
+		}
+	}
+	openFlags(t, outside, os.O_RDONLY)
+	if e := next(t, s, 500*time.Millisecond, func(f *events.FileOpen) bool { return f.PID == self() && f.Path == outside }); e != nil {
+		t.Errorf("a file on another device was reported: %+v", e)
+	}
+}
