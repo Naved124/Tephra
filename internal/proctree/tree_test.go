@@ -352,8 +352,8 @@ func TestPrune(t *testing.T) {
 		tr.Exec(execEv(Key{pid, uint64(pid)}, "/bin/sh"))
 	}
 	gone := map[uint32]bool{2: true, 4: true}
-	if n := tr.Prune(func(p Proc) bool { return !gone[p.Key.PID] }, time.Now()); n != 2 {
-		t.Fatalf("Prune = %d, want 2", n)
+	if n, checked := tr.Prune(func(p Proc) bool { return !gone[p.Key.PID] }, time.Now()); n != 2 || checked != 4 {
+		t.Fatalf("Prune = %d of %d, want 2 of 4", n, checked)
 	}
 	if got := len(tr.Live()); got != 2 {
 		t.Errorf("live after prune: %d, want 2", got)

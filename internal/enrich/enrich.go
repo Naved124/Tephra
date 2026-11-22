@@ -122,14 +122,14 @@ func (e *Enricher) Ghosts() uint64 { return e.ghosts }
 
 // Sweep checks every live process in the tree against /proc and marks those
 // that are gone as exited: run after the ring buffer reports drops, which
-// can lose exits. It returns how many it found.
-func (e *Enricher) Sweep(now time.Time) int {
-	n := e.tree.Prune(func(p proctree.Proc) bool { return e.alive(p, 0) }, now)
-	e.ghosts += uint64(n)
-	if n > 0 {
+// can lose exits. It returns how many it found and how many it checked.
+func (e *Enricher) Sweep(now time.Time) (found, checked int) {
+	found, checked = e.tree.Prune(func(p proctree.Proc) bool { return e.alive(p, 0) }, now)
+	e.ghosts += uint64(found)
+	if found > 0 {
 		e.mntOwners = nil
 	}
-	return n
+	return found, checked
 }
 
 // mntOwner returns the container of the oldest live process in a mount

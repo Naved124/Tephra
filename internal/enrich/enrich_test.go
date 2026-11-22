@@ -1168,7 +1168,7 @@ func TestGhostNamespaceOwner(t *testing.T) {
 	// A sweep after drops finds every ghost at once.
 	f, _ = setup(false)
 	f.dead[50] = true
-	if n := f.e.Sweep(time.Now()); n != 1 || f.e.Ghosts() != 1 {
+	if n, _ := f.e.Sweep(time.Now()); n != 1 || f.e.Ghosts() != 1 {
 		t.Errorf("sweep: %d found, %d counted, want 1", n, f.e.Ghosts())
 	}
 }

@@ -723,9 +723,10 @@ func run(log *slog.Logger, o options) error {
 		case now := <-reap.C:
 			if d := a.kernelDropped(); d != sweepDrops {
 				sweepDrops = d
-				if n := a.enricher.Sweep(now); n > 0 {
-					log.Info("process tree swept after lost events", "ghosts", n)
-				}
+				// Its cost is logged every time: it runs during a flood.
+				start := time.Now()
+				found, checked := a.enricher.Sweep(now)
+				log.Info("process tree swept after lost events", "ghosts", found, "checked", checked, "took", time.Since(start).String())
 			}
 			a.c.ghosts.Store(a.enricher.Ghosts())
 			tree.Reap(now)
