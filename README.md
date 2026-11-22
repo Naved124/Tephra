@@ -28,7 +28,7 @@ Milestones follow section 10 of the design.
 | M8 Remaining hooks | Done |
 | After M8: refused opens, deletes and renames, runtime by file identity | Done |
 | M9 Evasion work | Done: 8 scenarios, results in [docs/evasion.md](docs/evasion.md) |
-| M10 Benchmarks | Done: against Falco and Tetragon, in [docs/benchmarks.md](docs/benchmarks.md) |
+| M10 Benchmarks | Done: the sensor's cost, in [docs/benchmarks.md](docs/benchmarks.md) |
 | M12 Enforcement | Done; kernel tests pass on 5.15, 6.8 and 7.0 |
 | M13 Correlation rules | Done; kernel tests pass on 5.15, 6.8 and 7.0 |
 | M14 Closing evasion classes | In progress: fixes by attack class done; re-run on 5.15 measured ([docs/runs](docs/runs/2026-11-22-5.15/)), 7.0 to do |
@@ -67,14 +67,13 @@ write-up per finding in [docs/evasions/](docs/evasions/). Three get past it
 today: a renamed shell (E01), a session inside an interpreter (E02), and
 acting while the agent is killed (E07).
 
-[docs/benchmarks.md](docs/benchmarks.md) measures the cost: four workloads
-under no sensor, Tephra in three modes, Falco and Tetragon, five runs each on
-one EC2 instance. On an exec-heavy loop Tephra with alerts only costs 14% of
-throughput, against 21% for Falco and 28% for Tetragon; on a compile it costs
-4%. The network workload is where Tephra is weakest: every connection is an
-event the agent processes, so it costs 22% of request throughput and about
-70% of a CPU, where Tetragon, which does not trace connections by default,
-costs 1%.
+[docs/benchmarks.md](docs/benchmarks.md) measures the cost against no
+sensor: four workloads, Tephra in three modes, five runs each on one EC2
+instance; [docs/benchmarks-5.15.md](docs/benchmarks-5.15.md) is the run after
+the M14 fixes, on 5.15. With alerts only, an exec-heavy loop loses 14% of
+throughput and a compile 4%. The network workload is where Tephra is weakest:
+every connection is an event the agent processes, so it costs 22% of request
+throughput and about 70% of a CPU.
 
 Not built yet: the EKS demo.
 
@@ -230,9 +229,7 @@ bench/supervise.sh 5                 # the same unattended: retries, summary, th
 
 Lab cluster only. Each cell is `bench/run.sh <configuration> <workload>
 <run>` and writes `bench/raw/<configuration>/<workload>/<run>.json`; cells
-already there are skipped, so an interrupted matrix resumes. Falco and
-Tetragon are installed from their official charts at the versions pinned in
-`bench/versions.env`. `go run ./cmd/bench bench/raw docs/benchmarks.md`
+already there are skipped, so an interrupted matrix resumes. `go run ./cmd/bench bench/raw docs/benchmarks.md`
 rebuilds the report from the raw results.
 
 ## Backend

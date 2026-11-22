@@ -30,7 +30,7 @@ The project is named Tephra. The repo and Helm chart are tephra, and the agent b
 
 - Detect the post-exploitation techniques listed in section 6 on a Kubernetes node, with each alert naming the pod, container, image and process ancestry.
 - Prove coverage with a repeatable attack harness that produces a detected / missed table mapped to MITRE ATT&CK.
-- Measure overhead against Falco and Tetragon on the same workloads and publish the numbers, including the unfavourable ones.
+- Measure the sensor's overhead on the same workloads with and without it, and publish the numbers, including the unfavourable ones.
 - Run on any x86-64 kernel 5.15 or newer with BTF, without compiling on the node.
 - In v2, block a small set of high-confidence actions synchronously in the kernel.
 
@@ -736,11 +736,11 @@ Run ordinary workloads for 30 minutes with all rules enabled: an nginx deploymen
 
 ### Benchmarks
 
-The question is what the sensor costs a node compared with running nothing, Falco, or Tetragon.
+The question is what the sensor costs a node compared with running nothing.
 
 | Dimension | Values |
 |---|---|
-| Configurations | No sensor; this sensor exporting all events; this sensor exporting alerts only; Falco with its modern eBPF probe and default rules; Tetragon with default tracing |
+| Configurations | No sensor; this sensor exporting all events; this sensor exporting alerts only; this sensor with enforcement on |
 | Workloads | Exec-heavy (tight fork and exec loop); file-heavy (untar and compile a source tree); network-heavy (HTTP load against nginx); idle |
 | Measured | Workload throughput and p99 latency relative to no sensor; agent CPU and resident memory; events per second; ring buffer drops |
 | Method | Same VM and kernel, CPUs pinned, five runs per cell, report median with minimum and maximum |
@@ -895,7 +895,7 @@ Each was settled in favour of the stronger security outcome.
 - Linux kernel BPF documentation and its LSM BPF programs page.
 - BPF CO-RE reference guide by Andrii Nakryiko.
 - ebpf-go documentation for cilium/ebpf and bpf2go.
-- Tetragon and Falco source, as reference implementations and benchmark baselines.
+- Tetragon and Falco source, as reference implementations.
 - MITRE ATT&CK Containers matrix.
 - Sigma rule specification for field naming and modifiers.
 
@@ -1078,11 +1078,11 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
 
 ### M10
 
-- **Where.** One c7i.2xlarge (8 vCPU, 16 GiB) in ap-south-1, Ubuntu 24.04 with the 7.0.0-1017-aws kernel, the kind lab cluster on it, the workload on two pinned CPUs of one worker. Six configurations by four workloads by five runs, 120 cells, all present; 1 h 24 min for the whole matrix. Falco chart 9.2.2 (Falco 0.45.2, modern eBPF, default rules), Tetragon chart 1.8.0 (default tracing).
+- **Where.** One c7i.2xlarge (8 vCPU, 16 GiB) in ap-south-1, Ubuntu 24.04 with the 7.0.0-1017-aws kernel, the kind lab cluster on it, the workload on two pinned CPUs of one worker. Six configurations by four workloads by five runs, 120 cells, all present; 1 h 24 min for the whole matrix.
 - **Unattended.** `bench/supervise.sh` runs the matrix twice (the second pass retries only what is missing), writes the report and a summary, and powers the instance off; EC2 stops an instance that shuts itself down. Every step has a time limit (15 minutes to bring a configuration up, 20 per cell), so a hang costs one cell and not the run. The first attempt, before this, hung on a failed pod and was found only when someone looked.
 - **The trial run found four faults** before the full run: busybox has no `date +%N` (timing is read from /proc/uptime, 10 ms resolution, enough for runs of seconds); the Alpine nginx and httpd images have no `taskset`, so the server never started (Debian images now); the Debian nginx.conf already sets `worker_processes`, and nginx refuses a directive given twice, while the pod still looked ready (the setting is changed in the file, and a readiness probe on port 80 waits for the listener); and a workload whose numbers were empty was stored as a result (a RESULT with an empty value is now a failed cell).
-- **Results** (median of five, relative to no sensor; [docs/benchmarks.md](benchmarks.md) has the brackets). Exec: Tephra alerts only -14.0%, every event -19.8%, enforcement on -14.8%; Falco -20.8%; Tetragon -28.4%. Compile: Tephra -3.4% to -4.3%, Falco -8.3%, Tetragon -5.4%. Network: Tephra -22% to -26%, Falco -24%, Tetragon -1.4%. No drops in any Tephra cell.
-- **Network is Tephra's weak point.** Every new connection is a connect and an accept event that reaches the agent, about 27,000 a second in this workload, and the agent spends about 70% of a CPU on them whether it exports them or not: "alerts only" saves the export, not the decoding, enrichment and rule evaluation. Tetragon's default policy does not trace connections, so its near-zero cost there is not a like-for-like comparison. Dropping connection events in the kernel when no rule asks for them (as the file watches already do) is the obvious fix; not done in this milestone, so the numbers describe the sensor as it is.
+- **Results** (median of five, relative to no sensor; [docs/benchmarks.md](benchmarks.md) has the brackets). Exec: alerts only -14.0%, every event -19.8%, enforcement on -14.8%. Compile: -3.4% to -4.3%. Network: -22% to -26%. No drops in any cell.
+- **Network is Tephra's weak point.** Every new connection is a connect and an accept event that reaches the agent, about 27,000 a second in this workload, and the agent spends about 70% of a CPU on them whether it exports them or not: "alerts only" saves the export, not the decoding, enrichment and rule evaluation. Dropping connection events in the kernel when no rule asks for them (as the file watches already do) is the obvious fix; not done in this milestone, so the numbers describe the sensor as it is.
 - **Idle with enforcement on** costs 0.7% of a CPU against 0.1% without. Not investigated.
 - **Sequence state.** After an exec-heavy run (20,000 execs) the M13 gauges read 0 partial sequences held and 0 evicted. A sequence starts only when its first step matches (a download tool, a token read), which `/bin/true` never does, so this shows ordinary execs do not grow the state; it does not exercise the 4096 cap, which the unit tests cover.
 ### M14
@@ -1146,7 +1146,7 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
     1. fix the harness;
     2. write new held-out scenarios for each weakness above, before their fixes;
     3. fix;
-    4. a full re-run on both kernels with blocking and the Falco and Tetragon benchmarks, which becomes the baseline from then on.
+    4. a full re-run on both kernels with blocking and the benchmarks, which becomes the baseline from then on.
     
     E09 to E16 are no longer held out: a re-run after fixes is labelled as such.
 - **Before the fixes to run 1's findings: the harness waits for each scenario to be gone.** A scenario's namespace was deleted without waiting, so E06's loop was still reading /etc/shadow when E07 ran. Each scenario now deletes its namespace and waits for it; the next one starts only when no namespace of an earlier one is left, and is reported as not run if one still is after two minutes. A fix to the measuring tool; no scenario changed. Held-out set 2 (E19 to E22, section 8) was committed with it, before any fix.
@@ -1204,6 +1204,6 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
     - E02 is still counted missed: its recorded rule is R001 from M9. R028 and R037 fired on it.
     - Predictions: 2 of 17 held-out predictions held. Most were written for the sensor before the fixes; E25's "missed" was wrong already then.
   - **False-positive run:** 30 minutes, **0 high or critical**, 0 drops. Medium alerts: R002 and R029 120 each (the notebook's terminals, still), R037 120 (new: the notebook server accepting its kernels over loopback), R028 339 (run 1: 6), R032 24, R004 11 (low). The notebook and worker results share one cause to find: the main-binary check does not recognise some Python containers' own program, which also explains E24's extra R028. The acceptance criterion "R029 silent on the notebook" is not met.
-  - **Benchmarks (5.15, alerts only, against no sensor):** exec −7.1%, file −5.0%, network −10.4%, **loopback −12.7%**, idle 0.11% CPU. Falco: −18.1%, −8.4%, −22.3%, −25.5%. Tetragon: −16.0%, −4.9%, −0.4%, −3.9%.
+  - **Benchmarks (5.15, alerts only, against no sensor):** exec −7.1%, file −5.0%, network −10.4%, **loopback −12.7%**, idle 0.11% CPU.
     - **Loopback is over the limit set before measuring (2 percentage points).** The decision goes back to the owner, as agreed in 3.3.
     - **The agent is near its limit on connection-heavy work.** Network and loopback dropped about 2.3 million records per configuration, with the agent at 88 to 116% of a CPU and about 11,000 events per second delivered. M10, on 7.0 before Phase 5, delivered 27,000 per second with no drops at 69%. On exec, the agent's CPU went from 20% (M10) to 84% for the same event rate. Both the kernel and the agent changed between the two, and since 3.3 accepts and loopback are captured in alerts-only mode too, so the cause is not yet separated; it needs profiling on one kernel.

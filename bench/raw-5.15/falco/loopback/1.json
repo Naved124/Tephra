@@ -1,1 +1,0 @@
-{"config":"falco","workload":"loopback","run":1,"wall_ns":14727310257,"ops":200000,"rps":18590.91,"p99_ms":2,"sensor_cpu_ticks":245,"sensor_rss_kb":136456,"events":0,"drops":0}

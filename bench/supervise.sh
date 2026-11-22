@@ -17,7 +17,7 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
 
 RUNS="${1:-5}"
-CONFIGS="${CONFIGS:-none tephra-all tephra-alerts tephra-enforce falco tetragon}"
+CONFIGS="${CONFIGS:-none tephra-all tephra-alerts tephra-enforce}"
 WORKLOADS="${WORKLOADS:-idle exec file network loopback}"
 export CONFIGS WORKLOADS
 
