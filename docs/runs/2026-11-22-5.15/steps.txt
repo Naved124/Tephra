@@ -1,0 +1,12 @@
+2026-11-22T08:00:48Z OK test-root
+2026-11-22T08:00:54Z OK harness-build
+2026-11-22T08:07:35Z OK dev
+2026-11-22T08:13:43Z OK coverage
+2026-11-22T08:37:27Z OK evasions
+2026-11-22T09:08:29Z OK false-positives
+2026-11-22T09:09:00Z OK accept-enforce-dry
+2026-11-22T09:10:34Z OK enforce-dry
+2026-11-22T09:10:58Z OK accept-enforce-on
+2026-11-22T09:13:03Z OK enforce-on
+2026-11-22T10:46:43Z OK bench
+2026-11-22T10:46:43Z DONE

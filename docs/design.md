@@ -1183,3 +1183,27 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
   - **Tests:** token mounts from a pod spec (automount, custom name, subPath, a container without the volume); the watcher on a fake container root (any path and name, the volume's other files not, rotation on a volume watched by inode, removal with the container); the record fields, another pod's token included; and in the kernel, a whole-device watch catching a file written after it, and nothing on another device.
   - **Not covered:** ordinary Secret volumes (database passwords and the like) are the same class, but entrypoints read them all the time, so a rule needs to know what the application normally does (M15). The field is built to take `secret` later. Tokens in legacy Secret-based service account volumes are not projections and are not covered; Kubernetes has not made them by default since 1.24. A token the application copies elsewhere is a new file; reading the copy is not a token read, though the read made to copy it is, unless the application itself made it.
 - **Docs brought in step with the fixes.** Sections 4, 5 and 7 described the sensor before them: the 88-byte header and its pinned layout version, inode_watch's whole-device entries, the empty network ignore list, attribution by birth container, credentials from the pod specs, grouping and level-ordered drops, the loopback setting, and R036 for debugging by `nsenter` in "Operating Tephra". The README counts 36 rule files (R031 is raised by the collector). Section 10 records the re-planned fixes and the re-run as M14's new baseline.
+- **Phase 5, run 2 on 5.15 (22 Nov), the sensor after the fixes (`9b90614`).** One on-demand c7i.2xlarge on 5.15.0-1121-aws, about three hours, then destroyed. The plan was 5.15 then 7.0, one after the other; the 7.0 run was not done this time, so this is the first half of the new baseline. Results: [runs/2026-11-22-5.15](runs/2026-11-22-5.15/), benchmarks in [benchmarks-5.15.md](benchmarks-5.15.md) (raw cells in `bench/raw-5.15`).
+  - **Kernel tests:** 32 passed, none failed. The whole-device watch, the layout version and the tamper tests all ran on the oldest supported kernel.
+  - **Acceptance M0 to M6:** all passed. An alert reached Grafana 2.1 s after the action.
+  - **Attack scenarios A01 to A22:** 22 of 22 detected.
+  - **Blocking in the cluster, first time on 5.15:** M12 acceptance passed in dry-run and on; 6 of 6 blocking scenarios as expected in each mode.
+  - **Evasions:**
+
+    | Group | Run 1 | Run 2 (5.15) |
+    |---|---|---|
+    | Original E01 to E08 | 6 of 8 | 7 of 8 |
+    | E09 to E16 (no longer held out) | 6 of 8 | 8 of 8 |
+    | Held-out sets 2 and 2b, E19 to E27 | — | 8 of 9 |
+    | Checks E17, E18 | 1 of 2 | 2 of 2 |
+
+    - E12, E15 and E17, missed in run 1, were caught: E12 by R028 and R037 (loopback seen), E15 with R034 naming the move, E17 by R006 (the token known from the pod spec).
+    - **E26 missed, by attribution.** R034, R036 and R005 all fired, but every record was named under a pod deleted one scenario earlier: E23's flood had dropped that pod's exit events, and the attacker's new mount namespace reused its namespace number, so the borrowed-identity check took a ghost as the namespace's owner. Write-up: [evasions/E26.md](evasions/E26.md).
+    - **E23 detected only by the node alerts.** R030 and R031 fired, but the victim's `/etc/shadow` read was dropped in the full ring buffer while the agent was dead (1,055,986 drops). The drowning fix protects what reaches the agent, not the kernel buffer when nothing reads it. Write-up: [evasions/E23.md](evasions/E23.md).
+    - E24 was caught by R037 naming the victim. R028 also fired on the operator pod's own Python, which is that container's main program: the main-binary check failed there, as in the false-positive run below.
+    - E02 is still counted missed: its recorded rule is R001 from M9. R028 and R037 fired on it.
+    - Predictions: 2 of 17 held-out predictions held. Most were written for the sensor before the fixes; E25's "missed" was wrong already then.
+  - **False-positive run:** 30 minutes, **0 high or critical**, 0 drops. Medium alerts: R002 and R029 120 each (the notebook's terminals, still), R037 120 (new: the notebook server accepting its kernels over loopback), R028 339 (run 1: 6), R032 24, R004 11 (low). The notebook and worker results share one cause to find: the main-binary check does not recognise some Python containers' own program, which also explains E24's extra R028. The acceptance criterion "R029 silent on the notebook" is not met.
+  - **Benchmarks (5.15, alerts only, against no sensor):** exec −7.1%, file −5.0%, network −10.4%, **loopback −12.7%**, idle 0.11% CPU. Falco: −18.1%, −8.4%, −22.3%, −25.5%. Tetragon: −16.0%, −4.9%, −0.4%, −3.9%.
+    - **Loopback is over the limit set before measuring (2 percentage points).** The decision goes back to the owner, as agreed in 3.3.
+    - **The agent is near its limit on connection-heavy work.** Network and loopback dropped about 2.3 million records per configuration, with the agent at 88 to 116% of a CPU and about 11,000 events per second delivered. M10, on 7.0 before Phase 5, delivered 27,000 per second with no drops at 69%. On exec, the agent's CPU went from 20% (M10) to 84% for the same event rate. Both the kernel and the agent changed between the two, and since 3.3 accepts and loopback are captured in alerts-only mode too, so the cause is not yet separated; it needs profiling on one kernel.

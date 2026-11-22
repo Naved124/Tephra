@@ -1,0 +1,9 @@
+accept-enforce-dry.log:PASS: M12
+dev.log:PASS: program attached on 3/3 nodes
+dev.log:PASS: M1
+dev.log:PASS: M2
+dev.log:PASS: M3
+dev.log:PASS: M4
+dev.log:PASS: M5
+dev.log:PASS: M6
+accept-enforce-on.log:PASS: M12

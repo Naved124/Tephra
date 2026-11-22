@@ -1,0 +1,1 @@
+{"config":"tetragon","workload":"network","run":2,"wall_ns":12646650658,"ops":200000,"rps":27014.21,"p99_ms":2,"sensor_cpu_ticks":8,"sensor_rss_kb":336284,"events":0,"drops":0}

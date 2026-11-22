@@ -31,7 +31,7 @@ Milestones follow section 10 of the design.
 | M10 Benchmarks | Done: against Falco and Tetragon, in [docs/benchmarks.md](docs/benchmarks.md) |
 | M12 Enforcement | Done; kernel tests pass on 5.15, 6.8 and 7.0 |
 | M13 Correlation rules | Done; kernel tests pass on 5.15, 6.8 and 7.0 |
-| M14 Closing evasion classes | In progress: first run measured, fixes by attack class done, full re-run on 7.0 and 5.15 next |
+| M14 Closing evasion classes | In progress: fixes by attack class done; re-run on 5.15 measured ([docs/runs](docs/runs/2026-11-22-5.15/)), 7.0 to do |
 
 What works today: the agent watches process starts and exits, connections
 (IPv4, IPv6 and Unix sockets), opens of watched files, opens of those files
