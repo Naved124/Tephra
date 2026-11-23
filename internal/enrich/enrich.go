@@ -726,8 +726,8 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 			(parent.CgroupID == h.CgroupID || parent.ContainerID == rec.Container.ID) {
 			rec.Parent.Identity = parent.Identity
 			rec.Parent.IsMainBinary = e.isMainBinary(rec.Container.ID, parent, false)
-			if first, ok := e.tree.OldestInContainer(rec.Container.ID); ok {
-				rec.Parent.ContainerFirst = first.Key == parent.Key
+			if first, ok := e.firstProcess(rec.Container.ID); ok {
+				rec.Parent.ContainerFirst = first == parent.Key
 			}
 		}
 	}
@@ -813,6 +813,22 @@ func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool
 		return p.ExeDev == m.dev && p.ExeInode == m.inode
 	}
 	return p.Image != "" && p.Image == m.image
+}
+
+// firstProcess is the container's first process: the one that runs its
+// program. It is the process isMainBinary settled on, so a container
+// watched while it starts gets the program the runtime handed over to, not
+// runc's setup stage that is older than it. While the runtime is still
+// setting the container up there is no first process yet.
+func (e *Enricher) firstProcess(containerID string) (proctree.Key, bool) {
+	if m := e.mains[containerID]; m != nil {
+		return m.key, !m.runtime
+	}
+	first, ok := e.tree.OldestInContainer(containerID)
+	if !ok || e.isRuntime(first) {
+		return proctree.Key{}, false
+	}
+	return first.Key, true
 }
 
 func (e *Enricher) network(ev *events.Net) *export.Network {
