@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use or refer to this software, please cite it as below."
+title: "Tephra: an eBPF runtime threat-detection sensor for Kubernetes"
+type: software
+authors:
+  - given-names: "MD Naved Raja"
+    family-names: "Khan"
+    orcid: "https://orcid.org/0009-0004-0426-2822"
+repository-code: "https://github.com/Naved124/tephra"
+url: "https://naved124.github.io/"
+abstract: >-
+  An eBPF sensor that watches process, file and network activity on
+  Kubernetes nodes from the Linux kernel, attributes each event to its pod,
+  container and image, detects post-exploitation techniques with YAML rules,
+  and can block a small set of high-confidence actions through LSM hooks.
+  Coverage is measured with an attack harness and held-out evasion scenarios,
+  and node overhead with published benchmarks.
+keywords:
+  - ebpf
+  - kubernetes
+  - runtime security
+  - intrusion detection
+  - linux kernel
+license:
+  - Apache-2.0
+  - GPL-2.0-only
