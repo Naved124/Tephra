@@ -96,6 +96,20 @@ type Tree struct {
 	// exit order.
 	order  *list.List
 	exited *list.List
+
+	// The processes of each container, and the answers to "oldest in the
+	// container" and "first born in its pid namespace", which every exec
+	// asks. A cached answer stays right while no older process arrives
+	// and it stays in the tree, in its container and namespace; index and
+	// unindex keep it so, and a missing one is found again from members.
+	members   map[string]map[*Proc]struct{}
+	oldest    map[string]*Proc
+	firstBorn map[bornKey]*Proc
+}
+
+type bornKey struct {
+	containerID string
+	pidNS       uint32
 }
 
 // New returns an empty tree. Zero values select the defaults.
@@ -113,6 +127,54 @@ func New(capacity int, linger time.Duration) *Tree {
 		byPID:  make(map[uint32]*Proc),
 		order:  list.New(),
 		exited: list.New(),
+
+		members:   make(map[string]map[*Proc]struct{}),
+		oldest:    make(map[string]*Proc),
+		firstBorn: make(map[bornKey]*Proc),
+	}
+}
+
+func older(a, b *Proc) bool { return a.Key.StartNS < b.Key.StartNS }
+
+// index adds p to its container's members and to any cached answer it
+// beats. A container with no cached answer is left to be found on demand.
+func (t *Tree) index(p *Proc) {
+	if p.ContainerID == "" {
+		return
+	}
+	m := t.members[p.ContainerID]
+	if m == nil {
+		m = make(map[*Proc]struct{})
+		t.members[p.ContainerID] = m
+	}
+	m[p] = struct{}{}
+	if o, ok := t.oldest[p.ContainerID]; ok && older(p, o) {
+		t.oldest[p.ContainerID] = p
+	}
+	k := bornKey{p.ContainerID, p.PidNS}
+	if o, ok := t.firstBorn[k]; ok && older(p, o) {
+		t.firstBorn[k] = p
+	}
+}
+
+// unindex removes p from its container's members and drops any cached
+// answer that was p.
+func (t *Tree) unindex(p *Proc) {
+	if p.ContainerID == "" {
+		return
+	}
+	if m := t.members[p.ContainerID]; m != nil {
+		delete(m, p)
+		if len(m) == 0 {
+			delete(t.members, p.ContainerID)
+		}
+	}
+	if t.oldest[p.ContainerID] == p {
+		delete(t.oldest, p.ContainerID)
+	}
+	k := bornKey{p.ContainerID, p.PidNS}
+	if t.firstBorn[k] == p {
+		delete(t.firstBorn, k)
 	}
 }
 
@@ -157,6 +219,7 @@ func (t *Tree) insert(p *Proc) *Proc {
 	t.procs[p.Key] = p
 	t.byPID[p.Key.PID] = p
 	p.elem = t.order.PushBack(p)
+	t.index(p)
 	return p
 }
 
@@ -166,6 +229,7 @@ func (t *Tree) remove(p *Proc) {
 		delete(t.byPID, p.Key.PID)
 	}
 	t.order.Remove(p.elem)
+	t.unindex(p)
 }
 
 // evict drops the process that exited longest ago. If nothing has exited,
@@ -247,7 +311,11 @@ func (t *Tree) Exec(ev *events.Exec) Proc {
 		p.Attr = nil
 	}
 	p.MntNS = ev.MntNS
-	p.PidNS = ev.PidNS
+	if p.PidNS != ev.PidNS {
+		t.unindex(p)
+		p.PidNS = ev.PidNS
+		t.index(p)
+	}
 	p.NetNS = ev.NetNS
 	return *p
 }
@@ -307,15 +375,19 @@ func (t *Tree) ByPID(pid uint32) (Proc, bool) {
 func (t *Tree) OldestInContainer(containerID string) (Proc, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if p, ok := t.oldest[containerID]; ok {
+		return *p, true
+	}
 	var best *Proc
-	for _, p := range t.procs {
-		if p.ContainerID == containerID && (best == nil || p.Key.StartNS < best.Key.StartNS) {
+	for p := range t.members[containerID] {
+		if best == nil || older(p, best) {
 			best = p
 		}
 	}
 	if best == nil {
 		return Proc{}, false
 	}
+	t.oldest[containerID] = best
 	return *best, true
 }
 
@@ -335,15 +407,20 @@ func (t *Tree) SetOrigin(k Key, id string) {
 func (t *Tree) FirstBornIn(containerID string, pidNS uint32) (Proc, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	k := bornKey{containerID, pidNS}
+	if p, ok := t.firstBorn[k]; ok {
+		return *p, true
+	}
 	var best *Proc
-	for _, p := range t.procs {
-		if p.ContainerID == containerID && p.PidNS == pidNS && (best == nil || p.Key.StartNS < best.Key.StartNS) {
+	for p := range t.members[containerID] {
+		if p.PidNS == pidNS && (best == nil || older(p, best)) {
 			best = p
 		}
 	}
 	if best == nil {
 		return Proc{}, false
 	}
+	t.firstBorn[k] = best
 	return *best, true
 }
 
@@ -388,8 +465,10 @@ func (t *Tree) MntOwner(mnt uint32) (Proc, bool) {
 func (t *Tree) SetContainerID(k Key, id string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if p := t.get(k); p != nil {
+	if p := t.get(k); p != nil && p.ContainerID != id {
+		t.unindex(p)
 		p.ContainerID = id
+		t.index(p)
 	}
 }
 

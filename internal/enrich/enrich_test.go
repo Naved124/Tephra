@@ -33,7 +33,7 @@ const (
 )
 
 type fixture struct {
-	t       *testing.T
+	t       testing.TB
 	proc    string
 	cgroups string
 	tree    *proctree.Tree
@@ -42,7 +42,7 @@ type fixture struct {
 	dead    map[uint32]bool
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t testing.TB) *fixture {
 	f := &fixture{
 		t:       t,
 		proc:    t.TempDir(),
@@ -375,7 +375,7 @@ func TestJSONLinesNoHTMLEscape(t *testing.T) {
 	}
 }
 
-func toJSON(t *testing.T, r *export.Record) string {
+func toJSON(t testing.TB, r *export.Record) string {
 	t.Helper()
 	b, err := json.Marshal(r)
 	if err != nil {
