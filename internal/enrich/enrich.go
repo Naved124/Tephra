@@ -791,10 +791,10 @@ func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool
 		}
 		m = &mainBinary{key: first.Key, image: first.Image, dev: first.ExeDev, inode: first.ExeInode, runtime: e.isRuntime(first)}
 		e.mains[containerID] = m
-		if m.runtime && isExec && !e.isRuntime(p) {
+		if m.runtime && isExec && !e.isRuntime(p) && e.containerInit(containerID, p) {
 			m.key, m.image, m.dev, m.inode, m.runtime = p.Key, p.Image, p.ExeDev, p.ExeInode, false
 		}
-	case isExec && (p.Key == m.key || m.runtime && !e.isRuntime(p)):
+	case isExec && (p.Key == m.key || m.runtime && !e.isRuntime(p) && e.containerInit(containerID, p)):
 		m.key, m.image, m.dev, m.inode = p.Key, p.Image, p.ExeDev, p.ExeInode
 		m.runtime = e.isRuntime(p)
 	}
@@ -813,6 +813,23 @@ func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool
 		return p.ExeDev == m.dev && p.ExeInode == m.inode
 	}
 	return p.Image != "" && p.Image == m.image
+}
+
+// containerInit reports whether p is the process the runtime hands the
+// container over to: the first process born in the container's pid
+// namespace. runc's init stage executes the program itself; a hook the
+// runtime runs while starting the container (kind's
+// mount-product-files.sh, for one) is a child of that stage, born in the
+// same namespace after it, so it never takes the place. The setup stage
+// that created the namespace was not born in it. Exited processes count,
+// so the answer does not depend on the order exits are handled in. With
+// the namespace unknown (0), any program executed qualifies, as before.
+func (e *Enricher) containerInit(containerID string, p proctree.Proc) bool {
+	if p.PidNS == 0 {
+		return true
+	}
+	first, ok := e.tree.FirstBornIn(containerID, p.PidNS)
+	return !ok || first.Key == p.Key
 }
 
 // firstProcess is the container's first process: the one that runs its

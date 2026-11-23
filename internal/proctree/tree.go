@@ -328,6 +328,25 @@ func (t *Tree) SetOrigin(k Key, id string) {
 	}
 }
 
+// FirstBornIn returns the oldest process the tree has, exited or not, of a
+// container whose children are born in a pid namespace: the namespace's
+// first process. Exited processes count, so the answer does not depend on
+// whether an exit was handled before a later event.
+func (t *Tree) FirstBornIn(containerID string, pidNS uint32) (Proc, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var best *Proc
+	for _, p := range t.procs {
+		if p.ContainerID == containerID && p.PidNS == pidNS && (best == nil || p.Key.StartNS < best.Key.StartNS) {
+			best = p
+		}
+	}
+	if best == nil {
+		return Proc{}, false
+	}
+	return *best, true
+}
+
 // InNamespace returns the live processes in a namespace of a kind (mnt,
 // pid or net), oldest first.
 func (t *Tree) InNamespace(kind string, inum uint32) []Proc {
