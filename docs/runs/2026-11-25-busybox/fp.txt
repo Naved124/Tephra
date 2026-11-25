@@ -1,0 +1,12 @@
+waiting for the workloads
+workloads running; measuring for 30m0s
+  rolling update of deployment/web (5m0s in)
+  rolling update of deployment/web (10m0s in)
+  rolling update of deployment/web (15m0s in)
+  rolling update of deployment/web (20m0s in)
+  rolling update of deployment/web (25m0s in)
+  rolling update of deployment/web (30m0s in)
+R002  medium   tephra-fp                120  /bin/sh [sh -c ls / > /dev/null; exit]
+R004  low      tephra-fp                 11  /sbin/apk [apk manifest nginx]
+R032  medium   tephra-fp                 24  /bin/sh [/bin/sh -c mkdir -p /app && echo 'echo hello' > /app/run.sh && chmod +x /app/run.sh]
+false-positive run: 30 minutes, 0 high or critical alerts, 0 drops

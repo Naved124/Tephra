@@ -1,0 +1,156 @@
++ make dev
++ CGO_ENABLED=0
++ go build -trimpath -o bin/harness ./cmd/harness
+go: downloading go.yaml.in/yaml/v3 v3.0.4
+go: downloading google.golang.org/grpc v1.85.0
+go: downloading google.golang.org/protobuf v1.36.12
+go: downloading golang.org/x/net v0.60.0
+go: downloading google.golang.org/genproto/googleapis/rpc v0.0.0-20260817212433-ac3dfec99bb1
+go: downloading golang.org/x/sys v0.48.0
+go: downloading golang.org/x/text v0.42.0
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=true --set agent.loopbackEvents=false --set agent.quietConnections=true --set agent.ringWakeup.bytes=65536
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ D=docs/runs/2026-11-25-busybox
++ mkdir -p docs/runs/2026-11-25-busybox
++ for r in 1 2 3
++ bin/harness run --context kind-tephra --out docs/runs/2026-11-25-busybox/a05-1 A05
+A05 Read the service account token, then query the Kubernetes API
+A05  detected  R006=detected R013=detected R026=detected  also: R004
+1 scenarios, 0 not detected; report in docs/runs/2026-11-25-busybox/a05-1/coverage.md
++ echo 'A05 round=1 exit 0'
+A05 round=1 exit 0
++ for r in 1 2 3
++ bin/harness run --context kind-tephra --out docs/runs/2026-11-25-busybox/a05-2 A05
+A05 Read the service account token, then query the Kubernetes API
+A05  detected  R006=detected R013=detected R026=detected  also: R004
+1 scenarios, 0 not detected; report in docs/runs/2026-11-25-busybox/a05-2/coverage.md
++ echo 'A05 round=2 exit 0'
+A05 round=2 exit 0
++ for r in 1 2 3
++ bin/harness run --context kind-tephra --out docs/runs/2026-11-25-busybox/a05-3 A05
+A05 Read the service account token, then query the Kubernetes API
+A05  detected  R006=detected R013=detected R026=detected  also: R004
+1 scenarios, 0 not detected; report in docs/runs/2026-11-25-busybox/a05-3/coverage.md
++ echo 'A05 round=3 exit 0'
+A05 round=3 exit 0
++ bin/harness run --all --context kind-tephra --out docs/runs/2026-11-25-busybox/attacks
+A01 Reverse shell from a web server pod to a listener pod
+A01  detected  R001=detected R002=detected  also: R004,R027
+A02 Run a harmless binary from a memfd with no file on disk
+A02  detected  R003=detected  also: R032
+A03 Download a tool into a running container and execute it
+A03  detected  R004=detected R025=detected  also: R032
+A04 Read /etc/shadow from a non-system process
+A04  detected  R005=detected
+A05 Read the service account token, then query the Kubernetes API
+A05  detected  R006=detected R013=detected R026=detected  also: R004
+A06 Write an entry to /etc/ld.so.preload
+A06  detected  R007=detected
+A07 Add a cron entry
+A07  detected  R008=detected
+A08 Append a key to authorized_keys
+A08  detected  R009=detected
+A09 Open the containerd socket through a hostPath mount
+A09  detected  R010=detected  also: R028
+A10 Write a cgroup release_agent from a privileged pod
+A10  detected  R011=detected  also: R017
+A11 Truncate shell history
+A11  detected  R012=detected
+A12 Connect to a lab listener on a mining-pool port
+A12  detected  R014=detected  also: R004
+A13 ptrace attach to a neighbouring process
+A13  detected  R015=detected
+A14 Load a benign kernel module from a privileged pod
+A14  detected  R016=detected
+A15 Mount the host root filesystem from a privileged pod
+A15  detected  R017=detected
+A16 Enter host namespaces with nsenter from a hostPID pod
+A16  detected  R018=detected
+A17 Load a BPF program with a second tool
+A17  detected  R020=detected
+A18 Delete shell history and link it to /dev/null
+A18  detected  R022=detected
+A19 Move a file onto /etc/ld.so.preload
+A19  detected  R023=detected
+A20 Refused read of /etc/shadow by an unprivileged user
+A20  detected  R024=detected
+A21 Start a program with LD_PRELOAD set
+A21  detected  R021=detected
+A22 Effective uid goes from non-zero to zero outside an exec
+A22  detected  R019=detected
+22 scenarios, 0 not detected; report in docs/runs/2026-11-25-busybox/attacks/coverage.md
++ echo 'attacks exit 0'
+attacks exit 0
++ bin/harness run --evasions --all --context kind-tephra --out docs/runs/2026-11-25-busybox/evasions
+E01 Reverse shell through a copy of the shell under another name
+E01  detected  R001=detected  also: R002,R027,R028,R032,R037  predicted missed, measured detected
+E02 Interactive session implemented inside Python, no shell executed
+E02  missed    R001=missed  also: R028,R037  predicted missed, measured missed
+E03 Read /etc/shadow through a hard link under an unwatched name
+E03  detected  R005=detected  predicted detected, measured detected
+E04 Open /etc/shadow through io_uring instead of the open system call
+E04  detected  R005=detected  predicted detected, measured detected
+E05 Flood the sensor with short-lived processes, then read /etc/shadow
+E05  detected  R005=detected  predicted detected, measured detected
+E06 Rewrite the path argument from a second thread while openat runs
+E06  detected  R005=detected  predicted detected, measured detected
+E07 Kill the agent on the node, read /etc/shadow, let the agent restart
+E07  detected  R005=detected  also: R030  predicted missed, measured detected  drops 0, agent restarts 1
+E08 The payload at the end of a command line longer than the capture limit
+E08  detected  R005=detected  predicted partial, measured detected
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  detected  R001=detected  also: R004,R025,R027,R032  predicted missed, measured detected
+E10 Read /etc/shadow with another program copied over an allowlisted path
+E10  detected  R005=detected  also: R032  predicted missed, measured detected
+E11 Download and run a file with Python's own HTTP client, no download tool
+E11  missed    R004=missed R025=missed  also: R028,R032  predicted missed, measured detected
+E12 Interactive session implemented inside Perl, no shell executed
+E12  missed    R001=missed  also: R028,R037  predicted missed, measured detected
+E13 Reverse shell through a pseudo-terminal relayed to a socket
+E13  missed    R001=missed  also: R002,R028,R029,R037  predicted missed, measured detected
+E14 Freeze the agent, read /etc/shadow, kill the agent before it reads its buffer
+E14  detected  R005=detected  also: R030  predicted missed, measured detected  drops 0, agent restarts 1
+E15 Read /etc/shadow from inside the agent's own cgroup
+E15  detected  R005=detected  also: R034  predicted missed, measured detected
+E16 Flood the sensor with connections, then read /etc/shadow
+E16  detected  R005=detected  also: R028,R037  predicted detected, measured detected
+E17 Read a service account token projected at a custom path
+E17  detected  R006=detected  predicted missed, measured detected
+E18 Read the application's service account token through /proc/<pid>/root from a sidecar
+E18  detected  R006=detected  predicted detected, measured detected
+E19 Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program
+E19  detected  R005=detected R030=detected  predicted partial, measured detected  drops 145927, agent restarts 1
+E20 Read the pod's service account token from inside the agent's cgroup
+E20  detected  R006=detected  also: R034  predicted missed, measured detected
+E21 Interactive Perl session relayed to a listener through a proxy sidecar on loopback
+E21  detected  R028=detected  also: R014  predicted missed, measured detected
+E22 Read a service account token projected under another name, with dd
+E22  detected  R006=detected  predicted missed, measured detected
+E23 Flood alerts from 200 differently named programs, kill the agent, read /etc/shadow
+E23  detected  R005=detected R030=detected  predicted partial, measured detected  drops 615221, agent restarts 1
+E24 Interactive Python session that listens for its operator instead of connecting out
+E24  partial   R028=partial (alert names pod "operator", expected "victim")  also: R037  predicted missed, measured detected
+E25 Interactive Perl session relayed through a proxy sidecar's Unix socket
+E25  detected  R028=detected  also: R014  predicted missed, measured detected
+E26 Move into another pod's cgroup and mount namespace, then read /etc/shadow
+E26  detected  R005=detected  also: R034,R036  predicted missed, measured detected
+E27 Read another pod's service account token from the node's side of its volume
+E27  detected  R006=detected  predicted missed, measured detected
+27 evasion scenarios, 20 predictions corrected; report in docs/runs/2026-11-25-busybox/evasions/evasion.md
++ echo 'evasions exit 0'
+evasions exit 0
++ bin/harness fp --context kind-tephra
++ echo 'fp exit 0'
+fp exit 0
++ echo BBDONE
+BBDONE

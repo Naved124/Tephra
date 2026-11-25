@@ -117,6 +117,36 @@ func TestIdentifiedThroughLiveRoot(t *testing.T) {
 	}
 }
 
+// A multi-call binary reports the applet it runs; any other file none.
+func TestAppletOfMultiCall(t *testing.T) {
+	bb, tb, dash := content('b', 4096), content('t', 4096), content('d', 4096)
+	proc := fakeProc(t, "400", map[string][]byte{
+		"/bin/busybox":  bb,
+		"/bin/toybox":   tb,
+		"/usr/bin/dash": dash,
+	}, map[string]string{"/bin/wget": "busybox", "/bin/sleep": "busybox", "/bin/cat": "toybox"})
+	c := New(proc)
+	c.ObserveRoot(400)
+	for _, tc := range []struct {
+		path string
+		argv []string
+		want string
+	}{
+		{"/bin/wget", []string{"wget", "-q", "x"}, "wget"},
+		{"/bin/sleep", []string{"/bin/sleep", "3600"}, "sleep"},
+		{"/bin/busybox", []string{"busybox", "nc", "-l"}, "nc"},
+		{"/bin/cat", []string{"cat", "/etc/hostname"}, "cat"},
+		{"/bin/toybox", []string{"toybox", "/bin/sh"}, "sh"},
+		{"/usr/bin/dash", []string{"sh", "-c", "id"}, ""},
+	} {
+		x := exeOf(t, proc, "400", tc.path, tc.argv...)
+		c.Identify(x)
+		if got := c.Applet(x); got != tc.want {
+			t.Errorf("%v: applet %q, want %q", tc.argv, got, tc.want)
+		}
+	}
+}
+
 func TestBusyboxAppletDecides(t *testing.T) {
 	bb := content('b', 4096)
 	proc := fakeProc(t, "200", map[string][]byte{

@@ -89,6 +89,8 @@ type Identifier interface {
 	// could.
 	ObserveRoot(pid uint32) bool
 	Identify(x identity.Exe) identity.Role
+	// Applet is the program a multi-call binary runs, "" for any other.
+	Applet(x identity.Exe) string
 }
 
 // SetIdentity sets who recognises binaries by their content.
@@ -429,6 +431,8 @@ type mainBinary struct {
 	image string
 	dev   uint32
 	inode uint64
+	// applet: the program the main binary runs when it is busybox.
+	applet string
 	// runtime: the oldest process seen so far is the runtime setting the
 	// container up, so the main binary is still to come.
 	runtime bool
@@ -724,8 +728,8 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		rec.Process.Runtime = true
 	}
 	if x, ok := ev.(*events.Exec); ok && !rec.Process.Runtime {
-		p.Identity, p.ExeModified = e.identify(x, rec, p)
-		e.tree.SetIdentity(p.Key, p.Identity, p.ExeModified)
+		p.Identity, p.ExeModified, p.Applet = e.identify(x, rec, p)
+		e.tree.SetIdentity(p.Key, p.Identity, p.ExeModified, p.Applet)
 	}
 	rec.Process.Identity = p.Identity
 	rec.Process.ExeModified = p.ExeModified
@@ -752,9 +756,9 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 // it changed after its container started. Only processes in containers are
 // identified: the catalogue is learned from container images, and the
 // change time is judged against the container's start.
-func (e *Enricher) identify(ev *events.Exec, rec *export.Record, p proctree.Proc) (string, bool) {
+func (e *Enricher) identify(ev *events.Exec, rec *export.Record, p proctree.Proc) (string, bool, string) {
 	if rec.Container == nil {
-		return "", false
+		return "", false, ""
 	}
 	var rootPID uint32
 	modified := false
@@ -766,7 +770,7 @@ func (e *Enricher) identify(ev *events.Exec, rec *export.Record, p proctree.Proc
 		}
 	}
 	if e.ids == nil {
-		return "", modified
+		return "", modified, ""
 	}
 	// A new root filesystem shows up with its first exec. The process may
 	// be gone by the time its event is handled (runc's setup stage often
@@ -800,11 +804,12 @@ func (e *Enricher) identify(ev *events.Exec, rec *export.Record, p proctree.Proc
 			e.idRoots[rec.Container.ID] = true
 		}
 	}
-	role := e.ids.Identify(identity.Exe{
+	x := identity.Exe{
 		PID: ev.PID, Path: ev.Path, Dev: ev.Dev, Inode: ev.Inode, Ctime: ev.CtimeNS,
 		Argv: ev.Argv, RootPID: rootPID, LiveRoot: liveRoot,
-	})
-	return string(role), modified
+	}
+	role := e.ids.Identify(x)
+	return string(role), modified, e.ids.Applet(x)
 }
 
 // isMainBinary reports whether p runs the binary its container started
@@ -827,14 +832,14 @@ func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool
 		if len(e.mains) >= maxMains {
 			e.mains = map[string]*mainBinary{}
 		}
-		m = &mainBinary{key: first.Key, image: first.Image, dev: first.ExeDev, inode: first.ExeInode, runtime: e.isRuntime(first)}
+		m = &mainBinary{key: first.Key, image: first.Image, dev: first.ExeDev, inode: first.ExeInode, applet: first.Applet, runtime: e.isRuntime(first)}
 		e.mains[containerID] = m
 		if m.runtime && isExec && !e.isRuntime(p) && e.containerInit(containerID, p) {
-			m.key, m.image, m.dev, m.inode, m.runtime = p.Key, p.Image, p.ExeDev, p.ExeInode, false
+			m.key, m.image, m.dev, m.inode, m.applet, m.runtime = p.Key, p.Image, p.ExeDev, p.ExeInode, p.Applet, false
 		}
 	case isExec && (p.Key == m.key || m.runtime && !e.isRuntime(p) && e.containerInit(containerID, p)):
 		before := *m
-		m.key, m.image, m.dev, m.inode = p.Key, p.Image, p.ExeDev, p.ExeInode
+		m.key, m.image, m.dev, m.inode, m.applet = p.Key, p.Image, p.ExeDev, p.ExeInode, p.Applet
 		m.runtime = e.isRuntime(p)
 		if *m != before && e.onMainChange != nil {
 			e.onMainChange(containerID)
@@ -850,9 +855,11 @@ func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool
 		return false
 	}
 	// The same file, when both are known; a path names whatever file is
-	// there now.
+	// there now. Every busybox applet is the same file, so for busybox the
+	// applet must be the same too: wget in a pod whose program is busybox's
+	// sleep is not the main binary (A05).
 	if m.inode != 0 && p.ExeInode != 0 {
-		return p.ExeDev == m.dev && p.ExeInode == m.inode
+		return p.ExeDev == m.dev && p.ExeInode == m.inode && p.Applet == m.applet
 	}
 	return p.Image != "" && p.Image == m.image
 }
