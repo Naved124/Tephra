@@ -1,0 +1,67 @@
+{
+  "date": "2026-11-25",
+  "sensor": "v0.1.0-34-ge373db7-dirty (tephra/tephrad:dev)",
+  "kernel": "5.15.0-1121-aws",
+  "results": [
+    {
+      "id": "E01",
+      "title": "Reverse shell through a copy of the shell under another name",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.004",
+        "attack.defense_evasion",
+        "attack.t1036.003"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "detected",
+          "latency_ms": 170,
+          "event": "{\"ts\":\"2026-11-25T12:50:30.645227Z\",\"type\":\"exec\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R001\",\"title\":\"Shell with a network socket as stdin and stdout\",\"level\":\"high\",\"tags\":[\"attack.execution\",\"attack.t1059.004\"]},\"process\":{\"pid\":682331,\"start_time_ns\":8050718407251,\"Image\":\"/tmp/kworker\",\"CommandLine\":\"/tmp/kworker\",\"uid\":0,\"gid\":0,\"cgroup_id\":62793,\"identity\":\"shell\",\"tree\":\"682323.8050599690610\",\"stdin_is_socket\":true,\"stdout_is_socket\":true,\"unlinked\":false,\"setuid\":false,\"argv_truncated\":false,\"inode\":3100172,\"dev\":416,\"cap_effective\":2818844155,\"exe_ctime_ns\":1795611030527289827,\"env_truncated\":false},\"parent\":{\"pid\":682329,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"identity\":\"interpreter\"},\"ancestors\":[\"/usr/local/bin/python3\",\"/usr/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"0116b4db3fb988044e03be91224658b6a5fd190b8811dec4b9b5eda17a4e9830\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-slim\"},\"k8s\":{\"namespace\":\"tephra-e01-3f608c\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}}}"
+        }
+      ],
+      "also_fired": [
+        "R002",
+        "R027",
+        "R028",
+        "R037"
+      ],
+      "visible_ms": 3219,
+      "ring_buffer_drops": 0,
+      "note": "The copy is dash under /tmp/kworker; R001 matches on the name of the binary.",
+      "predicted": "missed"
+    },
+    {
+      "id": "E09",
+      "title": "Reverse shell through a renamed copy of busybox, shell chosen by argument",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.004",
+        "attack.defense_evasion",
+        "attack.t1036.003"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "missed"
+        }
+      ],
+      "also_fired": [
+        "R004",
+        "R025",
+        "R027",
+        "R032"
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out. busybox is copied to /tmp/.cache/busybox and its sh applet is reached through a two-line script that nc -e runs, so the executed file is a shell that carries neither a shell's path nor a shell's name.",
+      "predicted": "missed",
+      "heldout": true,
+      "noticed": [
+        "R004",
+        "R025",
+        "R027",
+        "R032"
+      ]
+    }
+  ]
+}

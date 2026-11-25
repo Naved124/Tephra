@@ -1,0 +1,1 @@
+{"config":"tephra-all-quiet-batch","workload":"network","run":1,"wall_ns":12608961553,"ops":200000,"rps":26086.86,"p99_ms":2,"sensor_cpu_ticks":21,"sensor_rss_kb":121908,"events":600,"drops":0}

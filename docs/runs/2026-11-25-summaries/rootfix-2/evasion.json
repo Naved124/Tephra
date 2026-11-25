@@ -1,0 +1,72 @@
+{
+  "date": "2026-11-25",
+  "sensor": "v0.1.0-34-ge373db7-dirty (tephra/tephrad:dev)",
+  "kernel": "5.15.0-1121-aws",
+  "results": [
+    {
+      "id": "E01",
+      "title": "Reverse shell through a copy of the shell under another name",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.004",
+        "attack.defense_evasion",
+        "attack.t1036.003"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "detected",
+          "latency_ms": 165,
+          "event": "{\"ts\":\"2026-11-25T13:14:16.834716Z\",\"type\":\"exec\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R001\",\"title\":\"Shell with a network socket as stdin and stdout\",\"level\":\"high\",\"tags\":[\"attack.execution\",\"attack.t1059.004\"]},\"process\":{\"pid\":717677,\"start_time_ns\":9476907987535,\"Image\":\"/tmp/kworker\",\"CommandLine\":\"/tmp/kworker\",\"uid\":0,\"gid\":0,\"cgroup_id\":71938,\"identity\":\"shell\",\"exe_modified\":true,\"tree\":\"717668.9476792145735\",\"stdin_is_socket\":true,\"stdout_is_socket\":true,\"unlinked\":false,\"setuid\":false,\"argv_truncated\":false,\"inode\":3100788,\"dev\":415,\"cap_effective\":2818844155,\"exe_ctime_ns\":1795612456718626322,\"env_truncated\":false},\"parent\":{\"pid\":717675,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\"},\"ancestors\":[\"/usr/local/bin/python3\",\"/usr/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"be46610fa52f1de4b1b3741b77621126b785eb5a9c4b83c3da67e937fba0eedd\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-slim\"},\"k8s\":{\"namespace\":\"tephra-e01-1e48d7\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}}}"
+        }
+      ],
+      "also_fired": [
+        "R002",
+        "R027",
+        "R028",
+        "R032",
+        "R037"
+      ],
+      "visible_ms": 2204,
+      "ring_buffer_drops": 0,
+      "note": "The copy is dash under /tmp/kworker; R001 matches on the name of the binary.",
+      "predicted": "missed"
+    },
+    {
+      "id": "E09",
+      "title": "Reverse shell through a renamed copy of busybox, shell chosen by argument",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.004",
+        "attack.defense_evasion",
+        "attack.t1036.003"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "detected",
+          "latency_ms": 1056,
+          "event": "{\"ts\":\"2026-11-25T13:14:35.002173Z\",\"type\":\"exec\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R001\",\"title\":\"Shell with a network socket as stdin and stdout\",\"level\":\"high\",\"tags\":[\"attack.execution\",\"attack.t1059.004\"]},\"process\":{\"pid\":717909,\"start_time_ns\":9495074884642,\"Image\":\"/tmp/.cache/busybox\",\"CommandLine\":\"/tmp/.cache/busybox sh /tmp/.cache/update\",\"uid\":0,\"gid\":0,\"cgroup_id\":72133,\"identity\":\"shell\",\"exe_modified\":true,\"tree\":\"717896.9494066939037\",\"stdin_is_socket\":true,\"stdout_is_socket\":true,\"unlinked\":false,\"setuid\":false,\"argv_truncated\":false,\"inode\":3100809,\"dev\":415,\"cap_effective\":2818844155,\"exe_ctime_ns\":1795612473994666368,\"env_truncated\":false},\"parent\":{\"pid\":717896,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"fca8c5baa6b49ebabd1cc26c2e2824dfd161a2e9d94d1c7d8b82630967c8226c\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e09-5a2a9c\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}}}"
+        }
+      ],
+      "also_fired": [
+        "R004",
+        "R025",
+        "R027",
+        "R032"
+      ],
+      "visible_ms": 3082,
+      "ring_buffer_drops": 0,
+      "note": "Held out. busybox is copied to /tmp/.cache/busybox and its sh applet is reached through a two-line script that nc -e runs, so the executed file is a shell that carries neither a shell's path nor a shell's name.",
+      "predicted": "missed",
+      "heldout": true,
+      "noticed": [
+        "R001",
+        "R004",
+        "R025",
+        "R027",
+        "R032"
+      ]
+    }
+  ]
+}

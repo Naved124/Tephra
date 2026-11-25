@@ -1,0 +1,106 @@
+== none
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration none ready
+-- none exec 1
+{"config":"none","workload":"exec","run":1,"wall_ns":10600296815,"ops":20000,"ns":6420000000,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none network 1
+{"config":"none","workload":"network","run":1,"wall_ns":13755035101,"ops":200000,"rps":24157.14,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none loopback 1
+{"config":"none","workload":"loopback","run":1,"wall_ns":13697523717,"ops":200000,"rps":21753.24,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none exec 2
+{"config":"none","workload":"exec","run":2,"wall_ns":10579664584,"ops":20000,"ns":6410000000,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none network 2
+{"config":"none","workload":"network","run":2,"wall_ns":13733018077,"ops":200000,"rps":24091.98,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none loopback 2
+{"config":"none","workload":"loopback","run":2,"wall_ns":13737570867,"ops":200000,"rps":21684.77,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none exec 3
+{"config":"none","workload":"exec","run":3,"wall_ns":10585779481,"ops":20000,"ns":6390000000,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none network 3
+{"config":"none","workload":"network","run":3,"wall_ns":13741558644,"ops":200000,"rps":24060.96,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none loopback 3
+{"config":"none","workload":"loopback","run":3,"wall_ns":12684531244,"ops":200000,"rps":22098.77,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+== tephra-alerts
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration tephra-alerts ready
+-- tephra-alerts exec 1
+{"config":"tephra-alerts","workload":"exec","run":1,"wall_ns":10612883942,"ops":20000,"ns":6890000000,"sensor_cpu_ticks":227,"sensor_rss_kb":99828,"events":60595,"drops":0}
+-- tephra-alerts network 1
+{"config":"tephra-alerts","workload":"network","run":1,"wall_ns":14867590540,"ops":200000,"rps":19428.84,"p99_ms":2,"sensor_cpu_ticks":1144,"sensor_rss_kb":107316,"events":600481,"drops":0}
+-- tephra-alerts loopback 1
+{"config":"tephra-alerts","workload":"loopback","run":1,"wall_ns":15881799985,"ops":200000,"rps":17565.37,"p99_ms":3,"sensor_cpu_ticks":1096,"sensor_rss_kb":108832,"events":600460,"drops":0}
+-- tephra-alerts exec 2
+{"config":"tephra-alerts","workload":"exec","run":2,"wall_ns":11635810866,"ops":20000,"ns":6780000000,"sensor_cpu_ticks":224,"sensor_rss_kb":100132,"events":60397,"drops":0}
+-- tephra-alerts network 2
+{"config":"tephra-alerts","workload":"network","run":2,"wall_ns":14861511853,"ops":200000,"rps":19238.52,"p99_ms":2,"sensor_cpu_ticks":1143,"sensor_rss_kb":103376,"events":600507,"drops":0}
+-- tephra-alerts loopback 2
+{"config":"tephra-alerts","workload":"loopback","run":2,"wall_ns":15851319736,"ops":200000,"rps":17987.62,"p99_ms":3,"sensor_cpu_ticks":1092,"sensor_rss_kb":109668,"events":600685,"drops":0}
+-- tephra-alerts exec 3
+{"config":"tephra-alerts","workload":"exec","run":3,"wall_ns":11641295263,"ops":20000,"ns":6870000000,"sensor_cpu_ticks":226,"sensor_rss_kb":96164,"events":60411,"drops":0}
+-- tephra-alerts network 3
+{"config":"tephra-alerts","workload":"network","run":3,"wall_ns":15894206363,"ops":200000,"rps":19288.93,"p99_ms":2,"sensor_cpu_ticks":1167,"sensor_rss_kb":102252,"events":600482,"drops":0}
+-- tephra-alerts loopback 3
+{"config":"tephra-alerts","workload":"loopback","run":3,"wall_ns":15849297743,"ops":200000,"rps":17688.32,"p99_ms":3,"sensor_cpu_ticks":1094,"sensor_rss_kb":105616,"events":600467,"drops":0}
+== tephra-quiet
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration tephra-quiet ready
+-- tephra-quiet exec 1
+{"config":"tephra-quiet","workload":"exec","run":1,"wall_ns":10589221989,"ops":20000,"ns":6770000000,"sensor_cpu_ticks":224,"sensor_rss_kb":104068,"events":60519,"drops":0}
+-- tephra-quiet network 1
+{"config":"tephra-quiet","workload":"network","run":1,"wall_ns":13735555137,"ops":200000,"rps":23303.80,"p99_ms":2,"sensor_cpu_ticks":12,"sensor_rss_kb":115228,"events":397,"drops":0}
+-- tephra-quiet loopback 1
+{"config":"tephra-quiet","workload":"loopback","run":1,"wall_ns":13730357385,"ops":200000,"rps":20603.59,"p99_ms":2,"sensor_cpu_ticks":13,"sensor_rss_kb":101492,"events":452,"drops":0}
+-- tephra-quiet exec 2
+{"config":"tephra-quiet","workload":"exec","run":2,"wall_ns":10595819227,"ops":20000,"ns":6970000000,"sensor_cpu_ticks":231,"sensor_rss_kb":99260,"events":60628,"drops":0}
+-- tephra-quiet network 2
+{"config":"tephra-quiet","workload":"network","run":2,"wall_ns":13784240581,"ops":200000,"rps":22934.86,"p99_ms":2,"sensor_cpu_ticks":12,"sensor_rss_kb":104912,"events":399,"drops":0}
+-- tephra-quiet loopback 2
+{"config":"tephra-quiet","workload":"loopback","run":2,"wall_ns":14748181390,"ops":200000,"rps":20359.66,"p99_ms":2,"sensor_cpu_ticks":11,"sensor_rss_kb":112760,"events":502,"drops":0}
+-- tephra-quiet exec 3
+{"config":"tephra-quiet","workload":"exec","run":3,"wall_ns":11638388802,"ops":20000,"ns":6830000000,"sensor_cpu_ticks":229,"sensor_rss_kb":108720,"events":60384,"drops":0}
+-- tephra-quiet network 3
+{"config":"tephra-quiet","workload":"network","run":3,"wall_ns":12692749107,"ops":200000,"rps":23117.71,"p99_ms":2,"sensor_cpu_ticks":14,"sensor_rss_kb":117900,"events":411,"drops":0}
+-- tephra-quiet loopback 3
+{"config":"tephra-quiet","workload":"loopback","run":3,"wall_ns":14780095589,"ops":200000,"rps":20132.64,"p99_ms":2,"sensor_cpu_ticks":14,"sensor_rss_kb":118536,"events":716,"drops":0}
+== tephra-batch
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration tephra-batch ready
+-- tephra-batch exec 1
+{"config":"tephra-batch","workload":"exec","run":1,"wall_ns":11630210165,"ops":20000,"ns":6840000000,"sensor_cpu_ticks":95,"sensor_rss_kb":98664,"events":60397,"drops":0}
+-- tephra-batch network 1
+{"config":"tephra-batch","workload":"network","run":1,"wall_ns":13806276028,"ops":200000,"rps":22064.74,"p99_ms":2,"sensor_cpu_ticks":553,"sensor_rss_kb":107080,"events":600660,"drops":0}
+-- tephra-batch loopback 1
+{"config":"tephra-batch","workload":"loopback","run":1,"wall_ns":14803643645,"ops":200000,"rps":19551.39,"p99_ms":3,"sensor_cpu_ticks":557,"sensor_rss_kb":107464,"events":600469,"drops":0}
+-- tephra-batch exec 2
+{"config":"tephra-batch","workload":"exec","run":2,"wall_ns":11615423021,"ops":20000,"ns":6700000000,"sensor_cpu_ticks":94,"sensor_rss_kb":104456,"events":60419,"drops":0}
+-- tephra-batch network 2
+{"config":"tephra-batch","workload":"network","run":2,"wall_ns":13809975756,"ops":200000,"rps":22085.56,"p99_ms":2,"sensor_cpu_ticks":573,"sensor_rss_kb":105356,"events":600510,"drops":0}
+-- tephra-batch loopback 2
+{"config":"tephra-batch","workload":"loopback","run":2,"wall_ns":14774066747,"ops":200000,"rps":19597.69,"p99_ms":3,"sensor_cpu_ticks":563,"sensor_rss_kb":105252,"events":600467,"drops":0}
+-- tephra-batch exec 3
+{"config":"tephra-batch","workload":"exec","run":3,"wall_ns":11635784904,"ops":20000,"ns":6720000000,"sensor_cpu_ticks":92,"sensor_rss_kb":105720,"events":60703,"drops":0}
+-- tephra-batch network 3
+{"config":"tephra-batch","workload":"network","run":3,"wall_ns":14823587275,"ops":200000,"rps":22077.49,"p99_ms":2,"sensor_cpu_ticks":568,"sensor_rss_kb":96064,"events":600503,"drops":0}
+-- tephra-batch loopback 3
+{"config":"tephra-batch","workload":"loopback","run":3,"wall_ns":15841073224,"ops":200000,"rps":18559.72,"p99_ms":3,"sensor_cpu_ticks":559,"sensor_rss_kb":109120,"events":600470,"drops":0}
+== tephra-quiet-batch
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration tephra-quiet-batch ready
+-- tephra-quiet-batch exec 1
+{"config":"tephra-quiet-batch","workload":"exec","run":1,"wall_ns":10578606410,"ops":20000,"ns":6830000000,"sensor_cpu_ticks":92,"sensor_rss_kb":102456,"events":60393,"drops":0}
+-- tephra-quiet-batch network 1
+{"config":"tephra-quiet-batch","workload":"network","run":1,"wall_ns":13761689325,"ops":200000,"rps":23203.55,"p99_ms":2,"sensor_cpu_ticks":18,"sensor_rss_kb":114964,"events":828,"drops":0}
+-- tephra-quiet-batch loopback 1
+{"config":"tephra-quiet-batch","workload":"loopback","run":1,"wall_ns":14746724634,"ops":200000,"rps":20622.79,"p99_ms":2,"sensor_cpu_ticks":17,"sensor_rss_kb":104796,"events":779,"drops":0}
+-- tephra-quiet-batch exec 2
+{"config":"tephra-quiet-batch","workload":"exec","run":2,"wall_ns":11624129826,"ops":20000,"ns":6710000000,"sensor_cpu_ticks":92,"sensor_rss_kb":100120,"events":60398,"drops":0}
+-- tephra-quiet-batch network 2
+{"config":"tephra-quiet-batch","workload":"network","run":2,"wall_ns":12724071631,"ops":200000,"rps":23356.89,"p99_ms":2,"sensor_cpu_ticks":18,"sensor_rss_kb":110116,"events":742,"drops":0}
+-- tephra-quiet-batch loopback 2
+{"config":"tephra-quiet-batch","workload":"loopback","run":2,"wall_ns":15791704828,"ops":200000,"rps":20096.75,"p99_ms":2,"sensor_cpu_ticks":20,"sensor_rss_kb":110200,"events":866,"drops":0}
+-- tephra-quiet-batch exec 3
+{"config":"tephra-quiet-batch","workload":"exec","run":3,"wall_ns":11624672943,"ops":20000,"ns":6740000000,"sensor_cpu_ticks":98,"sensor_rss_kb":101332,"events":60393,"drops":0}
+-- tephra-quiet-batch network 3
+{"config":"tephra-quiet-batch","workload":"network","run":3,"wall_ns":13750986584,"ops":200000,"rps":23104.34,"p99_ms":2,"sensor_cpu_ticks":20,"sensor_rss_kb":114936,"events":733,"drops":0}
+-- tephra-quiet-batch loopback 3
+{"config":"tephra-quiet-batch","workload":"loopback","run":3,"wall_ns":13732053099,"ops":200000,"rps":20585.13,"p99_ms":2,"sensor_cpu_ticks":20,"sensor_rss_kb":116640,"events":748,"drops":0}
+BENCHDONE

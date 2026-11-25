@@ -56,6 +56,33 @@ The attacker has code execution inside a container, through an application vulne
 | Cluster-admin, or anyone allowed to manage the tephra namespace | Partly | Can stop or remove Tephra the way an operator does, which raises nothing by design (section 7, "Operating Tephra"). The Kubernetes audit log is the record |
 | Kernel code execution (malicious module, kernel exploit) | No | An attacker in the kernel can blind any eBPF sensor; only the module load is detectable |
 
+### What the connection-cost options change
+
+Two options trade detail for cost on connections (`quiet_connections` and `ring_wakeup`, chart values `agent.quietConnections` and `agent.ringWakeup`). Both are off by default; the chart's install notes recommend turning both on. Measured costs are in section 12, the build log (v0.2.0 item 4).
+
+**Off (the default).** Every connect and accept is an event: the kernel copies it to the agent, wakes the agent for it, and the agent attributes it and runs the rules on it. On a pod that makes or takes many connections this is most of the agent's work.
+
+**Quiet connections on.** For each process that connects or accepts, the agent works out whether any loaded rule could ever fire on its connections. Every test in a rule is judged yes, no or can't tell; can't tell counts as could fire. Facts the kernel keeps stable for the process are decided (its image, identity, main-binary status, namespace, user); facts of one connection are can't tell, except direction and family, which the kernel checks, a destination port a rule names and the Kubernetes API, which are always reported. Facts that can change without the process changing are can't tell: the parent's image, command line and identity, and pod labels. If no rule can fire, the agent marks the process in a kernel map and the kernel skips its later connections. Fail-open rules:
+
+- A process's first connection is always reported: it is what the judgement is made from.
+- A mark applies only while the process's start time, exec count, cgroup, parent, uid and gid are what they were when it was judged; the kernel checks this on every connection, so a process that runs another program, moves cgroup or changes user is reported again with no help from the agent.
+- Marks are taken back on rule reload (all), on a change of the container's main binary (that container's), and on exit.
+- The mark map is an LRU of 16,384 processes; a process pushed out is reported again.
+- Connects to a destination port any rule names, and to the Kubernetes API, are reported from every process.
+
+**What is kept.** With raw events exported, the kernel counts each skipped connection per process and destination (remote address, the remote port for a connect or the listening port for an accept, protocol, first and last time) and the agent exports the counts every 10 seconds, or within a second of the process's exit, as `connection_summary` records: attributed like any event of the process, with `count` since the previous record and `total`. The counts and what was reported of them are pinned with the ring buffer, so counts made while no agent runs are reported by the next one, once. A count that cannot be added (the map holds 16,384 destinations) is reported as an ordinary event instead. With raw events off, connections no rule fires on are not kept with or without the option, so nothing more is lost.
+
+**What is given up.**
+
+- The time of each connection: only the first and last of each record.
+- The client's own port of each connection, and for an accept the local address it arrived on (its port is kept).
+- Rules written later, and an investigator, see counts per destination for a quiet process, not one record per connection.
+- Attribution in one case: a process that exits within about a second of the agent's death, or while no agent runs, in a container that is gone before the next agent starts. Its counts are reported under namespace `unknown` with node, pid, command and cgroup ID, as events of the ring buffer's backlog are in the same case; never under another pod.
+
+**What it does not give up.** Detection: a quiet process is one on whose connections no loaded rule can fire, and every fact the judgement relied on is either checked by the kernel on each connection or taken back by the agent when it changes. An attacker inside a quiet process (code injected into a web server, without an exec) has its connections judged as the web server's, quiet or not; the option does not change what that attacker can do. Flooding the maps fails open: more events, not fewer.
+
+**Batched wake-ups on.** The kernel wakes the agent once a set number of bytes (65,536 recommended) wait in the ring buffer instead of for each record, and the agent also reads every 10 ms. Alerts can reach the collector up to that interval later. Nothing is skipped and nothing is lost: what waits in the buffer is pinned like everything else in it.
+
 ### Trust boundaries
 
 - Everything read from user memory at a syscall entry is attacker-controlled and can change after the sensor reads it. Section 9 covers why this matters for blocking.
@@ -269,6 +296,8 @@ Filtering in the kernel is what keeps overhead low, because the expensive part o
 - It then skips the agent's own process, looked up in agent_tasks.
 - file_open checks inode_watch (the file, then its whole device), then name_watch, then resolves the path into scratch and does one path_watch lookup. No match means no event. The watch bits say whether an entry reports reads, writes or both, so a rule about writes costs nothing for reads. This is the only way file monitoring is affordable; unfiltered opens are the highest-volume event on any node.
 - connect and accept check the remote address against the ignore tries.
+- With quiet connections on, connect and accept then check the process's quiet mark (net_quiet, keyed by pid, checked against start time, exec count, cgroup, parent, uid and gid), report the destinations every process must report (net_always_port, net_always_dst), and count the rest in net_summary instead of emitting them (section 2, "What the connection-cost options change").
+- With batched wake-ups on, every program sends its record without waking the agent until ring_wakeup bytes wait (BPF_RB_NO_WAKEUP, then BPF_RB_FORCE_WAKEUP once bpf_ringbuf_query reports the batch).
 - Events are built in scratch and sent with bpf_ringbuf_output using the actual length, so a short argv does not consume 1.3 KiB of ring space. The cost is one extra copy compared with bpf_ringbuf_reserve.
 - If the ring buffer is full, the program increments stats.dropped for its type and returns. Drops are never silent: the agent exports the counter and the coverage report prints it.
 
@@ -457,6 +486,8 @@ sequence:
 | `file.path\|endswith: /<name>` on a `file_open` rule | An entry in name_watch | The file is reported in whatever directory it is |
 | `file.k8s_credential: sa_token` on a `file_open` rule | Nothing of the rule's own: the agent watches every token the pod specs name, in inode_watch | The token is reported whatever path or name is used to reach it |
 | A `file_open` rule whose condition can be met without one of the three | Rejected at load with an error | Prevents a rule that silently needs every file open on the node |
+| `network.DestinationPort` equals or in, on a connect rule | Entries in net_always_port | With quiet connections on, a connect to that port is reported from every process |
+| Every connect and accept rule, judged per process with three values | A mark in net_quiet when none can fire | With quiet connections on, that process's other connections are counted, not emitted |
 | Everything else | Userspace matcher tree | Evaluated per event, rules indexed by event type |
 
 The loader validates every rule (unknown field, wrong type for a modifier, bad ATT&CK tag format, a block the condition does not use) and refuses to start on an invalid file, naming the file and the line. tephrad rules validate <path> does the same check offline, and tephrad rules test <rule> <events.jsonl> runs rules against recorded events. Each shipped rule has recorded events it must and must not fire on under rules/testdata, checked by the unit tests.
@@ -1236,3 +1267,26 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
     | Loopback | 115% → 69.5% | 2,316,126 → 0 | 9,031 → 40,769 | −12.7% → −18.2% |
 
   - **What it shows.** Exec is back at M10's cost. On network and loopback the agent now keeps up: no drops, and four times the events handled. The workloads' cost grew instead: in run 2 the ring buffer was full most of the time and the kernel threw three events of four away cheaply, so the smaller slowdown was partly the price of not recording. The cost now is the kernel recording every connection, which is item 4: loopback was over its 2-point limit before and is further over now, and network is past it too.
+- **Connection cost, v0.2.0 item 4 (24–25 Nov).** Profile first: a replay of connect and accept events through the enricher and the rules costs the agent about 2.5 µs per event, far below what the network benchmark charged. The cost was the kernel waking the agent for every record once the agent kept up (item 3), and the agent handling 600,000 records for 200,000 requests. Two options, both off by default; the chart's install notes recommend turning both on. What they skip, keep and give up is in section 2, "What the connection-cost options change".
+  - **Quiet connections.** The agent judges each connecting process against every connect and accept rule with three values (yes, no, can't tell; can't tell counts as could fire) and marks a process none can fire on. The kernel then skips its connections while its start time, exec count, cgroup, parent, uid and gid are unchanged; the exec count (`task->self_exec_id`, now in net_event, layout version 3) closes the window between an exec and the agent's next judgement. Ports a rule names and the Kubernetes API are reported from every process. Marks are taken back on rule reload, main-binary change and exit. With raw events exported, skipped connections are counted per process and destination in net_summary and exported every 10 s as `connection_summary` records; net_summary and net_summary_sent (what was reported) are pinned with the ring buffer, layout version 4.
+  - **Batched wake-ups.** Every program sends with BPF_RB_NO_WAKEUP until ring_wakeup bytes wait, then BPF_RB_FORCE_WAKEUP; the agent also reads every 10 ms.
+  - **Tests.** Three-valued judgement against the shipped rules, and 50,000 random rules and records checked against full evaluation (a mark may never be set where a rule could fire); deliberately broken judgements fail it. Kernel tests on 5.15: marks hide and count, a mark from before an exec does not apply, named ports and API addresses are reported, summaries count per destination with the process's header, the reported-count map round-trips, a batched record still reaches a reader on its timer. The agent's drain: growth only, idle destinations taken out, adoption from a dead agent's counts; three broken versions fail. The collector stores the new record type.
+  - **Lab, 5.15, c7i.2xlarge on-demand, 25 Nov.** Results in [runs/2026-11-25-quiet](runs/2026-11-25-quiet/) (raw events off) and [runs/2026-11-25-summaries](runs/2026-11-25-summaries/) (raw events on).
+    - **Nothing lost.** 600,000 requests from one client: 1,200,043 connects (ab calls connect twice per request) and 600,080 accepts, events plus summaries, against 1,200,000 and 600,000. With the agent killed by SIGKILL 5 s in: 1,200,086 and 600,111; nothing counted twice and nothing attributed elsewhere.
+    - **Detection.** A05, E11, E12, E13, E19 and E24 run twice with quiet connections off and twice on: identical. Full attack and evasion runs with both options on, raw events on: 21 of 22 attacks (A05, see below) and 20 of 27 evasions. 30-minute false-positive run, both on: 0 high or critical alerts, 0 drops, the same medium and low counts as without.
+    - **Cost, 3 runs per cell, medians:**
+
+      | Configuration | Exec | Network | Loopback | Agent CPU, network | Events, network |
+      |---|---|---|---|---|---|
+      | Every event exported (chart default) | −2.4% | −21.7% | −15.1% | 60% | 600,941 |
+      | Every event exported, both options on | −5.0% | −3.1% | −5.0% | 2% | 612 |
+      | Alerts only | −3.9% | −16.7% | −16.2% | 73% | 600,729 |
+      | Alerts only, both options on | −3.4% | −2.3% | −4.3% | 2% | 633 |
+
+      Exec moves between −2.4% and −5.0% with no pattern in three runs; the options do not touch exec. Loopback stays over its 2-point limit: what is left is the kernel's hooks, which run on every connection either way.
+    - **Best case, said plainly.** The benchmark client is not an interpreter, so it is quieted. An interpreter's connections are never quieted, because R028 and R037 can fire on them.
+  - **Found on the way, fixed.**
+    - **Batched wake-ups exposed a race in identity by content.** E01 and E09 (a shell copied to another name, run on a socket for a few milliseconds) were detected 2 times in 8 with batching on and 8 in 8 without. The copy was hashed through the process, and through the container's oldest process; with the record handled a few milliseconds later the shell had exited, and the oldest process of a container watched starting is runc's setup stage, exited too but kept in the tree. Now a live process of the same mount namespace is asked for when both fail, and a container's root counts as read only once it was. With batching on: 12 of 12. worker2 still counted 43 files it could not read through any of them in the last run; which files was not looked into.
+    - The collector refused the new record type; a summary of an exited process's connections was attributed to `unknown` (summaries are now read within a second of a quiet process's exit); a new agent counted the old agent's reported connections again (fixed by net_summary_sent); outbound summaries carried `SourceIp: invalid IP`.
+    - Measurement: `bench/raw` holds committed results, and the matrix skips cells that exist, so a first pass reused old exec and network numbers for two configurations. Stopped and rerun from an empty folder. `harness fp --out` writes an empty coverage report; the real table is the command's output (not fixed).
+  - **Found, not caused by item 4, open before v0.2.0.** A05 missed (R013, R026): item 2 made the main binary the same file as the container's first program, and in a busybox pod `wget`, `cat` and `sh` are that file, so every applet counts as the main binary. R030 misses in E19 and E23 in some runs, without drops. A05's token read was attributed to a deleted pod's token (a reused device number).
