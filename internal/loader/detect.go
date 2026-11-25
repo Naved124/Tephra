@@ -21,8 +21,9 @@ const DefaultDetectPinDir = DefaultPinDir + "/detect"
 
 // detectMaps outlive an agent that did not stop cleanly: the detection
 // programs it attached keep writing events into the ring buffer, and the
-// next agent adopts the buffer and reads what was recorded meanwhile.
-var detectMaps = []string{"events", "stats"}
+// next agent adopts the buffer and reads what was recorded meanwhile. The
+// connections they counted for quiet processes are adopted the same way.
+var detectMaps = []string{"events", "stats", "net_summary", "net_summary_sent"}
 
 // adoptPinned opens the maps pinned in dir, creating dir. It returns no maps
 // when dir is empty.

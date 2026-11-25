@@ -37,15 +37,19 @@ type Cell struct {
 const ticksPerSecond = 100
 
 var (
-	configs   = []string{"none", "tephra-all", "tephra-alerts", "tephra-enforce"}
+	configs   = []string{"none", "tephra-all", "tephra-alerts", "tephra-enforce", "tephra-quiet", "tephra-batch", "tephra-quiet-batch", "tephra-all-quiet-batch"}
 	workloads = []string{"exec", "file", "network", "loopback", "idle"}
 	labels    = map[string]string{
-		"none":           "No sensor",
-		"tephra-all":     "Tephra, every event exported",
-		"tephra-alerts":  "Tephra, alerts only",
-		"tephra-enforce": "Tephra, alerts only, enforcement on",
-		"falco":          "Falco (modern eBPF, default rules)",
-		"tetragon":       "Tetragon (default tracing)",
+		"none":                   "No sensor",
+		"tephra-all":             "Tephra, every event exported",
+		"tephra-alerts":          "Tephra, alerts only",
+		"tephra-enforce":         "Tephra, alerts only, enforcement on",
+		"tephra-quiet":           "Tephra, alerts only, quiet connections",
+		"tephra-batch":           "Tephra, alerts only, batched wake-ups",
+		"tephra-quiet-batch":     "Tephra, alerts only, quiet connections and batched wake-ups",
+		"tephra-all-quiet-batch": "Tephra, every event exported, quiet connections (as summaries) and batched wake-ups",
+		"falco":                  "Falco (modern eBPF, default rules)",
+		"tetragon":               "Tetragon (default tracing)",
 	}
 	workloadText = map[string]string{
 		"exec":     "Exec-heavy: 20,000 fork and exec of /bin/true on two CPUs. Throughput in execs per second.",

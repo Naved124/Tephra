@@ -275,7 +275,7 @@ int BPF_PROG(tephra_exec, struct task_struct *p, pid_t old_pid,
 		s->dropped++;
 		return 0;
 	}
-	if (bpf_ringbuf_output(&events, e, total, 0))
+	if (bpf_ringbuf_output(&events, e, total, rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -350,7 +350,7 @@ int BPF_PROG(tephra_fork, struct task_struct *parent, struct task_struct *child)
 	else
 		e.parent_pid = 0;
 
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -383,7 +383,7 @@ int BPF_PROG(tephra_exit, struct task_struct *p)
 	e.h.size = sizeof(e);
 	e.exit_code = BPF_CORE_READ(p, exit_code);
 
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;

@@ -180,7 +180,7 @@ func TestDecodeRejects(t *testing.T) {
 	envOverrun := header(events.TypeExec, 384+1024+4)
 	binary.LittleEndian.PutUint32(envOverrun[112:], 900)
 	netShort := header(events.TypeConnect, 108)
-	netFamily := header(events.TypeAccept, 128)
+	netFamily := header(events.TypeAccept, 136)
 	binary.LittleEndian.PutUint16(netFamily[88:], 17)
 	unixHuge := header(events.TypeUnixConnect, 200)
 	binary.LittleEndian.PutUint32(unixHuge[88:], 500)
@@ -236,13 +236,14 @@ func TestDecodeExecEnv(t *testing.T) {
 
 func TestDecodeNet(t *testing.T) {
 	le := binary.LittleEndian
-	raw := header(events.TypeConnect, 128)
+	raw := header(events.TypeConnect, 136)
 	le.PutUint16(raw[88:], events.AFInet)
 	le.PutUint16(raw[90:], 40000) // lport
 	le.PutUint16(raw[92:], 443)   // rport
 	le.PutUint16(raw[94:], 6)     // tcp
 	copy(raw[96:], []byte{10, 244, 1, 5})
 	copy(raw[112:], []byte{10, 96, 0, 1})
+	le.PutUint64(raw[128:], 0x0102030405060708) // exec_id
 	ev, err := events.Decode(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -251,8 +252,11 @@ func TestDecodeNet(t *testing.T) {
 	if n.Local.String() != "10.244.1.5:40000" || n.Remote.String() != "10.96.0.1:443" || n.Proto != 6 {
 		t.Errorf("connect decoded as %s -> %s proto %d", n.Local, n.Remote, n.Proto)
 	}
+	if n.ExecID != 0x0102030405060708 {
+		t.Errorf("exec_id decoded as %#x", n.ExecID)
+	}
 
-	raw = header(events.TypeAccept, 128)
+	raw = header(events.TypeAccept, 136)
 	le.PutUint16(raw[88:], events.AFInet6)
 	le.PutUint16(raw[90:], 8080)
 	le.PutUint16(raw[92:], 51000)

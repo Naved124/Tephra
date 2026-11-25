@@ -136,6 +136,7 @@ struct net_event {
 	__u16 proto; /* IPPROTO_* */
 	__u8 laddr[16];
 	__u8 raddr[16];
+	__u64 exec_id; /* task_struct.self_exec_id, for quiet marks */
 };
 
 /* connect to an AF_UNIX socket. An abstract address starts with a NUL. */
@@ -427,6 +428,146 @@ struct {
 	__type(key, __u32);
 	__type(value, struct stats_val);
 } stats SEC(".maps");
+
+/* Ring buffer wake-ups. 0 lets the kernel wake the agent for every record
+ * that finds it caught up. Otherwise records are written without a wake-up
+ * until this many bytes wait unread, and the agent also reads on a timer,
+ * so a record waits at most that long. */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u32);
+} ring_wakeup SEC(".maps");
+
+static __always_inline __u64 rb_flags(void)
+{
+	__u32 zero = 0;
+	__u32 *batch = bpf_map_lookup_elem(&ring_wakeup, &zero);
+
+	if (!batch || !*batch)
+		return 0;
+	return bpf_ringbuf_query(&events, BPF_RB_AVAIL_DATA) >= *batch
+		   ? BPF_RB_FORCE_WAKEUP
+		   : BPF_RB_NO_WAKEUP;
+}
+
+/* Quiet connections. The agent marks a process whose connections no loaded
+ * rule can fire on, except to a destination in net_always_port or
+ * net_always_dst, which are reported whatever the mark. A mark applies only
+ * while everything it was judged on is unchanged: the process (start time),
+ * its program (exec count), cgroup, parent and user. Anything else, a
+ * process never judged, or a mark the LRU dropped, is reported. */
+#define NET_QUIET_OUT 1
+#define NET_QUIET_IN  2
+#define NET_QUIET_SUMMARY                                                      \
+	4 /* count it in net_summary; report it if that fails */
+
+struct net_quiet_val {
+	__u64 start_time_ns;
+	__u64 cgroup_id;
+	__u64 exec_id;
+	__u32 ppid;
+	__u32 uid;
+	__u32 gid;
+	__u32 dirs; /* NET_QUIET_* */
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u32); /* pid in the node's namespace, as in the header */
+	__type(value, struct net_quiet_val);
+} net_quiet SEC(".maps");
+
+/* Destination ports a connect rule names. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 256);
+	__type(key, __u16);
+	__type(value, __u8);
+} net_always_port SEC(".maps");
+
+/* Destinations reported from every process: the Kubernetes API. An IPv4
+ * address fills the first four bytes. */
+struct net_dst_key {
+	__u8 addr[16];
+	__u16 port;
+	__u16 family;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 64);
+	__type(key, struct net_dst_key);
+	__type(value, __u8);
+} net_always_dst SEC(".maps");
+
+/* Connections of a quiet process, counted instead of emitted, so that the
+ * history of its connections is kept as one record per destination. The
+ * port is the remote one for a connect and the local, listening one for an
+ * accept; the client's own port is not kept. An IPv4 address fills the first
+ * four bytes. Pinned with the ring buffer, so that what is counted while no
+ * agent runs is read by the next one. */
+struct net_sum_key {
+	__u64 start_time_ns;
+	__u32 pid;
+	__u16 port;
+	__u16 family;
+	__u8 addr[16];
+	__u8 type; /* EVENT_CONNECT or EVENT_ACCEPT */
+	__u8 proto;
+	__u8 _pad[6];
+};
+
+struct net_sum_val {
+	__u64 count;
+	__u64 first_ns; /* boot time of the first and last connection */
+	__u64 last_ns;
+	__u64 cgroup_id;
+	__u64 exec_id;
+	/* The rest of the first connection's header, so that the record is
+	 * attributed as an event of the process would be. */
+	__u32 ppid;
+	__u32 uid;
+	__u32 gid;
+	__u32 pid_ns;
+	__u32 mnt_ns;
+	__u32 net_ns;
+	char comm[TASK_COMM_LEN];
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 16384);
+	__type(key, struct net_sum_key);
+	__type(value, struct net_sum_val);
+} net_summary SEC(".maps");
+
+/* How much of each net_summary count the agent has reported, written only by
+ * the agent. Pinned with net_summary, so that the next agent goes on from
+ * there instead of reporting the same connections again. */
+struct net_sum_sent {
+	__u64 count;
+	__u64 last_ns;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 16384);
+	__type(key, struct net_sum_key);
+	__type(value, struct net_sum_sent);
+} net_summary_sent SEC(".maps");
+
+/* [0]: connections not emitted because their process was quiet, also counted
+ * in stats as filtered. [1]: connections of a quiet process emitted after all
+ * because net_summary had no room for them. */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 2);
+	__type(key, __u32);
+	__type(value, __u64);
+} net_quiet_count SEC(".maps");
 
 /* Work area for build_path: a path is assembled from its last component
  * backwards, ending at byte PATH_LEN - 1. The upper half is never written

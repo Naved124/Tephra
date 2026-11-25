@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -52,6 +53,23 @@ type Config struct {
 	// Tamper configures what happens when the agent is stopped by
 	// anything other than Kubernetes.
 	Tamper Tamper `yaml:"tamper"`
+	// QuietConnections lets the kernel skip the connections of a process
+	// that no loaded rule can fire on (rules.Set.Quiet), except connects
+	// to a destination port a rule names or to the Kubernetes API. While
+	// raw events are exported it applies to loopback connections only,
+	// the ones that are not exported anyway (unless LoopbackEvents).
+	QuietConnections bool `yaml:"quiet_connections"`
+	// RingWakeup batches the kernel's wake-ups of the agent. Read at
+	// start-up only.
+	RingWakeup RingWakeup `yaml:"ring_wakeup"`
+}
+
+// RingWakeup batches wake-ups. With Bytes zero the kernel wakes the agent for every record
+// that finds it caught up. Otherwise it wakes it once Bytes wait unread, and
+// the agent also reads every Interval, the longest a record can wait.
+type RingWakeup struct {
+	Bytes    uint32        `yaml:"bytes"`
+	Interval time.Duration `yaml:"interval"`
 }
 
 // Tamper configures the agent's defence of its own sight. Read at start-up
@@ -204,6 +222,14 @@ func (c *Config) Validate() error {
 	}
 	if p := c.Tamper.PinDir; len(p) < 2 || p[0] != '/' {
 		return fmt.Errorf("tamper.pin_dir %q is not an absolute path", p)
+	}
+	switch w := c.RingWakeup; {
+	case w.Bytes == 0 && w.Interval != 0:
+		return fmt.Errorf("ring_wakeup.interval is set but ring_wakeup.bytes is 0")
+	case w.Bytes != 0 && (w.Interval < time.Millisecond || w.Interval > time.Second):
+		return fmt.Errorf("ring_wakeup.interval %s is not between 1ms and 1s", w.Interval)
+	case w.Bytes >= c.RingBufferSize:
+		return fmt.Errorf("ring_wakeup.bytes %d is not below ring_buffer_size", w.Bytes)
 	}
 	_, err := c.APIServers()
 	return err

@@ -113,7 +113,7 @@ int BPF_PROG(tephra_file_open, struct file *file)
 		s->dropped++;
 		return 0;
 	}
-	if (bpf_ringbuf_output(&events, e, total, 0))
+	if (bpf_ringbuf_output(&events, e, total, rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -206,7 +206,7 @@ static __noinline int report_change(struct dentry *dentry, struct vfsmount *mnt,
 		s->dropped++;
 		return 0;
 	}
-	if (bpf_ringbuf_output(&events, e, total, 0))
+	if (bpf_ringbuf_output(&events, e, total, rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -324,7 +324,7 @@ static __always_inline int open_denied(unsigned long long *ctx, int dfd,
 
 	total = e->cwd_len ? sizeof(*e) : offsetof(struct denied_event, cwd);
 	e->h.size = total;
-	if (bpf_ringbuf_output(&events, e, total, 0))
+	if (bpf_ringbuf_output(&events, e, total, rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;

@@ -232,6 +232,48 @@ Lab cluster only. Each cell is `bench/run.sh <configuration> <workload>
 already there are skipped, so an interrupted matrix resumes. `go run ./cmd/bench bench/raw docs/benchmarks.md`
 rebuilds the report from the raw results.
 
+## Connection cost
+
+A pod that makes or takes many connections can cost the agent most of a
+CPU: by default every connect and accept is an event. Two options cut that;
+both are off until you turn them on, and `helm install` recommends both:
+
+```sh
+helm upgrade tephra deploy/helm/tephra -n tephra --reuse-values \
+  --set agent.quietConnections=true --set agent.ringWakeup.bytes=65536
+```
+
+- **`quietConnections`**: the kernel skips the connections of a process
+  that no loaded rule can fire on (a web server, a client that is not an
+  interpreter). Connects to a port a rule names and to the Kubernetes API are
+  always reported, and a process that runs another program, changes user or
+  moves cgroup is reported again. With raw events exported, the skipped
+  connections are kept as `connection_summary` records: one per process and
+  destination every 10 seconds, with the count and the first and last time.
+- **`ringWakeup.bytes`**: the kernel wakes the agent once 64 KiB of records
+  wait instead of for each one; the agent also reads every 10 ms.
+
+Measured on a 5.15 node, 200,000 requests through one client (3 runs,
+[build log](docs/design.md#12-build-log), item 4):
+
+| Every event exported | Network | Loopback | Agent CPU |
+|---|---|---|---|
+| Both off (default) | −21.7% | −15.1% | 60% |
+| Both on | −3.1% | −5.0% | 2% |
+
+In the lab's attack, evasion and false-positive runs they caused no missed
+detection and no new alert. What you give up with them on:
+
+- the time of each connection, and the client's own port: a summary keeps
+  the count and the first and last time per destination;
+- alerts can arrive up to 10 ms later;
+- a process that exits while no agent runs, in a container gone before the
+  next agent starts, has its counted connections reported under namespace
+  `unknown`, as the ring buffer's backlog is.
+
+The full account, including why detection does not change, is in
+[section 2 of the design](docs/design.md#what-the-connection-cost-options-change).
+
 ## Backend
 
 The chart installs a collector, a single-binary Loki and Grafana next to the

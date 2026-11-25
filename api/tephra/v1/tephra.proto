@@ -213,6 +213,12 @@ message Network {
   uint32 destination_port = 7;
   string unix_path = 8;
   bool is_k8s_api = 9;
+  // connection_summary records: connections of a quiet process to one
+  // destination, counted in the kernel instead of reported one by one.
+  uint64 count = 10;
+  uint64 total = 11;
+  string first_seen = 12;
+  string last_seen = 13;
 }
 
 message File {

@@ -1,0 +1,207 @@
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ sleep 30
++ grep -q '^FINALDONE' /tmp/final.log
++ D=docs/runs/2026-11-25-summaries/r001
++ mkdir -p docs/runs/2026-11-25-summaries/r001
++ for cfg in "true 65536" "true 0" "false 65536" "false 0"
++ set -- true 65536
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=true --set agent.loopbackEvents=false --set agent.quietConnections=true --set agent.ringWakeup.bytes=65536
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ k -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ for round in 1 2
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-summaries/r001/qtrue-b65536-1 E01 E09
+E01 Reverse shell through a copy of the shell under another name
+E01  detected  R001=detected  also: R002,R027,R028,R032,R037  predicted missed, measured detected
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  missed    R001=missed  also: R004,R025,R027,R032  predicted missed, measured detected
+2 evasion scenarios, 2 predictions corrected; report in docs/runs/2026-11-25-summaries/r001/qtrue-b65536-1/evasion.md
++ echo 'CFG quiet=true batch=65536 round=1 exit 0'
+CFG quiet=true batch=65536 round=1 exit 0
++ for round in 1 2
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-summaries/r001/qtrue-b65536-2 E01 E09
+E01 Reverse shell through a copy of the shell under another name
+E01  missed    R001=missed  also: R027,R028,R032,R037  predicted missed, measured missed
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  missed    R001=missed  also: R004,R025,R027,R032  predicted missed, measured detected
+2 evasion scenarios, 1 predictions corrected; report in docs/runs/2026-11-25-summaries/r001/qtrue-b65536-2/evasion.md
++ echo 'CFG quiet=true batch=65536 round=2 exit 0'
+CFG quiet=true batch=65536 round=2 exit 0
++ for cfg in "true 65536" "true 0" "false 65536" "false 0"
++ set -- true 0
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=true --set agent.loopbackEvents=false --set agent.quietConnections=true --set agent.ringWakeup.bytes=0
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ k -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ for round in 1 2
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-summaries/r001/qtrue-b0-1 E01 E09
+E01 Reverse shell through a copy of the shell under another name
+E01  detected  R001=detected  also: R002,R027,R028,R032,R037  predicted missed, measured detected
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  detected  R001=detected  also: R004,R025,R027,R032  predicted missed, measured detected
+2 evasion scenarios, 2 predictions corrected; report in docs/runs/2026-11-25-summaries/r001/qtrue-b0-1/evasion.md
++ echo 'CFG quiet=true batch=0 round=1 exit 0'
+CFG quiet=true batch=0 round=1 exit 0
++ for round in 1 2
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-summaries/r001/qtrue-b0-2 E01 E09
+E01 Reverse shell through a copy of the shell under another name
+E01  detected  R001=detected  also: R002,R027,R028,R032,R037  predicted missed, measured detected
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  detected  R001=detected  also: R004,R025,R027,R032  predicted missed, measured detected
+2 evasion scenarios, 2 predictions corrected; report in docs/runs/2026-11-25-summaries/r001/qtrue-b0-2/evasion.md
++ echo 'CFG quiet=true batch=0 round=2 exit 0'
+CFG quiet=true batch=0 round=2 exit 0
++ for cfg in "true 65536" "true 0" "false 65536" "false 0"
++ set -- false 65536
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=true --set agent.loopbackEvents=false --set agent.quietConnections=false --set agent.ringWakeup.bytes=65536
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ k -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ for round in 1 2
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-summaries/r001/qfalse-b65536-1 E01 E09
+E01 Reverse shell through a copy of the shell under another name
+E01  detected  R001=detected  also: R002,R027,R028,R037  predicted missed, measured detected
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  missed    R001=missed  also: R004,R025,R027,R032  predicted missed, measured detected
+2 evasion scenarios, 2 predictions corrected; report in docs/runs/2026-11-25-summaries/r001/qfalse-b65536-1/evasion.md
++ echo 'CFG quiet=false batch=65536 round=1 exit 0'
+CFG quiet=false batch=65536 round=1 exit 0
++ for round in 1 2
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-summaries/r001/qfalse-b65536-2 E01 E09
+E01 Reverse shell through a copy of the shell under another name
+E01  missed    R001=missed  also: R027,R028,R032,R037  predicted missed, measured missed
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  missed    R001=missed  also: R004,R025,R027,R032  predicted missed, measured detected
+2 evasion scenarios, 1 predictions corrected; report in docs/runs/2026-11-25-summaries/r001/qfalse-b65536-2/evasion.md
++ echo 'CFG quiet=false batch=65536 round=2 exit 0'
+CFG quiet=false batch=65536 round=2 exit 0
++ for cfg in "true 65536" "true 0" "false 65536" "false 0"
++ set -- false 0
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=true --set agent.loopbackEvents=false --set agent.quietConnections=false --set agent.ringWakeup.bytes=0
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ k -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ for round in 1 2
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-summaries/r001/qfalse-b0-1 E01 E09
+E01 Reverse shell through a copy of the shell under another name
+E01  detected  R001=detected  also: R002,R027,R028,R032,R037  predicted missed, measured detected
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  detected  R001=detected  also: R004,R025,R027,R032  predicted missed, measured detected
+2 evasion scenarios, 2 predictions corrected; report in docs/runs/2026-11-25-summaries/r001/qfalse-b0-1/evasion.md
++ echo 'CFG quiet=false batch=0 round=1 exit 0'
+CFG quiet=false batch=0 round=1 exit 0
++ for round in 1 2
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-summaries/r001/qfalse-b0-2 E01 E09
+E01 Reverse shell through a copy of the shell under another name
+E01  detected  R001=detected  also: R002,R027,R028,R032,R037  predicted missed, measured detected
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  detected  R001=detected  also: R004,R025,R027,R032  predicted missed, measured detected
+2 evasion scenarios, 2 predictions corrected; report in docs/runs/2026-11-25-summaries/r001/qfalse-b0-2/evasion.md
++ echo 'CFG quiet=false batch=0 round=2 exit 0'
+CFG quiet=false batch=0 round=2 exit 0
++ echo R001DONE
+R001DONE

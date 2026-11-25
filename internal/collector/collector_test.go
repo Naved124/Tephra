@@ -204,33 +204,40 @@ func TestEventsAndAlertsReachLoki(t *testing.T) {
 	host.Type = "connect"
 	host.Process.Exec = nil
 	g.Offer(host)
+	// The counted connections of a quiet process are stored like events.
+	sum := event(n + 3)
+	sum.Type = export.TypeConnSummary
+	sum.Process.Exec = nil
+	sum.Network = &export.Network{Direction: "outbound", Family: "ipv4", DestinationIP: "10.0.0.9", DestinationPort: 5432, Count: 40, Total: 40}
+	g.Offer(sum)
 
-	waitFor(t, "all records in Loki", func() bool { return loki.count() == n+3 })
+	const all = n + 4
+	waitFor(t, "all records in Loki", func() bool { return loki.count() == all })
 	// Stored first, acknowledged a moment later.
-	waitFor(t, "every record acknowledged", func() bool { return g.Stats().Acked == n+3 })
-	if st := g.Stats(); st.Acked != n+3 || st.DroppedEvents != 0 || st.DroppedAlerts != 0 || st.Rejected != 0 {
+	waitFor(t, "every record acknowledged", func() bool { return g.Stats().Acked == all })
+	if st := g.Stats(); st.Acked != all || st.DroppedEvents != 0 || st.DroppedAlerts != 0 || st.Rejected != 0 {
 		t.Errorf("exporter stats %+v", st)
 	}
 	waitFor(t, "empty queue", func() bool { return g.Stats().Queued == 0 })
-	if st := srv.c.Stats(); st.Received != n+3 || st.Pushed != n+3 || st.QueuedBytes != 0 {
+	if st := srv.c.Stats(); st.Received != all || st.Pushed != all || st.QueuedBytes != 0 {
 		t.Errorf("collector stats %+v", st)
 	}
 
 	// The label set of section 7, and nothing with high cardinality.
 	for label, want := range map[string]map[string]int{
-		"cluster":   {"kind": n + 3},
-		"node":      {"tephra-worker": n + 3},
-		"namespace": {"shop": n + 2, "host": 1},
-		"stream":    {"event": n + 1, "alert": 2},
-		"type":      {"exec": n + 2, "connect": 1},
-		"level":     {"": n + 1, "high": 1, "critical": 1},
+		"cluster":   {"kind": all},
+		"node":      {"tephra-worker": all},
+		"namespace": {"shop": n + 3, "host": 1},
+		"stream":    {"event": n + 2, "alert": 2},
+		"type":      {"exec": n + 2, "connect": 1, export.TypeConnSummary: 1},
+		"level":     {"": n + 2, "high": 1, "critical": 1},
 	} {
 		got := loki.byLabel(label)
 		if fmt.Sprint(got) != fmt.Sprint(want) {
 			t.Errorf("label %s: %v, want %v", label, got, want)
 		}
 	}
-	if got := loki.byLabel("pod"); len(got) != 1 || got[""] != n+3 {
+	if got := loki.byLabel("pod"); len(got) != 1 || got[""] != all {
 		t.Errorf("pod must not be a label: %v", got)
 	}
 

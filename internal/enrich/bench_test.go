@@ -4,8 +4,11 @@ package enrich
 
 import (
 	"encoding/json"
+	"net/netip"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/identity"
@@ -62,4 +65,61 @@ func BenchmarkExecChurn(b *testing.B) {
 		}
 	}
 	b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(3*b.N), "ns/event")
+}
+
+// BenchmarkNetChurn replays the network benchmarks' event shape: a client
+// in a pod connects and the server, nginx, accepts, a new connection each
+// time. Each iteration is the two events through the enricher and the
+// shipped rules, as the "alerts only" configuration handles them: judged,
+// not exported. Loopback is the sidecar case, both ends in one pod.
+func BenchmarkNetChurn(b *testing.B) {
+	for _, tc := range []struct {
+		name           string
+		client, server string
+	}{
+		{"pod", "10.244.1.7", "10.244.1.9"},
+		{"loopback", "127.0.0.1", "127.0.0.1"},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			f := newFixture(b)
+			f.procEntry(1, 0, 1, "/sbin/init", "/sbin/init")
+			fs := proctree.ProcFS{Root: f.proc}
+			f.e.alive = func(p proctree.Proc, mnt uint32) bool { return fs.Alive(p.Key, mnt) }
+			f.e.SetIdentity(identity.New(f.proc))
+			set, err := rules.Load("../../rules")
+			if err != nil {
+				b.Fatal(err)
+			}
+			client := f.webShell("/usr/bin/ab", "ab", "-n", "200000", "-c", "32", "http://web/")
+			server := events.Header{PID: 48190, StartTimeNS: 2000 * tick, PPID: 100, CgroupID: client.CgroupID, UID: 33, GID: 33}
+			alerts := 0
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				port := uint16(32768 + i%28000)
+				c := &events.Net{Header: client, Family: unix.AF_INET, Proto: unix.IPPROTO_TCP,
+					Local:  netip.AddrPortFrom(netip.MustParseAddr(tc.client), port),
+					Remote: netip.AddrPortFrom(netip.MustParseAddr(tc.server), 80)}
+				c.Type = events.TypeConnect
+				a := &events.Net{Header: server, Family: unix.AF_INET, Proto: unix.IPPROTO_TCP,
+					Local:  netip.AddrPortFrom(netip.MustParseAddr(tc.server), 80),
+					Remote: netip.AddrPortFrom(netip.MustParseAddr(tc.client), port)}
+				a.Type = events.TypeAccept
+				for _, ev := range []events.Event{c, a} {
+					rec := f.e.Handle(ev, time.Now())
+					if rec == nil {
+						continue
+					}
+					for _, r := range set.Match(rec) {
+						alerts++
+						if _, err := json.Marshal(r.Alert(rec)); err != nil {
+							b.Fatal(err)
+						}
+					}
+				}
+			}
+			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(2*b.N), "ns/event")
+			b.ReportMetric(float64(alerts)/float64(b.N), "alerts/op")
+		})
+	}
 }

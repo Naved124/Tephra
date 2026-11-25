@@ -1,0 +1,1 @@
+{"config":"tephra-alerts","workload":"loopback","run":3,"wall_ns":15849297743,"ops":200000,"rps":17688.32,"p99_ms":3,"sensor_cpu_ticks":1094,"sensor_rss_kb":105616,"events":600467,"drops":0}

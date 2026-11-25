@@ -119,24 +119,26 @@ func (c *Catalog) Stats() (digests, files int, errs uint64) {
 }
 
 // ObserveRoot learns the identities of the files the root filesystem of pid
-// ships under their usual names. Each root is read once.
-func (c *Catalog) ObserveRoot(pid uint32) {
+// ships under their usual names. Each root is read once. It reports whether
+// the root is known now: false when pid is gone before its root could be
+// opened, so that the caller asks again through another process.
+func (c *Catalog) ObserveRoot(pid uint32) bool {
 	rootFD, err := unix.Open(filepath.Join(c.procRoot, strconv.FormatUint(uint64(pid), 10), "root"),
 		unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return // gone
+		return false // gone
 	}
 	defer func() { _ = unix.Close(rootFD) }()
 	var st unix.Stat_t
 	if unix.Fstat(rootFD, &st) != nil {
-		return
+		return false
 	}
 	root := fileKey{dev: kdev(st.Dev), inode: st.Ino}
 
 	c.mu.Lock()
 	if c.roots[root] {
 		c.mu.Unlock()
-		return
+		return true
 	}
 	if len(c.roots) >= maxRoots {
 		c.roots = map[fileKey]bool{}
@@ -189,6 +191,7 @@ func (c *Catalog) ObserveRoot(pid uint32) {
 	if len(found) > 0 {
 		c.files = map[fileKey]Role{}
 	}
+	return true
 }
 
 // Exe describes an executed file, as the exec event reports it.
@@ -202,6 +205,10 @@ type Exe struct {
 	// RootPID is another process with the same root filesystem, used when
 	// PID has already exited; zero if none is known.
 	RootPID uint32
+	// LiveRoot, if set, finds a live process with the same root when
+	// neither PID nor RootPID can be read. It is asked only then: a short
+	// shell that exits before its exec is handled is still identified.
+	LiveRoot func() uint32
 }
 
 // Identify returns the role of an executed file. A file that cannot be read
@@ -256,8 +263,12 @@ func (c *Catalog) hashExe(x Exe) ([sha256.Size]byte, bool) {
 			return sum, true
 		}
 	}
-	for _, pid := range []uint32{x.PID, x.RootPID} {
-		if pid == 0 || x.Path == "" {
+	pids := []uint32{x.PID, x.RootPID, 0}
+	for i, pid := range pids {
+		if i == 2 && x.LiveRoot != nil {
+			pid = x.LiveRoot()
+		}
+		if pid == 0 || x.Path == "" || i > 0 && pid == x.PID || i == 2 && pid == x.RootPID {
 			continue
 		}
 		rootFD, err := unix.Open(filepath.Join(c.procRoot, strconv.FormatUint(uint64(pid), 10), "root"),

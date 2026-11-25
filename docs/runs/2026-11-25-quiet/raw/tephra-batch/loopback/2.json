@@ -1,0 +1,1 @@
+{"config":"tephra-batch","workload":"loopback","run":2,"wall_ns":14774066747,"ops":200000,"rps":19597.69,"p99_ms":3,"sensor_cpu_ticks":563,"sensor_rss_kb":105252,"events":600467,"drops":0}

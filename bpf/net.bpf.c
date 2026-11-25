@@ -54,16 +54,126 @@ static __always_inline void read_addr(__u8 *dst, struct sock *sk, __u16 family,
 	}
 }
 
+/* @e->family, @e->raddr and @e->rport are set. */
+static __always_inline bool always_reported(const struct net_event *e)
+{
+	struct net_dst_key k = {};
+	__u16 port = e->rport;
+
+	if (bpf_map_lookup_elem(&net_always_port, &port))
+		return true;
+	k.port = e->rport;
+	if (e->family == AF_INET) {
+		k.family = AF_INET;
+		__builtin_memcpy(k.addr, e->raddr, 4);
+	} else if (v4_mapped(e->raddr)) {
+		k.family = AF_INET;
+		__builtin_memcpy(k.addr, e->raddr + 12, 4);
+	} else {
+		k.family = AF_INET6;
+		__builtin_memcpy(k.addr, e->raddr, 16);
+	}
+	return bpf_map_lookup_elem(&net_always_dst, &k) != NULL;
+}
+
+/* Counts a quiet connection in net_summary. False when the map has no room
+ * for it, and the connection is then emitted. */
+static __always_inline bool summarise(const struct net_event *e, __u32 type)
+{
+	struct net_sum_key k = {};
+	struct net_sum_val v = {}, *p;
+
+	k.start_time_ns = e->h.start_time_ns;
+	k.pid = e->h.pid;
+	k.port = type == EVENT_CONNECT ? e->rport : e->lport;
+	k.type = type;
+	k.proto = e->proto;
+	if (e->family == AF_INET) {
+		k.family = AF_INET;
+		__builtin_memcpy(k.addr, e->raddr, 4);
+	} else if (v4_mapped(e->raddr)) {
+		k.family = AF_INET;
+		__builtin_memcpy(k.addr, e->raddr + 12, 4);
+	} else {
+		k.family = AF_INET6;
+		__builtin_memcpy(k.addr, e->raddr, 16);
+	}
+	p = bpf_map_lookup_elem(&net_summary, &k);
+	if (!p) {
+		v.count = 1;
+		v.first_ns = v.last_ns = e->h.ts_boot_ns;
+		v.cgroup_id = e->h.cgroup_id;
+		v.exec_id = e->exec_id;
+		v.ppid = e->h.ppid;
+		v.uid = e->h.uid;
+		v.gid = e->h.gid;
+		v.pid_ns = e->h.pid_ns;
+		v.mnt_ns = e->h.mnt_ns;
+		v.net_ns = e->h.net_ns;
+		__builtin_memcpy(v.comm, e->h.comm, TASK_COMM_LEN);
+		if (!bpf_map_update_elem(&net_summary, &k, &v, BPF_NOEXIST))
+			return true;
+		/* Another CPU added it first, or the map is full. */
+		p = bpf_map_lookup_elem(&net_summary, &k);
+		if (!p)
+			return false;
+	}
+	__sync_fetch_and_add(&p->count, 1);
+	p->last_ns = e->h.ts_boot_ns;
+	return true;
+}
+
+/* Whether the agent marked this process quiet for the direction, the mark
+ * still describes it, and the destination is not one always reported. The
+ * header and exec_id are filled. */
+static __always_inline bool quiet(const struct net_event *e, __u32 type)
+{
+	struct net_quiet_val *q;
+	__u32 pid = e->h.pid, zero = 0;
+	__u64 *n;
+
+	q = bpf_map_lookup_elem(&net_quiet, &pid);
+	if (!q)
+		return false;
+	if (!(q->dirs & (type == EVENT_CONNECT ? NET_QUIET_OUT : NET_QUIET_IN)))
+		return false;
+	if (q->start_time_ns != e->h.start_time_ns ||
+	    q->exec_id != e->exec_id || q->cgroup_id != e->h.cgroup_id ||
+	    q->ppid != e->h.ppid || q->uid != e->h.uid || q->gid != e->h.gid)
+		return false;
+	if (type == EVENT_CONNECT && always_reported(e))
+		return false;
+	if ((q->dirs & NET_QUIET_SUMMARY) && !summarise(e, type)) {
+		__u32 full = 1;
+
+		n = bpf_map_lookup_elem(&net_quiet_count, &full);
+		if (n)
+			(*n)++;
+		return false;
+	}
+	n = bpf_map_lookup_elem(&net_quiet_count, &zero);
+	if (n)
+		(*n)++;
+	return true;
+}
+
 static __always_inline void net_submit(struct net_event *e,
 				       const struct tephra_cfg *c,
 				       struct stats_val *s, __u32 type)
 {
+	struct task_struct *task = bpf_get_current_task_btf();
+
 	if (remote_ignored(e) || !fill_hdr(&e->h, c, type)) {
 		s->filtered++;
 		return;
 	}
+	e->exec_id = BPF_CORE_READ(task, self_exec_id);
+	if (quiet(e, type)) {
+		s->filtered++;
+		return;
+	}
 	e->h.size = sizeof(*e);
-	if (bpf_ringbuf_output(&events, e, sizeof(*e), 0))
+	if (bpf_ringbuf_output(&events, e, sizeof(*e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -97,7 +207,7 @@ static __always_inline void unix_connect(const struct tephra_cfg *c,
 	}
 	e.path_len = len;
 	e.h.size = sizeof(e);
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;

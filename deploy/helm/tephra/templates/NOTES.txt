@@ -1,0 +1,34 @@
+Tephra {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+{{- if .Values.agent.enabled }}
+
+Agents:  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/component=agent
+{{- $w := .Values.agent.ringWakeup | default dict }}
+{{- if not (and .Values.agent.quietConnections $w.bytes) }}
+
+RECOMMENDED: turn on the two connection-cost options.
+
+  helm upgrade {{ .Release.Name }} <chart> -n {{ .Release.Namespace }} --reuse-values \
+    --set agent.quietConnections=true --set agent.ringWakeup.bytes=65536
+
+They are off by default so that nothing changes without you choosing it.
+On a pod that makes or takes many connections, the agent otherwise handles
+every one of them. Measured on a 5.15 node (alerts only, 200,000
+connections): throughput -19.9% and the agent at 77% of a CPU with both
+off; -3.7% and 1% with both on. In the lab's attack, evasion and
+false-positive runs they caused no missed detection and no new alert.
+
+What you give up with them on:
+{{- if .Values.agent.rawEvents }}
+  - Connections of processes that no rule can fire on are exported as one
+    connection_summary record per process and destination every 10 seconds
+    (count, first and last time), not one event each. The client's own port
+    of each connection, and the exact time of each one, are not kept.
+{{- else }}
+  - Raw events are off, so connections no rule fires on are not kept either
+    way; nothing more is lost.
+{{- end }}
+  - Alerts may reach the collector up to {{ $w.interval | default "10ms" }} later.
+
+Details: https://github.com/Naved124/Tephra#connection-cost
+{{- end }}
+{{- end }}

@@ -1,0 +1,232 @@
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=true --set agent.loopbackEvents=false --set agent.quietConnections=true --set agent.ringWakeup.bytes=65536
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ k -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ D=docs/runs/2026-11-25-summaries
++ mkdir -p docs/runs/2026-11-25-summaries/attacks docs/runs/2026-11-25-summaries/evasions
++ bin/harness run --all --context kind-tephra --out docs/runs/2026-11-25-summaries/attacks
+A01 Reverse shell from a web server pod to a listener pod
+A01  detected  R001=detected R002=detected  also: R004
+A02 Run a harmless binary from a memfd with no file on disk
+A02  detected  R003=detected  also: R032
+A03 Download a tool into a running container and execute it
+A03  detected  R004=detected R025=detected  also: R032
+A04 Read /etc/shadow from a non-system process
+A04  detected  R005=detected
+A05 Read the service account token, then query the Kubernetes API
+A05  missed    R006=detected R013=missed R026=missed  also: R004
+A06 Write an entry to /etc/ld.so.preload
+A06  detected  R007=detected
+A07 Add a cron entry
+A07  detected  R008=detected
+A08 Append a key to authorized_keys
+A08  detected  R009=detected
+A09 Open the containerd socket through a hostPath mount
+A09  detected  R010=detected  also: R028
+A10 Write a cgroup release_agent from a privileged pod
+A10  detected  R011=detected  also: R017
+A11 Truncate shell history
+A11  detected  R012=detected
+A12 Connect to a lab listener on a mining-pool port
+A12  detected  R014=detected  also: R004
+A13 ptrace attach to a neighbouring process
+A13  detected  R015=detected
+A14 Load a benign kernel module from a privileged pod
+A14  detected  R016=detected
+A15 Mount the host root filesystem from a privileged pod
+A15  detected  R017=detected
+A16 Enter host namespaces with nsenter from a hostPID pod
+A16  detected  R018=detected
+A17 Load a BPF program with a second tool
+A17  detected  R020=detected
+A18 Delete shell history and link it to /dev/null
+A18  detected  R022=detected
+A19 Move a file onto /etc/ld.so.preload
+A19  detected  R023=detected
+A20 Refused read of /etc/shadow by an unprivileged user
+A20  detected  R024=detected
+A21 Start a program with LD_PRELOAD set
+A21  detected  R021=detected
+A22 Effective uid goes from non-zero to zero outside an exec
+A22  detected  R019=detected
+22 scenarios, 1 not detected; report in docs/runs/2026-11-25-summaries/attacks/coverage.md
++ echo 'attacks exit 1'
+attacks exit 1
++ bin/harness run --evasions --all --context kind-tephra --out docs/runs/2026-11-25-summaries/evasions
+E01 Reverse shell through a copy of the shell under another name
+E01  missed    R001=missed  also: R027,R028,R032,R037  predicted missed, measured missed
+E02 Interactive session implemented inside Python, no shell executed
+E02  missed    R001=missed  also: R028,R037  predicted missed, measured missed
+E03 Read /etc/shadow through a hard link under an unwatched name
+E03  detected  R005=detected  predicted detected, measured detected
+E04 Open /etc/shadow through io_uring instead of the open system call
+E04  detected  R005=detected  predicted detected, measured detected
+E05 Flood the sensor with short-lived processes, then read /etc/shadow
+E05  detected  R005=detected  predicted detected, measured detected
+E06 Rewrite the path argument from a second thread while openat runs
+E06  detected  R005=detected  predicted detected, measured detected
+E07 Kill the agent on the node, read /etc/shadow, let the agent restart
+E07  detected  R005=detected  also: R030  predicted missed, measured detected  drops 0, agent restarts 1
+E08 The payload at the end of a command line longer than the capture limit
+E08  detected  R005=detected  predicted partial, measured detected
+E09 Reverse shell through a renamed copy of busybox, shell chosen by argument
+E09  missed    R001=missed  also: R004,R025,R027,R032  predicted missed, measured detected
+E10 Read /etc/shadow with another program copied over an allowlisted path
+E10  detected  R005=detected  also: R032  predicted missed, measured detected
+E11 Download and run a file with Python's own HTTP client, no download tool
+E11  missed    R004=missed R025=missed  also: R028,R032  predicted missed, measured detected
+E12 Interactive session implemented inside Perl, no shell executed
+E12  missed    R001=missed  also: R028,R037  predicted missed, measured detected
+E13 Reverse shell through a pseudo-terminal relayed to a socket
+E13  missed    R001=missed  also: R002,R028,R029,R037  predicted missed, measured detected
+E14 Freeze the agent, read /etc/shadow, kill the agent before it reads its buffer
+E14  detected  R005=detected  also: R030  predicted missed, measured detected  drops 0, agent restarts 1
+E15 Read /etc/shadow from inside the agent's own cgroup
+E15  detected  R005=detected  also: R034  predicted missed, measured detected
+E16 Flood the sensor with connections, then read /etc/shadow
+E16  detected  R005=detected  also: R028,R037  predicted detected, measured detected
+E17 Read a service account token projected at a custom path
+E17  detected  R006=detected  predicted missed, measured detected
+E18 Read the application's service account token through /proc/<pid>/root from a sidecar
+E18  detected  R006=detected  predicted detected, measured detected
+E19 Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program
+E19  detected  R005=detected R030=detected  predicted partial, measured detected  drops 168567, agent restarts 1
+E20 Read the pod's service account token from inside the agent's cgroup
+E20  detected  R006=detected  also: R034  predicted missed, measured detected
+E21 Interactive Perl session relayed to a listener through a proxy sidecar on loopback
+E21  detected  R028=detected  also: R014  predicted missed, measured detected
+E22 Read a service account token projected under another name, with dd
+E22  detected  R006=detected  predicted missed, measured detected
+E23 Flood alerts from 200 differently named programs, kill the agent, read /etc/shadow
+E23  detected  R005=detected R030=detected  predicted partial, measured detected  drops 557919, agent restarts 1
+E24 Interactive Python session that listens for its operator instead of connecting out
+E24  missed    R028=missed  also: R037  predicted missed, measured detected
+E25 Interactive Perl session relayed through a proxy sidecar's Unix socket
+E25  detected  R028=detected  also: R014  predicted missed, measured detected
+E26 Move into another pod's cgroup and mount namespace, then read /etc/shadow
+E26  detected  R005=detected  also: R034,R036  predicted missed, measured detected
+E27 Read another pod's service account token from the node's side of its volume
+E27  detected  R006=detected  predicted missed, measured detected
+27 evasion scenarios, 19 predictions corrected; report in docs/runs/2026-11-25-summaries/evasions/evasion.md
++ echo 'evasions exit 0'
+evasions exit 0
++ bin/harness fp --context kind-tephra
++ echo 'fp exit 0'
+fp exit 0
+++ date +%s
++ mv bench/raw /tmp/raw-old-1795609410
++ mkdir -p bench/raw
++ CONFIGS='none tephra-all tephra-all-quiet-batch tephra-alerts tephra-quiet-batch'
++ WORKLOADS='exec network loopback'
++ bash bench/matrix.sh 3
+== none
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration none ready
+-- none exec 1
+{"config":"none","workload":"exec","run":1,"wall_ns":10519273383,"ops":20000,"ns":5730000000,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none network 1
+{"config":"none","workload":"network","run":1,"wall_ns":12619340932,"ops":200000,"rps":26815.97,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none loopback 1
+{"config":"none","workload":"loopback","run":1,"wall_ns":13637576874,"ops":200000,"rps":24098.98,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none exec 2
+{"config":"none","workload":"exec","run":2,"wall_ns":10534069780,"ops":20000,"ns":5760000000,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none network 2
+{"config":"none","workload":"network","run":2,"wall_ns":11581158782,"ops":200000,"rps":26626.48,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none loopback 2
+{"config":"none","workload":"loopback","run":2,"wall_ns":12628665336,"ops":200000,"rps":23874.11,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none exec 3
+{"config":"none","workload":"exec","run":3,"wall_ns":10514031130,"ops":20000,"ns":5700000000,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none network 3
+{"config":"none","workload":"network","run":3,"wall_ns":11587417027,"ops":200000,"rps":27364.29,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+-- none loopback 3
+{"config":"none","workload":"loopback","run":3,"wall_ns":12589999906,"ops":200000,"rps":24487.98,"p99_ms":2,"sensor_cpu_ticks":0,"sensor_rss_kb":0,"events":0,"drops":0}
+== tephra-all
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration tephra-all ready
+-- tephra-all exec 1
+{"config":"tephra-all","workload":"exec","run":1,"wall_ns":10520610061,"ops":20000,"ns":5840000000,"sensor_cpu_ticks":254,"sensor_rss_kb":115684,"events":60594,"drops":0}
+-- tephra-all network 1
+{"config":"tephra-all","workload":"network","run":1,"wall_ns":18961246733,"ops":200000,"rps":20552.87,"p99_ms":2,"sensor_cpu_ticks":1086,"sensor_rss_kb":130580,"events":600941,"drops":0}
+-- tephra-all loopback 1
+{"config":"tephra-all","workload":"loopback","run":1,"wall_ns":13654757482,"ops":200000,"rps":20553.21,"p99_ms":2,"sensor_cpu_ticks":930,"sensor_rss_kb":126896,"events":600684,"drops":0}
+-- tephra-all exec 2
+{"config":"tephra-all","workload":"exec","run":2,"wall_ns":10527443805,"ops":20000,"ns":5870000000,"sensor_cpu_ticks":251,"sensor_rss_kb":116036,"events":60602,"drops":0}
+-- tephra-all network 2
+{"config":"tephra-all","workload":"network","run":2,"wall_ns":17872234840,"ops":200000,"rps":21612.83,"p99_ms":2,"sensor_cpu_ticks":1071,"sensor_rss_kb":130772,"events":600981,"drops":0}
+-- tephra-all loopback 2
+{"config":"tephra-all","workload":"loopback","run":2,"wall_ns":13660861104,"ops":200000,"rps":20453.95,"p99_ms":2,"sensor_cpu_ticks":930,"sensor_rss_kb":128728,"events":600690,"drops":0}
+-- tephra-all exec 3
+{"config":"tephra-all","workload":"exec","run":3,"wall_ns":10530360843,"ops":20000,"ns":5950000000,"sensor_cpu_ticks":255,"sensor_rss_kb":117136,"events":60599,"drops":0}
+-- tephra-all network 3
+{"config":"tephra-all","workload":"network","run":3,"wall_ns":17896686910,"ops":200000,"rps":21005.21,"p99_ms":2,"sensor_cpu_ticks":1095,"sensor_rss_kb":127632,"events":600774,"drops":0}
+-- tephra-all loopback 3
+{"config":"tephra-all","workload":"loopback","run":3,"wall_ns":14721001104,"ops":200000,"rps":19630.25,"p99_ms":2,"sensor_cpu_ticks":1001,"sensor_rss_kb":108620,"events":600706,"drops":0}
+== tephra-all-quiet-batch
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration tephra-all-quiet-batch ready
+-- tephra-all-quiet-batch exec 1
+{"config":"tephra-all-quiet-batch","workload":"exec","run":1,"wall_ns":10528075204,"ops":20000,"ns":6060000000,"sensor_cpu_ticks":104,"sensor_rss_kb":119164,"events":60474,"drops":0}
+-- tephra-all-quiet-batch network 1
+{"config":"tephra-all-quiet-batch","workload":"network","run":1,"wall_ns":12608961553,"ops":200000,"rps":26086.86,"p99_ms":2,"sensor_cpu_ticks":21,"sensor_rss_kb":121908,"events":600,"drops":0}
+-- tephra-all-quiet-batch loopback 1
+{"config":"tephra-all-quiet-batch","workload":"loopback","run":1,"wall_ns":12608290907,"ops":200000,"rps":22898.81,"p99_ms":2,"sensor_cpu_ticks":19,"sensor_rss_kb":107096,"events":630,"drops":0}
+-- tephra-all-quiet-batch exec 2
+{"config":"tephra-all-quiet-batch","workload":"exec","run":2,"wall_ns":10496389063,"ops":20000,"ns":6030000000,"sensor_cpu_ticks":109,"sensor_rss_kb":117688,"events":60466,"drops":0}
+-- tephra-all-quiet-batch network 2
+{"config":"tephra-all-quiet-batch","workload":"network","run":2,"wall_ns":12625314492,"ops":200000,"rps":25980.51,"p99_ms":2,"sensor_cpu_ticks":22,"sensor_rss_kb":136184,"events":612,"drops":0}
+-- tephra-all-quiet-batch loopback 2
+{"config":"tephra-all-quiet-batch","workload":"loopback","run":2,"wall_ns":13625566125,"ops":200000,"rps":22442.51,"p99_ms":2,"sensor_cpu_ticks":22,"sensor_rss_kb":115548,"events":769,"drops":0}
+-- tephra-all-quiet-batch exec 3
+{"config":"tephra-all-quiet-batch","workload":"exec","run":3,"wall_ns":10512577924,"ops":20000,"ns":5980000000,"sensor_cpu_ticks":108,"sensor_rss_kb":134832,"events":60458,"drops":0}
+-- tephra-all-quiet-batch network 3
+{"config":"tephra-all-quiet-batch","workload":"network","run":3,"wall_ns":13661460496,"ops":200000,"rps":24465.69,"p99_ms":2,"sensor_cpu_ticks":25,"sensor_rss_kb":128652,"events":712,"drops":0}
+-- tephra-all-quiet-batch loopback 3
+{"config":"tephra-all-quiet-batch","workload":"loopback","run":3,"wall_ns":13655269840,"ops":200000,"rps":22958.62,"p99_ms":2,"sensor_cpu_ticks":22,"sensor_rss_kb":113744,"events":961,"drops":0}
+== tephra-alerts
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration tephra-alerts ready
+-- tephra-alerts exec 1
+{"config":"tephra-alerts","workload":"exec","run":1,"wall_ns":10512203653,"ops":20000,"ns":5950000000,"sensor_cpu_ticks":206,"sensor_rss_kb":100396,"events":60584,"drops":0}
+-- tephra-alerts network 1
+{"config":"tephra-alerts","workload":"network","run":1,"wall_ns":13736317680,"ops":200000,"rps":22660.33,"p99_ms":2,"sensor_cpu_ticks":1000,"sensor_rss_kb":108264,"events":600718,"drops":0}
+-- tephra-alerts loopback 1
+{"config":"tephra-alerts","workload":"loopback","run":1,"wall_ns":14702863299,"ops":200000,"rps":20190.16,"p99_ms":2,"sensor_cpu_ticks":963,"sensor_rss_kb":108588,"events":600898,"drops":0}
+-- tephra-alerts exec 2
+{"config":"tephra-alerts","workload":"exec","run":2,"wall_ns":10524224083,"ops":20000,"ns":5990000000,"sensor_cpu_ticks":209,"sensor_rss_kb":99860,"events":60589,"drops":0}
+-- tephra-alerts network 2
+{"config":"tephra-alerts","workload":"network","run":2,"wall_ns":13682473932,"ops":200000,"rps":22350.64,"p99_ms":2,"sensor_cpu_ticks":1003,"sensor_rss_kb":107912,"events":600746,"drops":0}
+-- tephra-alerts loopback 2
+{"config":"tephra-alerts","workload":"loopback","run":2,"wall_ns":13684706336,"ops":200000,"rps":20300.92,"p99_ms":2,"sensor_cpu_ticks":970,"sensor_rss_kb":105328,"events":600923,"drops":0}
+-- tephra-alerts exec 3
+{"config":"tephra-alerts","workload":"exec","run":3,"wall_ns":9478807948,"ops":20000,"ns":5960000000,"sensor_cpu_ticks":211,"sensor_rss_kb":111592,"events":60571,"drops":0}
+-- tephra-alerts network 3
+{"config":"tephra-alerts","workload":"network","run":3,"wall_ns":13705039054,"ops":200000,"rps":22058.60,"p99_ms":2,"sensor_cpu_ticks":1023,"sensor_rss_kb":110668,"events":600729,"drops":0}
+-- tephra-alerts loopback 3
+{"config":"tephra-alerts","workload":"loopback","run":3,"wall_ns":14716042109,"ops":200000,"rps":19268.08,"p99_ms":2,"sensor_cpu_ticks":984,"sensor_rss_kb":114588,"events":600706,"drops":0}
+== tephra-quiet-batch
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+configuration tephra-quiet-batch ready
+-- tephra-quiet-batch exec 1
+{"config":"tephra-quiet-batch","workload":"exec","run":1,"wall_ns":10525191481,"ops":20000,"ns":5930000000,"sensor_cpu_ticks":78,"sensor_rss_kb":99752,"events":60472,"drops":0}
+-- tephra-quiet-batch network 1
+{"config":"tephra-quiet-batch","workload":"network","run":1,"wall_ns":12618270562,"ops":200000,"rps":26211.90,"p99_ms":2,"sensor_cpu_ticks":18,"sensor_rss_kb":107200,"events":633,"drops":0}
+-- tephra-quiet-batch loopback 1
+{"config":"tephra-quiet-batch","workload":"loopback","run":1,"wall_ns":12584732045,"ops":200000,"rps":23056.70,"p99_ms":2,"sensor_cpu_ticks":18,"sensor_rss_kb":105824,"events":815,"drops":0}
+-- tephra-quiet-batch exec 2
+{"config":"tephra-quiet-batch","workload":"exec","run":2,"wall_ns":10507702433,"ops":20000,"ns":5930000000,"sensor_cpu_ticks":84,"sensor_rss_kb":111024,"events":60724,"drops":0}
+-- tephra-quiet-batch network 2
+{"config":"tephra-quiet-batch","workload":"network","run":2,"wall_ns":11577023634,"ops":200000,"rps":26647.57,"p99_ms":2,"sensor_cpu_ticks":19,"sensor_rss_kb":117236,"events":758,"drops":0}
+-- tephra-quiet-batch loopback 2
+{"config":"tephra-quiet-batch","workload":"loopback","run":2,"wall_ns":13636130505,"ops":200000,"rps":23164.73,"p99_ms":2,"sensor_cpu_ticks":17,"sensor_rss_kb":110808,"events":824,"drops":0}
+-- tephra-quiet-batch exec 3
+{"config":"tephra-quiet-batch","workload":"exec","run":3,"wall_ns":10509396741,"ops":20000,"ns":5840000000,"sensor_cpu_ticks":83,"sensor_rss_kb":124284,"events":60689,"drops":0}
+-- tephra-quiet-batch network 3
+{"config":"tephra-quiet-batch","workload":"network","run":3,"wall_ns":12642107454,"ops":200000,"rps":25923.60,"p99_ms":2,"sensor_cpu_ticks":21,"sensor_rss_kb":112072,"events":532,"drops":0}
+-- tephra-quiet-batch loopback 3
+{"config":"tephra-quiet-batch","workload":"loopback","run":3,"wall_ns":12595574738,"ops":200000,"rps":22649.14,"p99_ms":2,"sensor_cpu_ticks":18,"sensor_rss_kb":124344,"events":705,"drops":0}
++ echo 'bench exit 0'
+bench exit 0
++ echo FINALDONE
+FINALDONE

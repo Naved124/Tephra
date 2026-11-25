@@ -1,0 +1,259 @@
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ sleep 30
++ grep -q '^ALLDONE' /tmp/quietrun.log
++ D=docs/runs/2026-11-25-quiet/ab
++ mkdir -p docs/runs/2026-11-25-quiet/ab
++ for round in 1 2
++ for q in false true
++ setq false
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=false --set agent.quietConnections=false
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ bin/harness run --context kind-tephra --out docs/runs/2026-11-25-quiet/ab/attacks-qfalse-1 A05
+A05 Read the service account token, then query the Kubernetes API
+A05  missed    R006=missed R013=missed R026=missed  also: R004
+1 scenarios, 1 not detected; report in docs/runs/2026-11-25-quiet/ab/attacks-qfalse-1/coverage.md
++ echo 'A05 q=false round=1 exit 1'
+A05 q=false round=1 exit 1
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-quiet/ab/evasions-qfalse-1 E11 E12 E13 E19 E24
+E11 Download and run a file with Python's own HTTP client, no download tool
+E11  missed    R004=missed R025=missed  also: R028,R032  predicted missed, measured detected
+E12 Interactive session implemented inside Perl, no shell executed
+E12  missed    R001=missed  also: R028,R037  predicted missed, measured detected
+E13 Reverse shell through a pseudo-terminal relayed to a socket
+E13  missed    R001=missed  also: R002,R028,R029,R037  predicted missed, measured detected
+E19 Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program
+E19  missed    R005=detected R030=missed  predicted partial, measured detected  drops 0, agent restarts 1
+E24 Interactive Python session that listens for its operator instead of connecting out
+E24  missed    R028=missed  also: R037  predicted missed, measured detected
+5 evasion scenarios, 5 predictions corrected; report in docs/runs/2026-11-25-quiet/ab/evasions-qfalse-1/evasion.md
++ echo 'EV q=false round=1 exit 0'
+EV q=false round=1 exit 0
++ for q in false true
++ setq true
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=false --set agent.quietConnections=true
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ bin/harness run --context kind-tephra --out docs/runs/2026-11-25-quiet/ab/attacks-qtrue-1 A05
+A05 Read the service account token, then query the Kubernetes API
+A05  missed    R006=missed R013=missed R026=missed  also: R004
+1 scenarios, 1 not detected; report in docs/runs/2026-11-25-quiet/ab/attacks-qtrue-1/coverage.md
++ echo 'A05 q=true round=1 exit 1'
+A05 q=true round=1 exit 1
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-quiet/ab/evasions-qtrue-1 E11 E12 E13 E19 E24
+E11 Download and run a file with Python's own HTTP client, no download tool
+E11  missed    R004=missed R025=missed  also: R028,R032  predicted missed, measured detected
+E12 Interactive session implemented inside Perl, no shell executed
+E12  missed    R001=missed  also: R028,R037  predicted missed, measured detected
+E13 Reverse shell through a pseudo-terminal relayed to a socket
+E13  missed    R001=missed  also: R002,R028,R029,R037  predicted missed, measured detected
+E19 Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program
+E19  missed    R005=detected R030=missed  predicted partial, measured detected  drops 0, agent restarts 1
+E24 Interactive Python session that listens for its operator instead of connecting out
+E24  missed    R028=missed  also: R037  predicted missed, measured detected
+5 evasion scenarios, 5 predictions corrected; report in docs/runs/2026-11-25-quiet/ab/evasions-qtrue-1/evasion.md
++ echo 'EV q=true round=1 exit 0'
+EV q=true round=1 exit 0
++ for round in 1 2
++ for q in false true
++ setq false
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=false --set agent.quietConnections=false
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ bin/harness run --context kind-tephra --out docs/runs/2026-11-25-quiet/ab/attacks-qfalse-2 A05
+A05 Read the service account token, then query the Kubernetes API
+A05  missed    R006=missed R013=missed R026=missed  also: R004
+1 scenarios, 1 not detected; report in docs/runs/2026-11-25-quiet/ab/attacks-qfalse-2/coverage.md
++ echo 'A05 q=false round=2 exit 1'
+A05 q=false round=2 exit 1
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-quiet/ab/evasions-qfalse-2 E11 E12 E13 E19 E24
+E11 Download and run a file with Python's own HTTP client, no download tool
+E11  missed    R004=missed R025=missed  also: R028,R032  predicted missed, measured detected
+E12 Interactive session implemented inside Perl, no shell executed
+E12  missed    R001=missed  also: R028,R037  predicted missed, measured detected
+E13 Reverse shell through a pseudo-terminal relayed to a socket
+E13  missed    R001=missed  also: R002,R028,R029,R037  predicted missed, measured detected
+E19 Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program
+E19  missed    R005=detected R030=missed  predicted partial, measured detected  drops 0, agent restarts 1
+E24 Interactive Python session that listens for its operator instead of connecting out
+E24  missed    R028=missed  also: R037  predicted missed, measured detected
+5 evasion scenarios, 5 predictions corrected; report in docs/runs/2026-11-25-quiet/ab/evasions-qfalse-2/evasion.md
++ echo 'EV q=false round=2 exit 0'
+EV q=false round=2 exit 0
++ for q in false true
++ setq true
++ helm upgrade tephra deploy/helm/tephra -n tephra --kube-context kind-tephra --reset-then-reuse-values --set agent.rawEvents=false --set agent.quietConnections=true
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
++ kubectl --context kind-tephra -n tephra rollout status ds -l app.kubernetes.io/component=agent --timeout 300s
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
++ sleep 60
++ bin/harness run --context kind-tephra --out docs/runs/2026-11-25-quiet/ab/attacks-qtrue-2 A05
+A05 Read the service account token, then query the Kubernetes API
+A05  missed    R006=missed R013=missed R026=missed  also: R004
+1 scenarios, 1 not detected; report in docs/runs/2026-11-25-quiet/ab/attacks-qtrue-2/coverage.md
++ echo 'A05 q=true round=2 exit 1'
+A05 q=true round=2 exit 1
++ bin/harness run --evasions --context kind-tephra --out docs/runs/2026-11-25-quiet/ab/evasions-qtrue-2 E11 E12 E13 E19 E24
+E11 Download and run a file with Python's own HTTP client, no download tool
+E11  missed    R004=missed R025=missed  also: R028,R032  predicted missed, measured detected
+E12 Interactive session implemented inside Perl, no shell executed
+E12  missed    R001=missed  also: R028,R037  predicted missed, measured detected
+E13 Reverse shell through a pseudo-terminal relayed to a socket
+E13  missed    R001=missed  also: R002,R028,R029,R037  predicted missed, measured detected
+E19 Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program
+E19  detected  R005=detected R030=detected  predicted partial, measured detected  drops 0, agent restarts 1
+E24 Interactive Python session that listens for its operator instead of connecting out
+E24  partial   R028=partial (alert names pod "operator", expected "victim")  also: R037  predicted missed, measured detected
+5 evasion scenarios, 5 predictions corrected; report in docs/runs/2026-11-25-quiet/ab/evasions-qtrue-2/evasion.md
++ echo 'EV q=true round=2 exit 0'
+EV q=true round=2 exit 0
++ echo ABDONE
+ABDONE

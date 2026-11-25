@@ -125,6 +125,7 @@ cmd_sync() {
 	[ -n "$id" ] || die "no instance; run: lab.sh up"
 	rsync -a --delete \
 		--exclude /bin/ --exclude /tephrad --exclude /bench/raw/ --exclude /bench/.cache/ --exclude /bench/DONE --exclude /.tools/ --exclude /deploy/vm/.state/ --exclude '.terraform/' --exclude '*.tfstate*' \
+		--exclude-from "$REPO/.git/info/exclude" \
 		-e "ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=$STATE/known_hosts -o LogLevel=ERROR -o IdentitiesOnly=yes -o 'ProxyCommand=aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p'" \
 		"$REPO/" "tephra@$id:$REMOTE_DIR/"
 }
@@ -133,8 +134,9 @@ cmd_ssh() {
 	if [ "$#" -eq 0 ]; then
 		lab_ssh -t "cd $REMOTE_DIR 2>/dev/null; exec bash -l"
 	else
-		# Login shell so the Go toolchain is on PATH.
-		lab_ssh "cd $REMOTE_DIR && bash -lc $(printf '%q' "$*")"
+		# Login shell so the Go toolchain is on PATH. Before the first sync
+		# or clone there is no repository yet; run from the home directory.
+		lab_ssh "{ cd $REMOTE_DIR 2>/dev/null || true; } && bash -lc $(printf '%q' "$*")"
 	fi
 }
 

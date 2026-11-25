@@ -46,7 +46,7 @@ int BPF_PROG(tephra_ptrace, struct task_struct *child, unsigned int mode)
 	else
 		e.target_pid = 0;
 
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -100,7 +100,7 @@ int BPF_PROG(tephra_cred, struct cred *new)
 	if (BPF_CORE_READ_BITFIELD_PROBED(task, in_execve))
 		e.h.flags |= CRED_F_IN_EXEC;
 
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -158,7 +158,7 @@ int BPF_PROG(tephra_mount, const char *dev_name, const struct path *path,
 	if (i == MOUNT_COMPONENTS && d && BPF_CORE_READ(d, d_parent) != d)
 		e->h.flags |= MOUNT_F_DEEPER;
 
-	if (bpf_ringbuf_output(&events, e, sizeof(*e), 0))
+	if (bpf_ringbuf_output(&events, e, sizeof(*e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -231,7 +231,7 @@ int BPF_PROG(tephra_setns, struct task_struct *p, struct nsproxy *new)
 		return 0;
 	}
 	e.h.size = sizeof(e);
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
