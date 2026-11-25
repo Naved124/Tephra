@@ -79,7 +79,9 @@ type test struct {
 	strs []string
 	// wantTrue is set on a boolean test for true.
 	wantTrue bool
-	match    func(*export.Record) bool
+	// ints holds the values of an integer test, for the compiler.
+	ints  []int64
+	match func(*export.Record) bool
 }
 
 var (
@@ -419,6 +421,7 @@ func (r *Rule) parseTest(key string, v *yaml.Node) (test, error) {
 		if (mod == "gt" || mod == "lt") && len(wants) != 1 {
 			return test{}, fmt.Errorf("%s: modifier %s takes one value", key, mod)
 		}
+		t.ints = wants
 		t.match = func(rec *export.Record) bool {
 			v := get(rec)
 			if !v.ok {

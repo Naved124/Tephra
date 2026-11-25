@@ -136,6 +136,7 @@ struct net_event {
 	__u16 proto; /* IPPROTO_* */
 	__u8 laddr[16];
 	__u8 raddr[16];
+	__u64 exec_id; /* task_struct.self_exec_id, for quiet marks */
 };
 
 /* connect to an AF_UNIX socket. An abstract address starts with a NUL. */
@@ -427,6 +428,88 @@ struct {
 	__type(key, __u32);
 	__type(value, struct stats_val);
 } stats SEC(".maps");
+
+/* Ring buffer wake-ups. 0 lets the kernel wake the agent for every record
+ * that finds it caught up. Otherwise records are written without a wake-up
+ * until this many bytes wait unread, and the agent also reads on a timer,
+ * so a record waits at most that long. */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u32);
+} ring_wakeup SEC(".maps");
+
+static __always_inline __u64 rb_flags(void)
+{
+	__u32 zero = 0;
+	__u32 *batch = bpf_map_lookup_elem(&ring_wakeup, &zero);
+
+	if (!batch || !*batch)
+		return 0;
+	return bpf_ringbuf_query(&events, BPF_RB_AVAIL_DATA) >= *batch
+		   ? BPF_RB_FORCE_WAKEUP
+		   : BPF_RB_NO_WAKEUP;
+}
+
+/* Quiet connections. The agent marks a process whose connections no loaded
+ * rule can fire on, except to a destination in net_always_port or
+ * net_always_dst, which are reported whatever the mark. A mark applies only
+ * while everything it was judged on is unchanged: the process (start time),
+ * its program (exec count), cgroup, parent and user. Anything else, a
+ * process never judged, or a mark the LRU dropped, is reported. */
+#define NET_QUIET_OUT	   1
+#define NET_QUIET_IN	   2
+#define NET_QUIET_LOOPBACK 4 /* only connections to a loopback address */
+
+struct net_quiet_val {
+	__u64 start_time_ns;
+	__u64 cgroup_id;
+	__u64 exec_id;
+	__u32 ppid;
+	__u32 uid;
+	__u32 gid;
+	__u32 dirs; /* NET_QUIET_* */
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 16384);
+	__type(key, __u32); /* pid in the node's namespace, as in the header */
+	__type(value, struct net_quiet_val);
+} net_quiet SEC(".maps");
+
+/* Destination ports a connect rule names. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 256);
+	__type(key, __u16);
+	__type(value, __u8);
+} net_always_port SEC(".maps");
+
+/* Destinations reported from every process: the Kubernetes API. An IPv4
+ * address fills the first four bytes. */
+struct net_dst_key {
+	__u8 addr[16];
+	__u16 port;
+	__u16 family;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 64);
+	__type(key, struct net_dst_key);
+	__type(value, __u8);
+} net_always_dst SEC(".maps");
+
+/* Connections not emitted because their process was quiet; also counted in
+ * stats as filtered. */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} net_quiet_count SEC(".maps");
 
 /* Work area for build_path: a path is assembled from its last component
  * backwards, ending at byte PATH_LEN - 1. The upper half is never written

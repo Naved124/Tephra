@@ -67,6 +67,10 @@ type counters struct {
 	deniedUnwatched atomic.Uint64
 	// loopbackHeld counts raw loopback events judged but not exported.
 	loopbackHeld atomic.Uint64
+	// quietMarked counts quiet marks written; quietErrors failed writes
+	// and removals of them.
+	quietMarked atomic.Uint64
+	quietErrors atomic.Uint64
 	// whileDown counts events in an adopted ring buffer that were recorded
 	// before this agent started: while no agent was reading. ownDropped
 	// counts the agent's own events reported by an earlier agent's programs.
@@ -253,6 +257,8 @@ type agent struct {
 	// started is when the agent started; stop who last asked it to stop.
 	started time.Time
 	stop    stopSignal
+	// quiet holds the quiet marks on connections (quiet.go).
+	quiet quiet
 }
 
 // apply makes the kernel filters, the inode watches and the matcher follow
@@ -276,6 +282,11 @@ func (a *agent) apply(s *settings) error {
 	}
 	a.enricher.SetAPIServers(s.apiServers())
 	if err := a.applyEnforcement(s); err != nil {
+		return err
+	}
+	// Marks judged on the previous rules are taken back before the new
+	// rules are in force.
+	if err := a.applyQuiet(s); err != nil {
 		return err
 	}
 	a.cur = s
@@ -385,6 +396,12 @@ func (a *agent) handle(ev events.Event) {
 		a.c.alert(r)
 		a.emit(r.Alert(rec))
 	}
+	switch ev := ev.(type) {
+	case *events.Net:
+		a.judgeQuiet(ev, rec)
+	case *events.Exit:
+		a.quietExit(ev)
+	}
 	held, evicted := a.cur.rules.SequenceStats()
 	a.c.seqHeld.Store(uint64(held))
 	if evicted < a.seqEvicted {
@@ -486,6 +503,10 @@ func (a *agent) sendHealth(node string, now time.Time, stopping bool) {
 	if a.sensor.KeepsRecording() {
 		h["keeps_recording"] = 1
 	}
+	if n, err := a.sensor.QuietCount(); err == nil {
+		h["kernel_quiet"] = n
+	}
+	h["quiet_marks"] = uint64(len(a.quiet.marks))
 	if stopping {
 		h["stopping"] = 1
 	}
@@ -645,7 +666,11 @@ func run(log *slog.Logger, o options) error {
 	a.enricher.SetRuntimes(a.runtimes)
 	a.enricher.SetIdentity(a.ids)
 	a.enricher.SetAgent(uint32(os.Getpid()), sensor.Self().StartNS)
+	a.enricher.OnMainChange(a.mainChanged)
 	if err := a.apply(s); err != nil {
+		return err
+	}
+	if err := sensor.SetRingWakeup(s.cfg.RingWakeup.Bytes); err != nil {
 		return err
 	}
 	if ok, _ := sensor.EnforcementAvailable(); ok && pods != nil {
@@ -689,7 +714,9 @@ func run(log *slog.Logger, o options) error {
 	if sensor.Backlog() {
 		backlogBefore = startBoot
 	}
-	go func() { readErr <- read(sensor.Events(), queue, c, log, sensor.Own, backlogBefore) }()
+	go func() {
+		readErr <- read(sensor.Events(), queue, c, log, sensor.Own, backlogBefore, s.cfg.RingWakeup.Interval)
+	}()
 
 	// Credentials: resolved now, when a pod changes (a new container's ID
 	// arrives with its status), and every 30 seconds, which picks up a
@@ -796,12 +823,21 @@ func run(log *slog.Logger, o options) error {
 // Events from an earlier agent's programs about this agent are dropped; those
 // recorded before backlogBefore (boot-clock ns; zero for none) are counted as
 // recorded while no agent was reading.
-func read(rd *ringbuf.Reader, queue chan<- events.Event, c *counters, log *slog.Logger, own func(*events.Header) bool, backlogBefore uint64) error {
+//
+// With interval set the kernel wakes the reader only once a batch waits, so
+// it also reads every interval.
+func read(rd *ringbuf.Reader, queue chan<- events.Event, c *counters, log *slog.Logger, own func(*events.Header) bool, backlogBefore uint64, interval time.Duration) error {
 	var rec ringbuf.Record
 	for {
+		if interval > 0 {
+			rd.SetDeadline(time.Now().Add(interval))
+		}
 		if err := rd.ReadInto(&rec); err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
 				return nil
+			}
+			if errors.Is(err, os.ErrDeadlineExceeded) {
+				continue
 			}
 			return err
 		}

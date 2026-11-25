@@ -54,16 +54,88 @@ static __always_inline void read_addr(__u8 *dst, struct sock *sk, __u16 family,
 	}
 }
 
+/* @e->family, @e->raddr and @e->rport are set. */
+static __always_inline bool always_reported(const struct net_event *e)
+{
+	struct net_dst_key k = {};
+	__u16 port = e->rport;
+
+	if (bpf_map_lookup_elem(&net_always_port, &port))
+		return true;
+	k.port = e->rport;
+	if (e->family == AF_INET) {
+		k.family = AF_INET;
+		__builtin_memcpy(k.addr, e->raddr, 4);
+	} else if (v4_mapped(e->raddr)) {
+		k.family = AF_INET;
+		__builtin_memcpy(k.addr, e->raddr + 12, 4);
+	} else {
+		k.family = AF_INET6;
+		__builtin_memcpy(k.addr, e->raddr, 16);
+	}
+	return bpf_map_lookup_elem(&net_always_dst, &k) != NULL;
+}
+
+/* @e->family and @e->raddr are set. */
+static __always_inline bool remote_loopback(const struct net_event *e)
+{
+	__u64 hi, lo;
+
+	if (e->family == AF_INET)
+		return e->raddr[0] == 127;
+	if (v4_mapped(e->raddr))
+		return e->raddr[12] == 127;
+	/* ::1 */
+	__builtin_memcpy(&hi, e->raddr, 8);
+	__builtin_memcpy(&lo, e->raddr + 8, 8);
+	return hi == 0 && lo == bpf_cpu_to_be64(1);
+}
+
+/* Whether the agent marked this process quiet for the direction, the mark
+ * still describes it, and the destination is not one always reported. The
+ * header and exec_id are filled. */
+static __always_inline bool quiet(const struct net_event *e, __u32 type)
+{
+	struct net_quiet_val *q;
+	__u32 pid = e->h.pid, zero = 0;
+	__u64 *n;
+
+	q = bpf_map_lookup_elem(&net_quiet, &pid);
+	if (!q)
+		return false;
+	if (!(q->dirs & (type == EVENT_CONNECT ? NET_QUIET_OUT : NET_QUIET_IN)))
+		return false;
+	if (q->start_time_ns != e->h.start_time_ns ||
+	    q->exec_id != e->exec_id || q->cgroup_id != e->h.cgroup_id ||
+	    q->ppid != e->h.ppid || q->uid != e->h.uid || q->gid != e->h.gid)
+		return false;
+	if ((q->dirs & NET_QUIET_LOOPBACK) && !remote_loopback(e))
+		return false;
+	if (type == EVENT_CONNECT && always_reported(e))
+		return false;
+	n = bpf_map_lookup_elem(&net_quiet_count, &zero);
+	if (n)
+		(*n)++;
+	return true;
+}
+
 static __always_inline void net_submit(struct net_event *e,
 				       const struct tephra_cfg *c,
 				       struct stats_val *s, __u32 type)
 {
+	struct task_struct *task = bpf_get_current_task_btf();
+
 	if (remote_ignored(e) || !fill_hdr(&e->h, c, type)) {
 		s->filtered++;
 		return;
 	}
+	e->exec_id = BPF_CORE_READ(task, self_exec_id);
+	if (quiet(e, type)) {
+		s->filtered++;
+		return;
+	}
 	e->h.size = sizeof(*e);
-	if (bpf_ringbuf_output(&events, e, sizeof(*e), 0))
+	if (bpf_ringbuf_output(&events, e, sizeof(*e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -97,7 +169,7 @@ static __always_inline void unix_connect(const struct tephra_cfg *c,
 	}
 	e.path_len = len;
 	e.h.size = sizeof(e);
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;

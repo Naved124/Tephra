@@ -117,7 +117,7 @@ static __always_inline int enforce_report(struct enforce_cfg *ec,
 			if (total > sizeof(*e))
 				total = sizeof(*e);
 			e->h.size = total;
-			if (bpf_ringbuf_output(&events, e, total, 0))
+			if (bpf_ringbuf_output(&events, e, total, rb_flags()))
 				s->dropped++;
 			else
 				s->emitted++;

@@ -14,6 +14,13 @@ data:
     net_ignore: {{ toJson .Values.agent.netIgnore }}
     watch: {{ toJson .Values.agent.watch }}
     k8s_api: {{ toJson .Values.agent.k8sApi }}
+    quiet_connections: {{ .Values.agent.quietConnections | default false }}
+    {{- $w := .Values.agent.ringWakeup | default dict }}
+    {{- if $w.bytes }}
+    ring_wakeup:
+      bytes: {{ int64 $w.bytes }}
+      interval: {{ $w.interval | default "10ms" | quote }}
+    {{- end }}
     export:
       raw_events: {{ .Values.agent.rawEvents }}
       loopback_events: {{ .Values.agent.loopbackEvents }}

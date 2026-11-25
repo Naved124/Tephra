@@ -35,10 +35,11 @@ others_off() {
 	h uninstall falco -n falco --wait >/dev/null 2>&1 || true
 	h uninstall tetragon -n kube-system --wait >/dev/null 2>&1 || true
 }
-tephra_on() { # rawEvents enforce
+tephra_on() { # rawEvents enforce [quietConnections] [ringWakeup.bytes]
 	h upgrade tephra deploy/helm/tephra -n tephra --reset-then-reuse-values \
 		--set agent.enabled=true --set agent.rawEvents="$1" \
-		--set agent.enforcement.enabled="$2" --set agent.enforcement.dryRun=false >/dev/null
+		--set agent.enforcement.enabled="$2" --set agent.enforcement.dryRun=false \
+		--set agent.quietConnections="${3:-false}" --set agent.ringWakeup.bytes="${4:-0}" >/dev/null
 	k -n tephra rollout status daemonset/tephra-agent --timeout=300s >/dev/null
 }
 
@@ -63,6 +64,20 @@ tephra-enforce)
 	# Opting the bench namespace in would refuse nothing the workloads do
 	# either, and is left to the false-positive run.
 	;;
+# Item 4 of v0.2.0: the cost of connections. Alerts only, with quiet
+# connections, batched wake-ups (64 KiB or 10 ms), and both.
+tephra-quiet)
+	others_off
+	tephra_on false false true 0
+	;;
+tephra-batch)
+	others_off
+	tephra_on false false false 65536
+	;;
+tephra-quiet-batch)
+	others_off
+	tephra_on false false true 65536
+	;;
 falco)
 	tephra_off
 	h uninstall tetragon -n kube-system --wait >/dev/null 2>&1 || true
@@ -79,7 +94,7 @@ tetragon)
 	h upgrade --install tetragon cilium/tetragon --version "$TETRAGON_CHART_VERSION" -n kube-system --wait --timeout 10m >/dev/null
 	;;
 *)
-	echo "usage: bench/config.sh none|tephra-all|tephra-alerts|tephra-enforce|falco|tetragon" >&2
+	echo "usage: bench/config.sh none|tephra-all|tephra-alerts|tephra-enforce|tephra-quiet|tephra-batch|tephra-quiet-batch|falco|tetragon" >&2
 	exit 2
 	;;
 esac

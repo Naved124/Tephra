@@ -30,7 +30,7 @@ int BPF_PROG(tephra_memfd, const struct pt_regs *regs)
 	e.h.size = sizeof(e);
 	e.memfd_flags = PT_REGS_PARM2_CORE(regs);
 
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -57,7 +57,7 @@ int BPF_PROG(tephra_module, struct module *mod)
 	e.h.size = sizeof(e);
 	bpf_probe_read_kernel_str(e.name, sizeof(e.name), mod->name);
 
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -93,7 +93,7 @@ int BPF_PROG(tephra_bpf, int cmd, union bpf_attr *attr, unsigned int size)
 		bpf_probe_read_kernel(e.name, sizeof(e.name), &attr->prog_name);
 	e.name[sizeof(e.name) - 1] = 0;
 
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;
@@ -133,7 +133,7 @@ int BPF_PROG(tephra_signal, struct task_struct *p, struct kernel_siginfo *info,
 		e.target_pid = 0;
 	e.target_start_time_ns = BPF_CORE_READ(leader, start_boottime);
 
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), 0))
+	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else
 		s->emitted++;

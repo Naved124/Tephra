@@ -27,8 +27,10 @@ import (
 
 // Enricher is used by one goroutine, the pipeline's enrich stage.
 type Enricher struct {
-	node string
-	tree *proctree.Tree
+	// onMainChange is told when a container's main binary changes.
+	onMainChange func(containerID string)
+	node         string
+	tree         *proctree.Tree
 	// agent is the agent's own process, so that access to it is named;
 	// agentContainer and agentMnt are its container and mount namespace.
 	agent          proctree.Key
@@ -89,6 +91,11 @@ type Identifier interface {
 
 // SetIdentity sets who recognises binaries by their content.
 func (e *Enricher) SetIdentity(ids Identifier) { e.ids = ids }
+
+// OnMainChange calls f with a container's ID when the binary taken for its
+// main one changes, which changes is_main_binary for processes that ran no
+// exec of their own.
+func (e *Enricher) OnMainChange(f func(containerID string)) { e.onMainChange = f }
 
 // SetAgent names the agent's own process: its pid in the node's namespace
 // and its start time.
@@ -795,8 +802,12 @@ func (e *Enricher) isMainBinary(containerID string, p proctree.Proc, isExec bool
 			m.key, m.image, m.dev, m.inode, m.runtime = p.Key, p.Image, p.ExeDev, p.ExeInode, false
 		}
 	case isExec && (p.Key == m.key || m.runtime && !e.isRuntime(p) && e.containerInit(containerID, p)):
+		before := *m
 		m.key, m.image, m.dev, m.inode = p.Key, p.Image, p.ExeDev, p.ExeInode
 		m.runtime = e.isRuntime(p)
+		if *m != before && e.onMainChange != nil {
+			e.onMainChange(containerID)
+		}
 	}
 	if m.runtime {
 		return false

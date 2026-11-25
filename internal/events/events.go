@@ -210,6 +210,11 @@ type Net struct {
 	Proto  uint16
 	Local  netip.AddrPort
 	Remote netip.AddrPort
+	// ExecID is the kernel's count of the task's execs
+	// (task_struct.self_exec_id): it changes with every exec, so a quiet
+	// mark made from this event stops applying once the process runs
+	// another program.
+	ExecID uint64
 }
 
 // UnixConnect is struct unix_event. An abstract address is rendered with a
@@ -628,6 +633,7 @@ func decodeNet(h Header, raw []byte) (Event, error) {
 		Header: h,
 		Family: le.Uint16(raw[netFamily:]),
 		Proto:  le.Uint16(raw[netProto:]),
+		ExecID: le.Uint64(raw[netExecID:]),
 	}
 	var local, remote netip.Addr
 	switch n.Family {

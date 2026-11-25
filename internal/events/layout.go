@@ -26,7 +26,7 @@ const (
 	envVarLen = 256
 	envLen    = 3 * envVarLen
 	execSize  = hdrSize + 40 + pathLen + argvLen + envLen + envVarLen
-	netSize   = hdrSize + 40
+	netSize   = hdrSize + 48
 	unixSize  = hdrSize + 4 + unixPathMax
 	fileSize  = hdrSize + 24 + pathLen
 
@@ -78,6 +78,7 @@ const (
 	netProto  = hdrSize + 6
 	netLAddr  = hdrSize + 8
 	netRAddr  = hdrSize + 24
+	netExecID = hdrSize + 40
 
 	unixPathLen = hdrSize + 0
 	unixPath    = hdrSize + 4
@@ -118,7 +119,8 @@ const (
 // whenever any record's layout changes.
 //
 // 2: the header carries the network namespace (M14).
-const LayoutVersion = 2
+// 3: net_event carries the task's exec count (quiet connections).
+const LayoutVersion = 3
 
 // Layout is keyed by C struct name.
 var Layout = map[string]Struct{
@@ -155,13 +157,14 @@ var Layout = map[string]Struct{
 		"env_tmp":       {execEnv + envLen, envVarLen},
 	}},
 	"net_event": {Size: netSize, Fields: map[string]Field{
-		"h":      {0, hdrSize},
-		"family": {netFamily, 2},
-		"lport":  {netLPort, 2},
-		"rport":  {netRPort, 2},
-		"proto":  {netProto, 2},
-		"laddr":  {netLAddr, 16},
-		"raddr":  {netRAddr, 16},
+		"h":       {0, hdrSize},
+		"family":  {netFamily, 2},
+		"lport":   {netLPort, 2},
+		"rport":   {netRPort, 2},
+		"proto":   {netProto, 2},
+		"laddr":   {netLAddr, 16},
+		"raddr":   {netRAddr, 16},
+		"exec_id": {netExecID, 8},
 	}},
 	"unix_event": {Size: unixSize, Fields: map[string]Field{
 		"h":        {0, hdrSize},
