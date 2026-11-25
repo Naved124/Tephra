@@ -65,7 +65,7 @@ var (
 		re   *regexp.Regexp
 		role Role
 	}{
-		{regexp.MustCompile(`^busybox$`), busybox},
+		{regexp.MustCompile(`^(busybox|toybox)$`), busybox},
 		{regexp.MustCompile(`^(sh|bash|dash|ash|zsh|ksh|mksh|yash|fish|tcsh|csh)$`), Shell},
 		{regexp.MustCompile(`^(python[0-9.]*|perl[0-9.]*|ruby[0-9.]*|node|nodejs|php[0-9.]*|lua[0-9.]*|luajit|tclsh[0-9.]*|wish[0-9.]*|pwsh|Rscript)$`), Interpreter},
 		{regexp.MustCompile(`^(curl|wget|wget2|aria2c|tftp|ftp|lftp|scp|sftp|rsync|socat|nc|ncat|netcat)$`), DownloadTool},
@@ -243,14 +243,34 @@ func applet(role Role, argv []string) Role {
 	if role != busybox {
 		return role
 	}
+	return appletRole(appletName(argv))
+}
+
+// appletName is the applet a multi-call binary runs: the name it was run
+// as, or its first argument when run under its own name.
+func appletName(argv []string) string {
 	if len(argv) == 0 {
-		return Unknown
+		return ""
 	}
 	name := path.Base(argv[0])
-	if name == "busybox" && len(argv) > 1 {
-		name = argv[1]
+	if (name == "busybox" || name == "toybox") && len(argv) > 1 {
+		name = path.Base(argv[1])
 	}
-	return appletRole(name)
+	return name
+}
+
+// Applet returns the applet an executed file runs when the file is a
+// multi-call binary (busybox, toybox), and "" otherwise. Every applet is the
+// same file, so the file alone does not say which program runs. It answers
+// from what Identify learned of the file, so it is asked after it.
+func (c *Catalog) Applet(x Exe) string {
+	c.mu.Lock()
+	role := c.files[fileKey{dev: x.Dev, inode: x.Inode, ctime: x.Ctime}]
+	c.mu.Unlock()
+	if role != busybox {
+		return ""
+	}
+	return appletName(x.Argv)
 }
 
 // hashExe hashes the executed file: through /proc/<pid>/exe while the

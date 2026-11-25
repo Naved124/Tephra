@@ -56,6 +56,9 @@ type Proc struct {
 	// the image shipped. Both are set by the enricher after an exec.
 	Identity    string
 	ExeModified bool
+	// Applet is the program a multi-call binary (busybox) runs, set by the
+	// enricher after an exec; empty for any other binary.
+	Applet string
 	// CgroupID is 0 for a process seeded from /proc that has not produced
 	// an event yet.
 	CgroupID uint64
@@ -273,6 +276,7 @@ func (t *Tree) Fork(ev *events.Fork) {
 		child.RuntimeChild = src.RuntimeChild
 		child.Identity = src.Identity
 		child.ExeModified = src.ExeModified
+		child.Applet = src.Applet
 		child.ContainerID = src.ContainerID
 		child.Origin = src.Origin
 		child.Attr = src.Attr
@@ -303,6 +307,7 @@ func (t *Tree) Exec(ev *events.Exec) Proc {
 	p.RuntimeChild = false
 	p.Identity = ""
 	p.ExeModified = false
+	p.Applet = ""
 	p.Comm = ev.Comm
 	p.UID = ev.UID
 	if p.CgroupID != ev.CgroupID {
@@ -495,12 +500,13 @@ func (t *Tree) SetRuntimeChild(k Key) {
 }
 
 // SetIdentity records what the process's current binary is.
-func (t *Tree) SetIdentity(k Key, identity string, modified bool) {
+func (t *Tree) SetIdentity(k Key, identity string, modified bool, applet string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if p := t.get(k); p != nil {
 		p.Identity = identity
 		p.ExeModified = modified
+		p.Applet = applet
 	}
 }
 

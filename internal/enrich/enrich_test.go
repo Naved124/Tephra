@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -767,11 +768,20 @@ type fakeIdentifier struct {
 	roles map[string]identity.Role
 	// gone are processes whose root can no longer be read.
 	gone map[uint32]bool
+	// multi are the inodes of multi-call binaries.
+	multi map[uint64]bool
 }
 
 func (f *fakeIdentifier) ObserveRoot(pid uint32) bool {
 	f.roots = append(f.roots, pid)
 	return !f.gone[pid]
+}
+
+func (f *fakeIdentifier) Applet(x identity.Exe) string {
+	if f.multi[x.Inode] && len(x.Argv) > 0 {
+		return path.Base(x.Argv[0])
+	}
+	return ""
 }
 
 func (f *fakeIdentifier) Identify(x identity.Exe) identity.Role {
@@ -853,6 +863,61 @@ func TestRootReadThroughLiveProcess(t *testing.T) {
 	g.e.Handle(&events.Exec{Header: h, Path: "/usr/bin/id", Argv: []string{"id"}, Dev: 5, Inode: 78}, time.Now())
 	if !reflect.DeepEqual(ids.roots, []uint32{h.PID, 48190, h.PID}) {
 		t.Errorf("roots asked %v, want a retry at the second exec", ids.roots)
+	}
+}
+
+// In a busybox pod every applet is the busybox file, so the file alone made
+// wget and cat the main binary whenever the pod ran busybox's sleep, and
+// A05's call to the API raised nothing. The applet decides there; for any
+// other binary the file alone still does, whatever name it is run under.
+func TestMainBinaryBusyboxApplet(t *testing.T) {
+	f := newFixture(t)
+	h := f.webShell("/bin/sh", "sh")
+	f.e.SetIdentity(&fakeIdentifier{multi: map[uint64]bool{600: true}})
+	first, _ := f.tree.ByPID(48190)
+	init := events.Header{Type: events.TypeExec, PID: first.Key.PID, StartTimeNS: first.Key.StartNS, PPID: 100, CgroupID: h.CgroupID}
+	f.e.Handle(&events.Exec{Header: init, Path: "/bin/sleep", Argv: []string{"sleep", "3600"}, Dev: 5, Inode: 600, CtimeNS: 1}, time.Now())
+
+	for _, tc := range []struct {
+		path string
+		argv []string
+		main bool
+	}{
+		{"/bin/sleep", []string{"sleep", "1"}, true},
+		{"/bin/wget", []string{"wget", "-q", "https://10.96.0.1/api"}, false},
+		{"/bin/cat", []string{"cat", "/var/run/secrets/kubernetes.io/serviceaccount/token"}, false},
+		{"/bin/sh", []string{"sh", "-c", "id"}, false},
+	} {
+		rec := f.e.Handle(&events.Exec{Header: h, Path: tc.path, Argv: tc.argv, Dev: 5, Inode: 600, CtimeNS: 1}, time.Now())
+		if rec.Process.IsMainBinary != tc.main {
+			t.Errorf("%s in a busybox pod whose program is sleep: main %v, want %v", tc.argv[0], rec.Process.IsMainBinary, tc.main)
+		}
+	}
+
+	// The main binary is worked out again from the tree when its cache
+	// was dropped (it is bounded): the first process's applet goes with it.
+	f.e.mains = map[string]*mainBinary{}
+	rec := f.e.Handle(&events.Exec{Header: h, Path: "/bin/wget", Argv: []string{"wget", "x"}, Dev: 5, Inode: 600, CtimeNS: 1}, time.Now())
+	if rec.Process.IsMainBinary {
+		t.Error("wget is the main binary after the main-binary cache was dropped")
+	}
+	f.e.mains = map[string]*mainBinary{}
+	rec = f.e.Handle(&events.Exec{Header: h, Path: "/bin/sleep", Argv: []string{"sleep", "1"}, Dev: 5, Inode: 600, CtimeNS: 1}, time.Now())
+	if !rec.Process.IsMainBinary {
+		t.Error("sleep is not the main binary after the main-binary cache was dropped")
+	}
+
+	// Not a multi-call binary: the same file under another name (python3
+	// for python3.14) is still the main binary.
+	g := newFixture(t)
+	h = g.webShell("/bin/sh", "sh")
+	g.e.SetIdentity(&fakeIdentifier{})
+	first, _ = g.tree.ByPID(48190)
+	init = events.Header{Type: events.TypeExec, PID: first.Key.PID, StartTimeNS: first.Key.StartNS, PPID: 100, CgroupID: h.CgroupID}
+	g.e.Handle(&events.Exec{Header: init, Path: "/usr/local/bin/python3", Argv: []string{"python3", "app.py"}, Dev: 5, Inode: 700, CtimeNS: 1}, time.Now())
+	rec = g.e.Handle(&events.Exec{Header: h, Path: "/usr/local/bin/python3.14", Argv: []string{"python3.14", "worker.py"}, Dev: 5, Inode: 700, CtimeNS: 1}, time.Now())
+	if !rec.Process.IsMainBinary {
+		t.Error("the same non-busybox file under another name is not the main binary")
 	}
 }
 
