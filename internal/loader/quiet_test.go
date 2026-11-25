@@ -24,13 +24,16 @@ func dialSelf(t *testing.T, s *Sensor, ln net.Listener, target string, wait time
 	if err != nil {
 		t.Fatalf("dial %s: %v", target, err)
 	}
-	local := netip.MustParseAddrPort(conn.LocalAddr().String())
 	if c := <-accepted; c != nil {
 		_ = c.Close()
 	}
 	_ = conn.Close()
+	// The connect hook runs before the kernel picks the local port, so the
+	// event is told apart by its destination; each dial reads its own event
+	// before the next dial starts.
+	dst := netip.MustParseAddrPort(target)
 	return next(t, s, wait, func(n *events.Net) bool {
-		return n.PID == self() && n.Type == events.TypeConnect && n.Local.Port() == local.Port()
+		return n.PID == self() && n.Type == events.TypeConnect && n.Remote == dst
 	})
 }
 
@@ -103,20 +106,63 @@ func TestQuietConnections(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Loopback only: loopback skipped, any other address reported.
-	if err := s.SetQuiet(self(), MarkOf(first, QuietOut|QuietIn|QuietLoopback)); err != nil {
+	// Counted, not lost: with the summary bit the connections are skipped
+	// and each destination is counted once per process.
+	if err := s.SetQuiet(self(), MarkOf(first, QuietOut|QuietIn|QuietSummary)); err != nil {
 		t.Fatal(err)
 	}
-	if e := dialSelf(t, s, ln, loop, time.Second); e != nil {
-		t.Error("a loopback-only mark did not hide a loopback connect")
-	}
-	if other := nonLoopback(t); other.IsValid() {
-		target := netip.AddrPortFrom(other, uint16(port)).String()
-		if dialSelf(t, s, ln, target, 5*time.Second) == nil {
-			t.Errorf("a loopback-only mark hid a connect to %s", target)
+	for range 3 {
+		if e := dialSelf(t, s, ln, loop, 300*time.Millisecond); e != nil {
+			t.Fatal("a summarised connect was also emitted")
 		}
-	} else {
-		t.Log("no non-loopback IPv4 address; that case is not checked")
+	}
+	sums, err := s.Summaries()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, in *Summary
+	for i := range sums {
+		x := &sums[i]
+		if x.PID != self() || x.StartNS != first.StartTimeNS || x.Port != uint16(port) {
+			continue
+		}
+		switch x.Type {
+		case uint32(events.TypeConnect):
+			out = x
+		case uint32(events.TypeAccept):
+			in = x
+		}
+	}
+	if out == nil || out.Count != 3 || out.Remote != netip.MustParseAddr("127.0.0.1") || out.Family != events.AFInet {
+		t.Fatalf("connect summary = %+v, want 3 connections to 127.0.0.1:%d", out, port)
+	}
+	if out.FirstNS == 0 || out.LastNS < out.FirstNS || out.CgroupID != first.CgroupID || out.MntNS != first.MntNS || out.Comm == "" {
+		t.Errorf("connect summary does not carry the process's header: %+v", out)
+	}
+	// The accepting side is the same test process; the accept is counted
+	// under the listening port, without the client's own port.
+	if in == nil || in.Count != 3 {
+		t.Fatalf("accept summary = %+v, want 3 accepts on port %d", in, port)
+	}
+	got, ok, err := s.TakeSummary(out.Key)
+	if err != nil || !ok || got.Count != 3 {
+		t.Fatalf("TakeSummary = %+v, %v, %v", got, ok, err)
+	}
+	if _, ok, _ := s.TakeSummary(out.Key); ok {
+		t.Error("a taken summary was still there")
+	}
+	// What the agent reported is kept beside the counts.
+	if err := s.SetSent(in.Key, SummarySent{Count: 2, LastNS: in.LastNS}); err != nil {
+		t.Fatal(err)
+	}
+	if sent, err := s.SentSummaries(); err != nil || sent[in.Key].Count != 2 {
+		t.Errorf("SentSummaries = %v, %v", sent[in.Key], err)
+	}
+	if err := s.ForgetSent(in.Key); err != nil {
+		t.Fatal(err)
+	}
+	if sent, _ := s.SentSummaries(); len(sent) != 0 {
+		t.Errorf("forgotten sent count still there: %v", sent)
 	}
 
 	// Taken back: reported again.
@@ -129,19 +175,6 @@ func TestQuietConnections(t *testing.T) {
 	if err := s.ClearAllQuiet(); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func nonLoopback(t *testing.T) netip.Addr {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, a := range addrs {
-		if p, err := netip.ParsePrefix(a.String()); err == nil && p.Addr().Is4() && !p.Addr().IsLoopback() {
-			return p.Addr()
-		}
-	}
-	return netip.Addr{}
 }
 
 // With batched wake-ups a record still reaches a reader that reads on a

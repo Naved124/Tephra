@@ -88,6 +88,35 @@ func TestCopiedShellKeepsItsIdentity(t *testing.T) {
 	}
 }
 
+// A shell that exited before its exec was handled is identified through a
+// live process with the same root, asked for only when the others are gone.
+func TestIdentifiedThroughLiveRoot(t *testing.T) {
+	dash := content('d', 4096)
+	proc := fakeProc(t, "300", map[string][]byte{
+		"/usr/bin/dash": dash,
+		"/tmp/kworker":  dash,
+	}, nil)
+	c := New(proc)
+	c.ObserveRoot(300)
+	x := exeOf(t, proc, "300", "/tmp/kworker", "/tmp/kworker")
+	x.PID, x.RootPID = 301, 302 // both gone
+	asked := 0
+	x.LiveRoot = func() uint32 { asked++; return 300 }
+	if got := c.Identify(x); got != Shell {
+		t.Errorf("exited shell: %q, want shell", got)
+	}
+	if asked != 1 {
+		t.Errorf("live root asked %d times, want 1", asked)
+	}
+
+	// Not asked when the process itself can be read.
+	y := exeOf(t, proc, "300", "/usr/bin/dash", "dash")
+	y.LiveRoot = func() uint32 { t.Error("live root asked although the process was readable"); return 0 }
+	if got := c.Identify(y); got != Shell {
+		t.Errorf("live shell: %q", got)
+	}
+}
+
 func TestBusyboxAppletDecides(t *testing.T) {
 	bb := content('b', 4096)
 	proc := fakeProc(t, "200", map[string][]byte{

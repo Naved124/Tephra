@@ -78,6 +78,11 @@ tephra-quiet-batch)
 	others_off
 	tephra_on false false true 65536
 	;;
+# Every event exported, with both: skipped connections become summaries.
+tephra-all-quiet-batch)
+	others_off
+	tephra_on true false true 65536
+	;;
 falco)
 	tephra_off
 	h uninstall tetragon -n kube-system --wait >/dev/null 2>&1 || true
@@ -94,7 +99,7 @@ tetragon)
 	h upgrade --install tetragon cilium/tetragon --version "$TETRAGON_CHART_VERSION" -n kube-system --wait --timeout 10m >/dev/null
 	;;
 *)
-	echo "usage: bench/config.sh none|tephra-all|tephra-alerts|tephra-enforce|tephra-quiet|tephra-batch|tephra-quiet-batch|falco|tetragon" >&2
+	echo "usage: bench/config.sh none|tephra-all|tephra-alerts|tephra-enforce|tephra-quiet|tephra-batch|tephra-quiet-batch|tephra-all-quiet-batch|falco|tetragon" >&2
 	exit 2
 	;;
 esac

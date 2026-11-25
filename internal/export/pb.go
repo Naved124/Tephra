@@ -63,6 +63,7 @@ func ToProto(r *Record) *tephrav1.Record {
 			SourceIp: x.SourceIP, SourcePort: uint32(x.SourcePort),
 			DestinationIp: x.DestinationIP, DestinationPort: uint32(x.DestinationPort),
 			UnixPath: x.UnixPath, IsK8SApi: x.IsK8sAPI,
+			Count: x.Count, Total: x.Total, FirstSeen: x.FirstSeen, LastSeen: x.LastSeen,
 		}
 	}
 	if x := r.File; x != nil {
@@ -167,6 +168,7 @@ func FromProto(p *tephrav1.Record) *Record {
 			SourceIP: x.GetSourceIp(), SourcePort: uint16(x.GetSourcePort()),
 			DestinationIP: x.GetDestinationIp(), DestinationPort: uint16(x.GetDestinationPort()),
 			UnixPath: x.GetUnixPath(), IsK8sAPI: x.GetIsK8SApi(),
+			Count: x.GetCount(), Total: x.GetTotal(), FirstSeen: x.GetFirstSeen(), LastSeen: x.GetLastSeen(),
 		}
 	}
 	if x := p.GetFile(); x != nil {

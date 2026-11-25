@@ -3,6 +3,9 @@
 package main
 
 import (
+	"net/netip"
+	"time"
+
 	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/export"
 	"github.com/Naved124/tephra/internal/loader"
@@ -13,11 +16,11 @@ import (
 // back when what it was judged on changes.
 type quiet struct {
 	on bool
-	// loopbackOnly: raw events are exported, so only loopback
-	// connections, which are not, may be skipped.
-	loopbackOnly bool
-	marks        map[uint32]quietEntry
-	byContainer  map[string]map[uint32]bool
+	// summarise: raw events are exported, so the kernel counts the
+	// connections it skips, and they leave the agent as summaries.
+	summarise   bool
+	marks       map[uint32]quietEntry
+	byContainer map[string]map[uint32]bool
 }
 
 type quietEntry struct {
@@ -32,11 +35,11 @@ const maxQuiet = 16384
 // always reported, and no mark left from the previous rule set.
 func (a *agent) applyQuiet(s *settings) error {
 	cfg := s.cfg
-	on := cfg.QuietConnections && (!cfg.Export.RawEvents || !cfg.Export.LoopbackEvents)
+	on := cfg.QuietConnections
 	if err := a.sensor.ClearAllQuiet(); err != nil {
 		return err
 	}
-	a.quiet = quiet{on: on, loopbackOnly: cfg.Export.RawEvents,
+	a.quiet = quiet{on: on, summarise: cfg.Export.RawEvents,
 		marks: map[uint32]quietEntry{}, byContainer: map[string]map[uint32]bool{}}
 	if !on {
 		return a.sensor.SetAlwaysReport(nil, nil)
@@ -64,8 +67,8 @@ func (a *agent) judgeQuiet(ev *events.Net, rec *export.Record) {
 	if dirs == 0 {
 		return
 	}
-	if q.loopbackOnly {
-		dirs |= loader.QuietLoopback
+	if q.summarise {
+		dirs |= loader.QuietSummary
 	}
 	m := loader.MarkOf(ev, dirs)
 	if e, ok := q.marks[ev.PID]; ok && e.mark == m {
@@ -121,9 +124,142 @@ func (a *agent) mainChanged(containerID string) {
 	}
 }
 
-// quietExit drops the mark of a process that exited.
+// quietExit drops the mark of a process that exited, and has its counted
+// connections read soon, while its pod is still known.
 func (a *agent) quietExit(ev *events.Exit) {
 	if e, ok := a.quiet.marks[ev.PID]; ok && e.mark.StartNS == ev.StartTimeNS {
 		a.forgetQuiet(ev.PID, true)
+		a.drainSoon = true
 	}
+}
+
+// summaryEvery is how often the counted connections are read.
+const summaryEvery = 10 * time.Second
+
+// drainSummaries turns the kernel's counts into connection_summary records:
+// one per process and destination with what was counted since the previous
+// report. What was reported is kept in a pinned map, so that an agent that
+// adopts the counts of one that died goes on from there instead of
+// reporting the same connections twice. A destination with nothing new over
+// a whole period is taken out of the map, with whatever arrived in between,
+// so the map holds what is active. Counts are read even when they are not
+// exported, to free the map.
+func (a *agent) drainSummaries(now time.Time) {
+	a.drainSoon = false
+	if a.sums == nil {
+		sent, err := a.sensor.SentSummaries()
+		if err != nil {
+			a.c.quietErrors.Add(1)
+			return
+		}
+		a.sums = sent
+	}
+	sums, err := a.sensor.Summaries()
+	if err != nil {
+		a.c.quietErrors.Add(1)
+		return
+	}
+	out, take, next := planSummaries(a.sums, sums)
+	for _, o := range out {
+		a.emitSummary(o.sum, o.n, now)
+		if err := a.sensor.SetSent(o.sum.Key, next[o.sum.Key]); err != nil {
+			a.c.quietErrors.Add(1)
+		}
+	}
+	for _, x := range take {
+		got, ok, err := a.sensor.TakeSummary(x.Key)
+		if err != nil {
+			// Read again next time.
+			a.c.quietErrors.Add(1)
+			next[x.Key] = a.sums[x.Key]
+			continue
+		}
+		if ok && got.Count > x.Count {
+			a.emitSummary(got, got.Count-x.Count, now)
+		}
+	}
+	// What was reported for counts no longer in the map is forgotten.
+	for k := range a.sums {
+		if _, ok := next[k]; !ok {
+			if err := a.sensor.ForgetSent(k); err != nil {
+				a.c.quietErrors.Add(1)
+			}
+		}
+	}
+	a.sums = next
+}
+
+type sumOut struct {
+	sum loader.Summary
+	n   uint64
+}
+
+// planSummaries decides, from what was reported and this read, what to
+// report (the growth of each count) and what to take out of the map (the
+// destinations that did not grow over a whole period).
+func planSummaries(prev map[loader.SummaryKey]loader.SummarySent, sums []loader.Summary) (out []sumOut, take []loader.Summary, next map[loader.SummaryKey]loader.SummarySent) {
+	next = make(map[loader.SummaryKey]loader.SummarySent, len(sums))
+	for _, x := range sums {
+		p, known := prev[x.Key]
+		if x.Count < p.Count {
+			// Taken and counted anew.
+			p, known = loader.SummarySent{}, false
+		}
+		switch {
+		case x.Count > p.Count:
+			out = append(out, sumOut{x, x.Count - p.Count})
+			next[x.Key] = loader.SummarySent{Count: x.Count, LastNS: x.LastNS}
+		case known:
+			take = append(take, x)
+		}
+	}
+	return out, take, next
+}
+
+// emitSummary exports n connections of one counted destination, attributed
+// as an event of the process would be. Rules are not run: the process was
+// marked quiet because none of them can fire on these connections.
+func (a *agent) emitSummary(x loader.Summary, n uint64, now time.Time) {
+	ev := &events.Net{
+		Header: events.Header{
+			TSBootNS: x.LastNS, StartTimeNS: x.StartNS, CgroupID: x.CgroupID,
+			Type: events.Type(x.Type), PID: x.PID, TID: x.PID, PPID: x.PPID,
+			UID: x.UID, GID: x.GID, PidNS: x.PidNS, MntNS: x.MntNS, NetNS: x.NetNS,
+			Comm: x.Comm,
+		},
+		Family: x.Family, Proto: uint16(x.Proto), ExecID: x.ExecID,
+	}
+	if ev.Type == events.TypeAccept {
+		listen := netip.IPv4Unspecified()
+		if x.Family == events.AFInet6 {
+			listen = netip.IPv6Unspecified()
+		}
+		ev.Remote = netip.AddrPortFrom(x.Remote, 0)
+		ev.Local = netip.AddrPortFrom(listen, x.Port)
+	} else {
+		ev.Remote = netip.AddrPortFrom(x.Remote, x.Port)
+	}
+	cfg := a.cur.cfg
+	if !cfg.Export.RawEvents {
+		return
+	}
+	rec := a.enricher.Handle(ev, now)
+	if rec == nil || rec.Network == nil {
+		return
+	}
+	if !cfg.Export.LoopbackEvents && rec.Network.Loopback() {
+		a.c.loopbackHeld.Add(1)
+		return
+	}
+	rec.Type = export.TypeConnSummary
+	if ev.Type == events.TypeAccept {
+		// The listening address is not kept, only its port.
+		rec.Network.DestinationIP = ""
+	}
+	rec.Network.Count = n
+	rec.Network.Total = x.Count
+	rec.Network.FirstSeen = a.enricher.Wall(x.FirstNS)
+	rec.Network.LastSeen = a.enricher.Wall(x.LastNS)
+	a.c.connSummaries.Add(1)
+	a.emit(rec)
 }

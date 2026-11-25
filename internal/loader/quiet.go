@@ -16,8 +16,9 @@ import (
 const (
 	QuietOut uint32 = 1
 	QuietIn  uint32 = 2
-	// QuietLoopback limits the mark to connections to a loopback address.
-	QuietLoopback uint32 = 4
+	// QuietSummary has the kernel count the skipped connections in
+	// net_summary, and emit any it has no room to count.
+	QuietSummary uint32 = 4
 )
 
 // QuietMark is what a quiet mark was judged on. The kernel applies it only
@@ -95,9 +96,15 @@ func (s *Sensor) SetAlwaysReport(ports []uint16, dsts []netip.AddrPort) error {
 
 // QuietCount is how many connections the kernel skipped as quiet, summed
 // over CPUs.
-func (s *Sensor) QuietCount() (uint64, error) {
+func (s *Sensor) QuietCount() (uint64, error) { return s.quietCounter(0) }
+
+// SummaryFull is how many connections of quiet processes were emitted after
+// all because the summary map had no room to count them.
+func (s *Sensor) SummaryFull() (uint64, error) { return s.quietCounter(1) }
+
+func (s *Sensor) quietCounter(i uint32) (uint64, error) {
 	var perCPU []uint64
-	if err := s.coll.Maps["net_quiet_count"].Lookup(uint32(0), &perCPU); err != nil {
+	if err := s.coll.Maps["net_quiet_count"].Lookup(i, &perCPU); err != nil {
 		return 0, err
 	}
 	var n uint64
@@ -107,9 +114,131 @@ func (s *Sensor) QuietCount() (uint64, error) {
 	return n, nil
 }
 
+// SummaryKey identifies one counted destination of one process.
+type SummaryKey = tephraNetSumKey
+
+// Summary is the count of a quiet process's connections to one destination.
+type Summary struct {
+	Key  SummaryKey
+	Type uint32 // events.TypeConnect or events.TypeAccept
+	PID  uint32
+	// StartNS, with PID, is the process key.
+	StartNS uint64
+	// Remote is the peer's address. Port is the peer's port for a connect
+	// and the local, listening port for an accept.
+	Remote   netip.Addr
+	Port     uint16
+	Family   uint16
+	Proto    uint8
+	Count    uint64
+	FirstNS  uint64 // boot time of the first and last connection
+	LastNS   uint64
+	CgroupID uint64
+	ExecID   uint64
+	PPID     uint32
+	UID      uint32
+	GID      uint32
+	PidNS    uint32
+	MntNS    uint32
+	NetNS    uint32
+	Comm     string
+}
+
+func summaryOf(k tephraNetSumKey, v tephraNetSumVal) Summary {
+	var addr netip.Addr
+	if k.Family == events.AFInet {
+		addr = netip.AddrFrom4([4]byte(k.Addr[:4]))
+	} else {
+		addr = netip.AddrFrom16(k.Addr)
+	}
+	return Summary{
+		Key: k, Type: uint32(k.Type), PID: k.Pid, StartNS: k.StartTimeNs,
+		Remote: addr, Port: k.Port, Family: k.Family, Proto: k.Proto,
+		Count: v.Count, FirstNS: v.FirstNs, LastNS: v.LastNs,
+		CgroupID: v.CgroupId, ExecID: v.ExecId, PPID: v.Ppid, UID: v.Uid, GID: v.Gid,
+		PidNS: v.PidNs, MntNS: v.MntNs, NetNS: v.NetNs, Comm: cString(v.Comm[:]),
+	}
+}
+
+// Summaries returns every counted destination. The counts keep growing in
+// the kernel; TakeSummary removes one.
+func (s *Sensor) Summaries() ([]Summary, error) {
+	var (
+		k   tephraNetSumKey
+		v   tephraNetSumVal
+		out []Summary
+	)
+	it := s.coll.Maps["net_summary"].Iterate()
+	for it.Next(&k, &v) {
+		out = append(out, summaryOf(k, v))
+	}
+	return out, it.Err()
+}
+
+// SummarySent is how much of one count the agent has reported.
+type SummarySent struct {
+	Count  uint64
+	LastNS uint64
+}
+
+// SentSummaries returns what earlier reads reported, including those of an
+// earlier agent when the maps were adopted.
+func (s *Sensor) SentSummaries() (map[SummaryKey]SummarySent, error) {
+	var (
+		k   tephraNetSumKey
+		v   tephraNetSumSent
+		out = map[SummaryKey]SummarySent{}
+	)
+	it := s.coll.Maps["net_summary_sent"].Iterate()
+	for it.Next(&k, &v) {
+		out[k] = SummarySent{Count: v.Count, LastNS: v.LastNs}
+	}
+	return out, it.Err()
+}
+
+// SetSent records how much of a count was reported.
+func (s *Sensor) SetSent(k SummaryKey, v SummarySent) error {
+	return s.coll.Maps["net_summary_sent"].Put(k, tephraNetSumSent{Count: v.Count, LastNs: v.LastNS})
+}
+
+// ForgetSent removes what was recorded for a count that was taken.
+func (s *Sensor) ForgetSent(k SummaryKey) error {
+	err := s.coll.Maps["net_summary_sent"].Delete(k)
+	if errors.Is(err, ebpf.ErrKeyNotExist) {
+		return nil
+	}
+	return err
+}
+
+// TakeSummary removes a counted destination and returns its final count.
+// ok is false when it was already gone.
+func (s *Sensor) TakeSummary(k SummaryKey) (sum Summary, ok bool, err error) {
+	var v tephraNetSumVal
+	err = s.coll.Maps["net_summary"].LookupAndDelete(&k, &v)
+	if errors.Is(err, ebpf.ErrKeyNotExist) {
+		return Summary{}, false, nil
+	}
+	if err != nil {
+		return Summary{}, false, err
+	}
+	return summaryOf(k, v), true, nil
+}
+
 // SetRingWakeup sets how many bytes may wait in the ring buffer before the
 // kernel wakes the agent; 0 wakes it for every record that finds it caught
 // up. With a batch the agent must also read on a timer.
 func (s *Sensor) SetRingWakeup(bytes uint32) error {
 	return s.coll.Maps["ring_wakeup"].Put(uint32(0), bytes)
+}
+
+// cString reads a NUL-terminated C string from a fixed-size field.
+func cString(b []int8) string {
+	out := make([]byte, 0, len(b))
+	for _, c := range b {
+		if c == 0 {
+			break
+		}
+		out = append(out, byte(c))
+	}
+	return string(out)
 }

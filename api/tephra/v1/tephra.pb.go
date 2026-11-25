@@ -1608,8 +1608,14 @@ type Network struct {
 	DestinationPort uint32                 `protobuf:"varint,7,opt,name=destination_port,json=destinationPort,proto3" json:"destination_port,omitempty"`
 	UnixPath        string                 `protobuf:"bytes,8,opt,name=unix_path,json=unixPath,proto3" json:"unix_path,omitempty"`
 	IsK8SApi        bool                   `protobuf:"varint,9,opt,name=is_k8s_api,json=isK8sApi,proto3" json:"is_k8s_api,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// connection_summary records: connections of a quiet process to one
+	// destination, counted in the kernel instead of reported one by one.
+	Count         uint64 `protobuf:"varint,10,opt,name=count,proto3" json:"count,omitempty"`
+	Total         uint64 `protobuf:"varint,11,opt,name=total,proto3" json:"total,omitempty"`
+	FirstSeen     string `protobuf:"bytes,12,opt,name=first_seen,json=firstSeen,proto3" json:"first_seen,omitempty"`
+	LastSeen      string `protobuf:"bytes,13,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Network) Reset() {
@@ -1703,6 +1709,34 @@ func (x *Network) GetIsK8SApi() bool {
 		return x.IsK8SApi
 	}
 	return false
+}
+
+func (x *Network) GetCount() uint64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *Network) GetTotal() uint64 {
+	if x != nil {
+		return x.Total
+	}
+	return 0
+}
+
+func (x *Network) GetFirstSeen() string {
+	if x != nil {
+		return x.FirstSeen
+	}
+	return ""
+}
+
+func (x *Network) GetLastSeen() string {
+	if x != nil {
+		return x.LastSeen
+	}
+	return ""
 }
 
 type File struct {
@@ -2003,7 +2037,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"2\n" +
 	"\x04Exit\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x16\n" +
-	"\x06signal\x18\x02 \x01(\rR\x06signal\"\xa6\x02\n" +
+	"\x06signal\x18\x02 \x01(\rR\x06signal\"\x8e\x03\n" +
 	"\aNetwork\x12\x1c\n" +
 	"\tdirection\x18\x01 \x01(\tR\tdirection\x12\x16\n" +
 	"\x06family\x18\x02 \x01(\tR\x06family\x12\x1a\n" +
@@ -2015,7 +2049,13 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x10destination_port\x18\a \x01(\rR\x0fdestinationPort\x12\x1b\n" +
 	"\tunix_path\x18\b \x01(\tR\bunixPath\x12\x1c\n" +
 	"\n" +
-	"is_k8s_api\x18\t \x01(\bR\bisK8sApi\"\xe7\x02\n" +
+	"is_k8s_api\x18\t \x01(\bR\bisK8sApi\x12\x14\n" +
+	"\x05count\x18\n" +
+	" \x01(\x04R\x05count\x12\x14\n" +
+	"\x05total\x18\v \x01(\x04R\x05total\x12\x1d\n" +
+	"\n" +
+	"first_seen\x18\f \x01(\tR\tfirstSeen\x12\x1b\n" +
+	"\tlast_seen\x18\r \x01(\tR\blastSeen\"\xe7\x02\n" +
 	"\x04File\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x14\n" +

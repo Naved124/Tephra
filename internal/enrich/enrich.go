@@ -85,12 +85,19 @@ type RuntimeSet interface {
 // Identifier recognises executables by content; identity.Catalog
 // implements it.
 type Identifier interface {
-	ObserveRoot(pid uint32)
+	// ObserveRoot reads the root filesystem of pid, and reports whether it
+	// could.
+	ObserveRoot(pid uint32) bool
 	Identify(x identity.Exe) identity.Role
 }
 
 // SetIdentity sets who recognises binaries by their content.
 func (e *Enricher) SetIdentity(ids Identifier) { e.ids = ids }
+
+// Wall renders a kernel boot-clock time as the records' wall-clock time.
+func (e *Enricher) Wall(bootNS uint64) string {
+	return e.boot.Add(time.Duration(bootNS)).UTC().Format("2006-01-02T15:04:05.000000Z")
+}
 
 // OnMainChange calls f with a container's ID when the binary taken for its
 // main one changes, which changes is_main_binary for processes that ran no
@@ -492,7 +499,7 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		}
 	}
 	rec := &export.Record{
-		TS:   e.boot.Add(time.Duration(h.TSBootNS)).UTC().Format("2006-01-02T15:04:05.000000Z"),
+		TS:   e.Wall(h.TSBootNS),
 		Type: h.Type.String(),
 		Node: e.node,
 	}
@@ -761,17 +768,41 @@ func (e *Enricher) identify(ev *events.Exec, rec *export.Record, p proctree.Proc
 	if e.ids == nil {
 		return "", modified
 	}
-	// A new root filesystem shows up with its first exec.
-	if !e.idRoots[rec.Container.ID] {
-		if e.idRoots == nil || len(e.idRoots) >= maxMains {
-			e.idRoots = map[string]bool{}
+	// A new root filesystem shows up with its first exec. The process may
+	// be gone by the time its event is handled (runc's setup stage often
+	// is), so the root is read through the oldest live process of the
+	// container if it cannot be through this one, and the container counts
+	// as read only once it was: a copy of a shell executed later is
+	// recognised only if the shells it was copied from were read.
+	// The oldest process of a container is often runc's setup stage, long
+	// exited but still in the tree; the oldest live process of the mount
+	// namespace has the same root. It is looked for only when needed.
+	liveRoot := func() uint32 {
+		if o, ok := e.tree.MntOwner(ev.MntNS); ok && ev.MntNS != 0 {
+			return o.Key.PID
 		}
-		e.ids.ObserveRoot(p.Key.PID)
-		e.idRoots[rec.Container.ID] = true
+		return 0
+	}
+	if !e.idRoots[rec.Container.ID] {
+		ok := e.ids.ObserveRoot(p.Key.PID)
+		if !ok && rootPID != 0 && rootPID != p.Key.PID {
+			ok = e.ids.ObserveRoot(rootPID)
+		}
+		if !ok {
+			if pid := liveRoot(); pid != 0 && pid != p.Key.PID && pid != rootPID {
+				ok = e.ids.ObserveRoot(pid)
+			}
+		}
+		if ok {
+			if e.idRoots == nil || len(e.idRoots) >= maxMains {
+				e.idRoots = map[string]bool{}
+			}
+			e.idRoots[rec.Container.ID] = true
+		}
 	}
 	role := e.ids.Identify(identity.Exe{
 		PID: ev.PID, Path: ev.Path, Dev: ev.Dev, Inode: ev.Inode, Ctime: ev.CtimeNS,
-		Argv: ev.Argv, RootPID: rootPID,
+		Argv: ev.Argv, RootPID: rootPID, LiveRoot: liveRoot,
 	})
 	return string(role), modified
 }
@@ -870,8 +901,9 @@ func (e *Enricher) network(ev *events.Net) *export.Network {
 		n.Direction = "inbound"
 		src, dst = ev.Remote, ev.Local
 	}
-	// An unbound local side reads as the zero address; leave it out.
-	if !src.Addr().IsUnspecified() {
+	// An unbound local side reads as the zero address, and a summary of
+	// connections has none; leave it out.
+	if src.Addr().IsValid() && !src.Addr().IsUnspecified() {
 		n.SourceIP = src.Addr().String()
 	}
 	n.SourcePort = src.Port()

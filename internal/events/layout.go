@@ -120,7 +120,9 @@ const (
 //
 // 2: the header carries the network namespace (M14).
 // 3: net_event carries the task's exec count (quiet connections).
-const LayoutVersion = 3
+// 4: net_summary, the counted connections of quiet processes, and
+// net_summary_sent, how much of them was reported, are pinned.
+const LayoutVersion = 4
 
 // Layout is keyed by C struct name.
 var Layout = map[string]Struct{

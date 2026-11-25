@@ -51,6 +51,11 @@ type Record struct {
 // counters.
 const TypeHealth = "health"
 
+// TypeConnSummary is the type of the record that stands for the connections
+// a quiet process made to one destination, counted in the kernel instead of
+// reported one by one (Network.Count).
+const TypeConnSummary = "connection_summary"
+
 // IsAlert reports whether the record is an alert rather than a raw event.
 func (r *Record) IsAlert() bool { return r.Rule != nil }
 
@@ -167,6 +172,16 @@ type Network struct {
 	UnixPath string `json:"unix_path,omitempty"`
 	// IsK8sAPI says the destination is the cluster's API server.
 	IsK8sAPI bool `json:"is_k8s_api,omitempty"`
+	// Set on connection_summary records, which stand for connections a
+	// quiet process made to one destination without an event each. Count
+	// is how many since the previous record of the same destination, Total
+	// how many since FirstSeen; LastSeen is the latest. An accept is
+	// counted under the listening port, without the client's port or the
+	// listening address.
+	Count     uint64 `json:"count,omitempty"`
+	Total     uint64 `json:"total,omitempty"`
+	FirstSeen string `json:"first_seen,omitempty"`
+	LastSeen  string `json:"last_seen,omitempty"`
 }
 
 // File is set on file_open, file_change and file_denied events.

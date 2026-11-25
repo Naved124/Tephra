@@ -68,9 +68,11 @@ type counters struct {
 	// loopbackHeld counts raw loopback events judged but not exported.
 	loopbackHeld atomic.Uint64
 	// quietMarked counts quiet marks written; quietErrors failed writes
-	// and removals of them.
+	// and removals of them, and failed reads of the counted connections.
 	quietMarked atomic.Uint64
 	quietErrors atomic.Uint64
+	// connSummaries counts connection_summary records made.
+	connSummaries atomic.Uint64
 	// whileDown counts events in an adopted ring buffer that were recorded
 	// before this agent started: while no agent was reading. ownDropped
 	// counts the agent's own events reported by an earlier agent's programs.
@@ -259,6 +261,12 @@ type agent struct {
 	stop    stopSignal
 	// quiet holds the quiet marks on connections (quiet.go).
 	quiet quiet
+	// sums is how much of each counted destination was reported, as kept
+	// in the pinned net_summary_sent map; nil until first read from it.
+	sums map[loader.SummaryKey]loader.SummarySent
+	// drainSoon: a quiet process exited; its counts are read on the next
+	// one-second tick instead of waiting for the next period.
+	drainSoon bool
 }
 
 // apply makes the kernel filters, the inode watches and the matcher follow
@@ -748,8 +756,12 @@ func run(log *slog.Logger, o options) error {
 	defer health.Stop()
 	groups := time.NewTicker(time.Second)
 	defer groups.Stop()
+	sums := time.NewTicker(summaryEvery)
+	defer sums.Stop()
 	for {
 		select {
+		case now := <-sums.C:
+			a.drainSummaries(now)
 		case now := <-health.C:
 			a.health(node, now)
 		case <-podsChanged:
@@ -758,9 +770,13 @@ func run(log *slog.Logger, o options) error {
 			a.resolveCredentials()
 		case now := <-groups.C:
 			a.flushGroups(now)
+			if a.drainSoon {
+				a.drainSummaries(now)
+			}
 		case <-ctx.Done():
 			log.Info("signal received, shutting down")
 			// What was counted so far is sent, not lost with the agent.
+			a.drainSummaries(time.Now())
 			a.flushGroups(time.Now().Add(export.GroupWindow))
 			if sensor.KeepsRecording() {
 				if planned, why := a.awaitStop(queue); planned {

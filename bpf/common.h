@@ -458,9 +458,10 @@ static __always_inline __u64 rb_flags(void)
  * while everything it was judged on is unchanged: the process (start time),
  * its program (exec count), cgroup, parent and user. Anything else, a
  * process never judged, or a mark the LRU dropped, is reported. */
-#define NET_QUIET_OUT	   1
-#define NET_QUIET_IN	   2
-#define NET_QUIET_LOOPBACK 4 /* only connections to a loopback address */
+#define NET_QUIET_OUT 1
+#define NET_QUIET_IN  2
+#define NET_QUIET_SUMMARY                                                      \
+	4 /* count it in net_summary; report it if that fails */
 
 struct net_quiet_val {
 	__u64 start_time_ns;
@@ -502,11 +503,68 @@ struct {
 	__type(value, __u8);
 } net_always_dst SEC(".maps");
 
-/* Connections not emitted because their process was quiet; also counted in
- * stats as filtered. */
+/* Connections of a quiet process, counted instead of emitted, so that the
+ * history of its connections is kept as one record per destination. The
+ * port is the remote one for a connect and the local, listening one for an
+ * accept; the client's own port is not kept. An IPv4 address fills the first
+ * four bytes. Pinned with the ring buffer, so that what is counted while no
+ * agent runs is read by the next one. */
+struct net_sum_key {
+	__u64 start_time_ns;
+	__u32 pid;
+	__u16 port;
+	__u16 family;
+	__u8 addr[16];
+	__u8 type; /* EVENT_CONNECT or EVENT_ACCEPT */
+	__u8 proto;
+	__u8 _pad[6];
+};
+
+struct net_sum_val {
+	__u64 count;
+	__u64 first_ns; /* boot time of the first and last connection */
+	__u64 last_ns;
+	__u64 cgroup_id;
+	__u64 exec_id;
+	/* The rest of the first connection's header, so that the record is
+	 * attributed as an event of the process would be. */
+	__u32 ppid;
+	__u32 uid;
+	__u32 gid;
+	__u32 pid_ns;
+	__u32 mnt_ns;
+	__u32 net_ns;
+	char comm[TASK_COMM_LEN];
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 16384);
+	__type(key, struct net_sum_key);
+	__type(value, struct net_sum_val);
+} net_summary SEC(".maps");
+
+/* How much of each net_summary count the agent has reported, written only by
+ * the agent. Pinned with net_summary, so that the next agent goes on from
+ * there instead of reporting the same connections again. */
+struct net_sum_sent {
+	__u64 count;
+	__u64 last_ns;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 16384);
+	__type(key, struct net_sum_key);
+	__type(value, struct net_sum_sent);
+} net_summary_sent SEC(".maps");
+
+/* [0]: connections not emitted because their process was quiet, also counted
+ * in stats as filtered. [1]: connections of a quiet process emitted after all
+ * because net_summary had no room for them. */
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-	__uint(max_entries, 1);
+	__uint(max_entries, 2);
 	__type(key, __u32);
 	__type(value, __u64);
 } net_quiet_count SEC(".maps");

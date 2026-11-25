@@ -44,13 +44,22 @@ agent:
   # Export raw events of loopback connections too. Off: they are judged by
   # the rules and leave the agent only as alerts.
   loopbackEvents: false
-  # Let the kernel skip the connections of processes no loaded rule can fire
-  # on (a web server, a client that is not an interpreter). Connects to a
-  # port a rule names and to the Kubernetes API are still reported. While
-  # rawEvents is on, only loopback connections are skipped.
+  # Connection cost. Both off by default; turning both on is recommended
+  # for any node with busy network pods (README, "Connection cost"):
+  # measured on 5.15, throughput -19.9% -> -3.7%, agent CPU 77% -> 1% of a
+  # core, and no missed detection or new alert in the lab's runs.
+  #
+  # quietConnections: the kernel skips the connections of processes no
+  # loaded rule can fire on (a web server, a client that is not an
+  # interpreter). Connects to a port a rule names and to the Kubernetes API
+  # are always reported. With rawEvents on, the skipped connections are
+  # counted and exported every 10 s as connection_summary records (one per
+  # process and destination, with count and first/last time); what is not
+  # kept is each connection's own time and the client's port.
   quietConnections: false
-  # Batch the kernel's wake-ups of the agent: wake it once this many bytes
-  # wait, and read every interval otherwise. 0 wakes it per record.
+  # ringWakeup: batch the kernel's wake-ups of the agent: wake it once this
+  # many bytes wait (65536 recommended), and read every interval otherwise.
+  # Alerts can arrive up to interval later. 0 wakes it per record.
   ringWakeup:
     bytes: 0
     interval: 10ms

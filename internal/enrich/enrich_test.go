@@ -765,9 +765,14 @@ type fakeIdentifier struct {
 	roots []uint32
 	asked []identity.Exe
 	roles map[string]identity.Role
+	// gone are processes whose root can no longer be read.
+	gone map[uint32]bool
 }
 
-func (f *fakeIdentifier) ObserveRoot(pid uint32) { f.roots = append(f.roots, pid) }
+func (f *fakeIdentifier) ObserveRoot(pid uint32) bool {
+	f.roots = append(f.roots, pid)
+	return !f.gone[pid]
+}
 
 func (f *fakeIdentifier) Identify(x identity.Exe) identity.Role {
 	f.asked = append(f.asked, x)
@@ -818,6 +823,36 @@ func TestIdentityAndDrift(t *testing.T) {
 	rec = f.e.Handle(&events.Exec{Header: events.Header{Type: events.TypeExec, PID: 700, StartTimeNS: 5, CgroupID: host}, Path: "/tmp/kworker", CtimeNS: now}, time.Now())
 	if len(ids.asked) != before || rec.Process.Identity != "" || rec.Process.ExeModified {
 		t.Errorf("host process identified: %s", toJSON(t, rec))
+	}
+}
+
+// A container's root is read even when the process of its first exec is
+// gone by the time the event is handled, and is not counted as read until
+// it was: E01 and E09 were missed when it was.
+func TestRootReadThroughLiveProcess(t *testing.T) {
+	f := newFixture(t)
+	h := f.webShell("/bin/sh", "sh")
+	ids := &fakeIdentifier{gone: map[uint32]bool{h.PID: true}}
+	f.e.SetIdentity(ids)
+	f.e.Handle(&events.Exec{Header: h, Path: "/usr/bin/id", Argv: []string{"id"}, Dev: 5, Inode: 78}, time.Now())
+	if !reflect.DeepEqual(ids.roots, []uint32{h.PID, 48190}) {
+		t.Fatalf("roots asked %v, want the process then the container's oldest", ids.roots)
+	}
+	f.e.Handle(&events.Exec{Header: h, Path: "/usr/bin/id", Argv: []string{"id"}, Dev: 5, Inode: 78}, time.Now())
+	if len(ids.roots) != 2 {
+		t.Errorf("a root that was read is read again: %v", ids.roots)
+	}
+
+	// Neither readable: asked again at the next exec.
+	g := newFixture(t)
+	h = g.webShell("/bin/sh", "sh")
+	ids = &fakeIdentifier{gone: map[uint32]bool{h.PID: true, 48190: true}}
+	g.e.SetIdentity(ids)
+	g.e.Handle(&events.Exec{Header: h, Path: "/usr/bin/id", Argv: []string{"id"}, Dev: 5, Inode: 78}, time.Now())
+	ids.gone = nil
+	g.e.Handle(&events.Exec{Header: h, Path: "/usr/bin/id", Argv: []string{"id"}, Dev: 5, Inode: 78}, time.Now())
+	if !reflect.DeepEqual(ids.roots, []uint32{h.PID, 48190, h.PID}) {
+		t.Errorf("roots asked %v, want a retry at the second exec", ids.roots)
 	}
 }
 

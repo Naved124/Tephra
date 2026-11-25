@@ -236,7 +236,7 @@ func (c *Collector) entry(p *tephrav1.Record) (Entry, *export.Record, error) {
 
 // eventEntry turns an event or an alert into a log line with its labels.
 func (c *Collector) eventEntry(rec *export.Record, ts time.Time) (Entry, error) {
-	if _, ok := events.ParseType(rec.Type); !ok {
+	if _, ok := events.ParseType(rec.Type); !ok && rec.Type != export.TypeConnSummary {
 		return Entry{}, fmt.Errorf("unknown event type %q", rec.Type)
 	}
 	if rec.Node == "" || rec.K8s.Namespace == "" {
