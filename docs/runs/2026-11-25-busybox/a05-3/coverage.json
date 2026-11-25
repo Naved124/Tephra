@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-25",
+  "sensor": "v0.1.0-34-g5152a65-dirty (tephra/tephrad:dev)",
+  "kernel": "5.15.0-1121-aws",
+  "results": [
+    {
+      "id": "A05",
+      "title": "Read the service account token, then query the Kubernetes API",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1528",
+        "attack.t1613"
+      ],
+      "rules": [
+        {
+          "rule": "R006",
+          "verdict": "detected",
+          "latency_ms": 56,
+          "event": "{\"ts\":\"2026-11-25T13:58:10.487515Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R006\",\"title\":\"Service account token read by a process other than the pod's main binary\",\"level\":\"medium\",\"tags\":[\"attack.credential_access\",\"attack.t1528\"]},\"process\":{\"pid\":16860,\"start_time_ns\":570433187589,\"Image\":\"/bin/cat\",\"CommandLine\":\"cat /var/run/secrets/kubernetes.io/serviceaccount/token\",\"uid\":0,\"gid\":0,\"cgroup_id\":18401,\"tree\":\"16854.570428965889\"},\"parent\":{\"pid\":16854,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"97f70a51216349f7fd41667cd2b17f4b1da3d62d8488d5dfb4b302bc75b1562d\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a05-67f653\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/var/run/secrets/kubernetes.io/serviceaccount/..2026_11_25_13_58_06.2096160515/token\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":5,\"dev\":317,\"matched_by\":\"device\",\"k8s_credential\":\"sa_token\",\"credential_pod\":\"tephra-a05-63d42e/victim\",\"credential_other_pod\":true}}"
+        },
+        {
+          "rule": "R013",
+          "verdict": "detected",
+          "latency_ms": 57,
+          "event": "{\"ts\":\"2026-11-25T13:58:10.488420Z\",\"type\":\"connect\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R013\",\"title\":\"Connection to the Kubernetes API from an unexpected binary\",\"level\":\"medium\",\"tags\":[\"attack.discovery\",\"attack.t1613\"]},\"process\":{\"pid\":16861,\"start_time_ns\":570433904206,\"Image\":\"/bin/wget\",\"CommandLine\":\"wget -q -T 5 -O /dev/null --no-check-certificate https://10.96.0.1:443/api\",\"uid\":0,\"gid\":0,\"cgroup_id\":18401,\"identity\":\"download_tool\",\"tree\":\"16854.570428965889\"},\"parent\":{\"pid\":16854,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"97f70a51216349f7fd41667cd2b17f4b1da3d62d8488d5dfb4b302bc75b1562d\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a05-67f653\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"network\":{\"direction\":\"outbound\",\"family\":\"ipv4\",\"protocol\":\"tcp\",\"DestinationIp\":\"10.96.0.1\",\"DestinationPort\":443,\"is_k8s_api\":true}}"
+        },
+        {
+          "rule": "R026",
+          "verdict": "detected",
+          "latency_ms": 57,
+          "event": "{\"ts\":\"2026-11-25T13:58:10.488420Z\",\"type\":\"connect\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R026\",\"title\":\"Service account token read, then the Kubernetes API contacted\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1528\",\"attack.discovery\",\"attack.t1613\"]},\"process\":{\"pid\":16861,\"start_time_ns\":570433904206,\"Image\":\"/bin/wget\",\"CommandLine\":\"wget -q -T 5 -O /dev/null --no-check-certificate https://10.96.0.1:443/api\",\"uid\":0,\"gid\":0,\"cgroup_id\":18401,\"identity\":\"download_tool\",\"tree\":\"16854.570428965889\"},\"parent\":{\"pid\":16854,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"97f70a51216349f7fd41667cd2b17f4b1da3d62d8488d5dfb4b302bc75b1562d\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a05-67f653\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"network\":{\"direction\":\"outbound\",\"family\":\"ipv4\",\"protocol\":\"tcp\",\"DestinationIp\":\"10.96.0.1\",\"DestinationPort\":443,\"is_k8s_api\":true}}"
+        }
+      ],
+      "also_fired": [
+        "R004"
+      ],
+      "visible_ms": 3140,
+      "ring_buffer_drops": 0
+    }
+  ]
+}

