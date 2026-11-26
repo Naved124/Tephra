@@ -9,7 +9,7 @@ VERSION   ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo de
 
 CHART    := deploy/helm/tephra
 BPF_SRCS := $(wildcard bpf/*.bpf.c) bpf/common.h
-SCRIPTS  := $(wildcard hack/*.sh deploy/vm/*.sh attacks/*/*.sh)
+SCRIPTS  := $(wildcard hack/*.sh deploy/vm/*.sh deploy/aws/*.sh attacks/*/*.sh)
 
 .DEFAULT_GOAL := build
 
