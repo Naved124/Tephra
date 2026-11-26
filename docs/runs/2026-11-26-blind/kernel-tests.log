@@ -1,0 +1,290 @@
+=== RUN   TestBlindMode
+--- PASS: TestBlindMode (2.12s)
+=== RUN   TestBlindDryRun
+--- PASS: TestBlindDryRun (1.20s)
+=== RUN   TestBlindOnStopSignal
+--- PASS: TestBlindOnStopSignal (1.10s)
+=== RUN   TestBlindRuntimeFork
+--- PASS: TestBlindRuntimeFork (1.11s)
+=== RUN   TestBlindKillSwitch
+--- PASS: TestBlindKillSwitch (1.08s)
+=== RUN   TestFileChange
+    change_test.go:53: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    change_test.go:53: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    change_test.go:53: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    change_test.go:53: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    change_test.go:53: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    change_test.go:53: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    change_test.go:53: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    change_test.go:53: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    change_test.go:53: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestFileChange (1.34s)
+=== RUN   TestFileChangeLongPath
+    change_test.go:131: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    change_test.go:131: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    change_test.go:131: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    change_test.go:131: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    change_test.go:131: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    change_test.go:131: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    change_test.go:131: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    change_test.go:131: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    change_test.go:131: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestFileChangeLongPath (0.88s)
+=== RUN   TestOpenDenied
+    change_test.go:168: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    change_test.go:168: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    change_test.go:168: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    change_test.go:168: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    change_test.go:168: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    change_test.go:168: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    change_test.go:168: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    change_test.go:168: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    change_test.go:168: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestOpenDenied (1.17s)
+=== RUN   TestEnforceChild
+    enforce_test.go:46: helper process
+--- SKIP: TestEnforceChild (0.00s)
+=== RUN   TestEnforceAttach
+--- PASS: TestEnforceAttach (1.05s)
+=== RUN   TestEnforceModes
+--- PASS: TestEnforceModes (3.56s)
+=== RUN   TestEnforcePinned
+--- PASS: TestEnforcePinned (2.03s)
+=== RUN   TestEnforceRuntimeFork
+--- PASS: TestEnforceRuntimeFork (1.05s)
+=== RUN   TestFileSummaries
+    filesum_test.go:37: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    filesum_test.go:37: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    filesum_test.go:37: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    filesum_test.go:37: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    filesum_test.go:37: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    filesum_test.go:37: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    filesum_test.go:37: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    filesum_test.go:37: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    filesum_test.go:37: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+    filesum_test.go:114: 1000 opens: 56 records, 545 and 399 counted (first delivered: true, true)
+--- PASS: TestFileSummaries (2.90s)
+=== RUN   TestConnectAndAccept
+    hooks_test.go:89: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    hooks_test.go:89: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    hooks_test.go:89: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    hooks_test.go:89: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    hooks_test.go:89: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    hooks_test.go:89: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    hooks_test.go:89: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    hooks_test.go:89: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    hooks_test.go:89: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestConnectAndAccept (0.92s)
+=== RUN   TestNetIgnoreAndMapped
+    hooks_test.go:146: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    hooks_test.go:146: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    hooks_test.go:146: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    hooks_test.go:146: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    hooks_test.go:146: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    hooks_test.go:146: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    hooks_test.go:146: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    hooks_test.go:146: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    hooks_test.go:146: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestNetIgnoreAndMapped (1.93s)
+=== RUN   TestUnixConnect
+    hooks_test.go:198: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    hooks_test.go:198: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    hooks_test.go:198: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    hooks_test.go:198: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    hooks_test.go:198: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    hooks_test.go:198: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    hooks_test.go:198: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    hooks_test.go:198: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    hooks_test.go:198: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestUnixConnect (0.95s)
+=== RUN   TestFileOpenWatches
+    hooks_test.go:264: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    hooks_test.go:264: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    hooks_test.go:264: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    hooks_test.go:264: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    hooks_test.go:264: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    hooks_test.go:264: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    hooks_test.go:264: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    hooks_test.go:264: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    hooks_test.go:264: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestFileOpenWatches (2.39s)
+=== RUN   TestExecEnvAllowlist
+    hooks_test.go:346: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    hooks_test.go:346: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    hooks_test.go:346: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    hooks_test.go:346: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    hooks_test.go:346: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    hooks_test.go:346: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    hooks_test.go:346: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    hooks_test.go:346: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    hooks_test.go:346: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestExecEnvAllowlist (0.89s)
+=== RUN   TestAcceptBlockedBeforeAttach
+    hooks_test.go:427: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    hooks_test.go:427: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    hooks_test.go:427: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    hooks_test.go:427: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    hooks_test.go:427: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    hooks_test.go:427: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    hooks_test.go:427: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    hooks_test.go:427: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    hooks_test.go:427: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestAcceptBlockedBeforeAttach (1.16s)
+=== RUN   TestExecStdio
+    hooks_test.go:450: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    hooks_test.go:450: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    hooks_test.go:450: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    hooks_test.go:450: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    hooks_test.go:450: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    hooks_test.go:450: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    hooks_test.go:450: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    hooks_test.go:450: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    hooks_test.go:450: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestExecStdio (0.90s)
+=== RUN   TestFileOpenWholeDevice
+    hooks_test.go:547: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    hooks_test.go:547: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    hooks_test.go:547: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    hooks_test.go:547: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    hooks_test.go:547: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    hooks_test.go:547: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    hooks_test.go:547: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    hooks_test.go:547: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    hooks_test.go:547: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestFileOpenWholeDevice (1.32s)
+=== RUN   TestEmbeddedSpec
+--- PASS: TestEmbeddedSpec (0.01s)
+=== RUN   TestLoadAndObserve
+--- PASS: TestLoadAndObserve (0.95s)
+=== RUN   TestScriptExecReportsInterpreter
+--- PASS: TestScriptExecReportsInterpreter (0.90s)
+=== RUN   TestArgvTruncation
+--- PASS: TestArgvTruncation (0.87s)
+=== RUN   TestPtraceAttach
+    priv_test.go:25: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    priv_test.go:25: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    priv_test.go:25: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    priv_test.go:25: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    priv_test.go:25: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    priv_test.go:25: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    priv_test.go:25: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    priv_test.go:25: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    priv_test.go:25: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestPtraceAttach (0.82s)
+=== RUN   TestMemfdCreate
+    priv_test.go:59: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    priv_test.go:59: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    priv_test.go:59: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    priv_test.go:59: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    priv_test.go:59: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    priv_test.go:59: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    priv_test.go:59: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    priv_test.go:59: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    priv_test.go:59: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestMemfdCreate (0.85s)
+=== RUN   TestBPFLoad
+    priv_test.go:75: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    priv_test.go:75: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    priv_test.go:75: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    priv_test.go:75: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    priv_test.go:75: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    priv_test.go:75: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    priv_test.go:75: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    priv_test.go:75: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    priv_test.go:75: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestBPFLoad (0.85s)
+=== RUN   TestCredChange
+    priv_test.go:96: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    priv_test.go:96: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    priv_test.go:96: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    priv_test.go:96: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    priv_test.go:96: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    priv_test.go:96: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    priv_test.go:96: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    priv_test.go:96: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    priv_test.go:96: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestCredChange (1.87s)
+=== RUN   TestMount
+    priv_test.go:128: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    priv_test.go:128: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    priv_test.go:128: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    priv_test.go:128: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    priv_test.go:128: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    priv_test.go:128: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    priv_test.go:128: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    priv_test.go:128: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    priv_test.go:128: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestMount (0.90s)
+=== RUN   TestNamespaceSwitch
+    priv_test.go:148: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    priv_test.go:148: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    priv_test.go:148: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    priv_test.go:148: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    priv_test.go:148: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    priv_test.go:148: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    priv_test.go:148: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    priv_test.go:148: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    priv_test.go:148: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestNamespaceSwitch (0.85s)
+=== RUN   TestModuleLoad
+    priv_test.go:192: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    priv_test.go:192: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    priv_test.go:192: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    priv_test.go:192: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    priv_test.go:192: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    priv_test.go:192: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    priv_test.go:192: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    priv_test.go:192: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    priv_test.go:192: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestModuleLoad (0.90s)
+=== RUN   TestBrokenHookDisablesOnlyItself
+    priv_test.go:211: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    priv_test.go:211: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    priv_test.go:211: skipped tephra_cred (fentry/commit_creds): kernel has no function tephra_no_such_function
+    priv_test.go:211: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    priv_test.go:211: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    priv_test.go:211: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    priv_test.go:211: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    priv_test.go:211: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    priv_test.go:211: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    priv_test.go:211: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestBrokenHookDisablesOnlyItself (0.83s)
+=== RUN   TestQuietConnections
+    quiet_test.go:41: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    quiet_test.go:41: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    quiet_test.go:41: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    quiet_test.go:41: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    quiet_test.go:41: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    quiet_test.go:41: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    quiet_test.go:41: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    quiet_test.go:41: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    quiet_test.go:41: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestQuietConnections (2.80s)
+=== RUN   TestRingWakeupBatch
+    quiet_test.go:183: skipped tephra_accept_v2 (fexit/inet_csk_accept): inet_csk_accept takes 4 arguments on this kernel, this variant is for 2
+    quiet_test.go:183: skipped tephra_open_denied_v2 (fexit/do_file_open): kernel has no function do_file_open
+    quiet_test.go:183: skipped tephra_lsm_exec (lsm/bprm_check_security): enforcement is not enabled
+    quiet_test.go:183: skipped tephra_lsm_file_open (lsm/file_open): enforcement is not enabled
+    quiet_test.go:183: skipped tephra_lsm_ptrace (lsm/ptrace_access_check): enforcement is not enabled
+    quiet_test.go:183: skipped tephra_lsm_mount (lsm/sb_mount): enforcement is not enabled
+    quiet_test.go:183: skipped tephra_lsm_read_file (lsm/kernel_read_file): enforcement is not enabled
+    quiet_test.go:183: skipped tephra_lsm_load_data (lsm/kernel_load_data): enforcement is not enabled
+    quiet_test.go:183: skipped tephra_accept_v1 (fexit/inet_csk_accept): fallback not needed: tephra_accept is attached
+--- PASS: TestRingWakeupBatch (5.81s)
+=== RUN   TestSignalToAgent
+--- PASS: TestSignalToAgent (1.88s)
+=== RUN   TestSignalSurvivesFullRing
+--- PASS: TestSignalSurvivesFullRing (1.11s)
+=== RUN   TestTamperRecordKept
+--- PASS: TestTamperRecordKept (0.88s)
+=== RUN   TestTamperLostCounted
+--- PASS: TestTamperLostCounted (0.90s)
+=== RUN   TestAgentIgnoredByProcessNotCgroup
+--- PASS: TestAgentIgnoredByProcessNotCgroup (1.87s)
+=== RUN   TestDetectionSurvivesAgent
+--- PASS: TestDetectionSurvivesAgent (1.44s)
+=== RUN   TestDetectionNotKept
+--- PASS: TestDetectionNotKept (1.83s)
+=== RUN   TestDetectionOtherLayoutNotAdopted
+--- PASS: TestDetectionOtherLayoutNotAdopted (1.48s)
+PASS

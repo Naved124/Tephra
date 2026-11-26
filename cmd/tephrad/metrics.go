@@ -86,6 +86,23 @@ func metricsHandler(a *agent, pods *k8s.PodIndex) http.Handler {
 		gauge(&b, "tephra_enforce_pods", "Pods on this node that enforcement applies to.", c.enforcePods.Load())
 		counter(&b, "tephra_enforce_denied_total", "Actions refused by enforcement.", c.enforceDenied.Load())
 		counter(&b, "tephra_enforce_would_deny_total", "Actions enforcement would have refused; it is in dry-run mode.", c.enforceWouldDeny.Load())
+		counted, full, _ := a.sensor.FileSummaryCounts()
+		counter(&b, "tephra_file_opens_counted_total", "Watched file opens the kernel counted in a file summary instead of sending, under ring buffer pressure.", counted)
+		counter(&b, "tephra_file_summary_full_total", "Watched file opens under ring buffer pressure that the file summary map had no room for; sent one by one.", full)
+		counter(&b, "tephra_file_summaries_total", "File summaries reported as file_summary records.", c.fileSummaries.Load())
+		counter(&b, "tephra_file_summaries_undelivered_total", "File summaries of which no record had got through, reported through the rules.", c.fileSumUndelivered.Load())
+		counter(&b, "tephra_file_summaries_unattributed_total", "File summaries that could not be attributed to a process and were not reported.", c.fileSumUnattributed.Load())
+		counter(&b, "tephra_file_summary_errors_total", "Failed reads of the file summary map.", c.fileSumErrors.Load())
+		var blind uint64
+		if ok, _ := a.sensor.BlindAvailable(); ok {
+			blind = 1
+		}
+		gauge(&b, "tephra_blind_available", "1 when blind mode can refuse actions while the sensor is blind (BPF LSM active and configured on).", blind)
+		gauge(&b, "tephra_blind_pod_roots", "Pod cgroup roots blind mode applies below.", c.blindRoots.Load())
+		counter(&b, "tephra_blind_refusals_total", "Actions refused (or, in dry-run, reported) while the sensor was blind, as the kernel recorded them.", c.blindRefused.Load())
+		quiet, _ := a.sensor.BlindQuiet()
+		counter(&b, "tephra_blind_refusals_unreported_total", "Refusals made while blind and counted, not reported one by one: one pod repeating one refusal within a second.", quiet)
+		counter(&b, "tephra_blind_heartbeat_errors_total", "Failed writes of the agent's heartbeat to the kernel.", c.blindHeartbeatErrors.Load())
 		gauge(&b, "tephra_rule_sequences", "Partial rule sequences held in memory; bounded by a fixed cap.", c.seqHeld.Load())
 		counter(&b, "tephra_rule_sequences_evicted_total", "Partial rule sequences dropped, oldest first, to stay under the cap.", c.seqEvicted.Load())
 		gauge(&b, "tephra_proctree_entries", "Processes in the process tree, live and lingering.", uint64(a.tree.Len()))

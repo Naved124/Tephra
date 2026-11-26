@@ -56,6 +56,13 @@ const TypeHealth = "health"
 // reported one by one (Network.Count).
 const TypeConnSummary = "connection_summary"
 
+// TypeFileSummary is the type of the record that stands for the opens of
+// one file by one program in one pod that the kernel counted instead of
+// sending, while its ring buffer was under pressure. A record of the same
+// file and program was sent before them. When none was, the count comes as
+// a file_open record with File.Count set, and goes through the rules.
+const TypeFileSummary = "file_summary"
+
 // IsAlert reports whether the record is an alert rather than a raw event.
 func (r *Record) IsAlert() bool { return r.Rule != nil }
 
@@ -213,6 +220,13 @@ type File struct {
 	// CredentialPod is the pod the credential belongs to, as
 	// namespace/name.
 	CredentialPod string `json:"credential_pod,omitempty"`
+	// Count is set on file_summary records, and on file_open records that
+	// stand for opens the kernel counted: how many opens like this one
+	// were not sent one by one, between FirstSeen and LastSeen. The
+	// process is the one of the first.
+	Count     uint64 `json:"count,omitempty"`
+	FirstSeen string `json:"first_seen,omitempty"`
+	LastSeen  string `json:"last_seen,omitempty"`
 	// CredentialOtherPod: the credential belongs to another pod than the
 	// one that opened it.
 	CredentialOtherPod bool `json:"credential_other_pod,omitempty"`
@@ -277,12 +291,15 @@ type Ptrace struct {
 
 // Enforce is set on enforce events.
 type Enforce struct {
-	// Action is what was judged: exec_unlinked, file_write, ptrace,
-	// module_load or mount.
+	// Action is what was judged: exec_unlinked, file_write, file_read,
+	// ptrace, module_load or mount.
 	Action string `json:"action"`
 	// Denied is true when the action was refused, false when
 	// enforcement is in dry-run mode and it went ahead.
 	Denied bool `json:"denied"`
+	// Blind is true when it was judged because the sensor was blind:
+	// its agent was gone, stopped or wedged.
+	Blind bool `json:"blind,omitempty"`
 }
 
 // Memfd is set on memfd events.

@@ -48,7 +48,7 @@ func enforceCmd(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintf(stdout, "nothing is pinned in %s: enforcement is not held by the kernel\n", dir)
 			return 0
 		}
-		_, _ = fmt.Fprintln(stdout, "enforcement is off")
+		_, _ = fmt.Fprintln(stdout, "enforcement and blind mode are off until the next agent starts")
 		return 0
 	case "status":
 		mode, actions, pinned, err := loader.PinnedEnforcement(dir)
@@ -105,6 +105,20 @@ var unnamed = &rules.Rule{ID: "E000", Title: "Action refused by enforcement that
 // the rule that asked for it. A refused action never produces the event the
 // rule itself matches on, so this is the only alert there will be.
 func (a *agent) handleEnforce(rec *export.Record) {
+	if rec.Enforce.Blind {
+		// Refused because the sensor was blind (R038), and also named
+		// by any blocking rule for the same file or action.
+		a.c.blindRefused.Add(1)
+		matched := append(a.cur.rules.MatchEnforce(rec), a.cur.rules.Match(rec)...)
+		if len(matched) == 0 {
+			matched = []*rules.Rule{unnamed}
+		}
+		for _, r := range matched {
+			a.c.alert(r)
+			a.emit(r.Alert(rec))
+		}
+		return
+	}
 	if rec.Enforce.Denied {
 		a.c.enforceDenied.Add(1)
 	} else {

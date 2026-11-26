@@ -1,0 +1,27 @@
+id: R038
+title: Action refused while the sensor was blind
+level: critical
+tags: [attack.defense_evasion, attack.t1562.001]
+event: enforce
+detection:
+  blind:
+    enforce.blind: true
+  condition: blind
+action: alert
+description: >-
+  While the Tephra agent was gone, stopped or wedged, a process in a pod
+  tried one of the actions that blind mode refuses: running a program with
+  no name on disk, writing /etc/ld.so.preload, an authorized_keys file, a
+  cgroup release_agent or core_pattern, loading a kernel module, mounting,
+  attaching to another process, or reading /etc/shadow. Ordinary pods do
+  not do these, and they are what an attacker does next after blinding the
+  sensor, so the kernel refuses them for as long as the sensor is blind,
+  whatever the enforcement mode and whether or not the pod opted in. The
+  sensor is blind from the moment its process exits or is sent SIGKILL or a
+  stop signal, and when its heartbeat is older than blind.stale_after; a
+  planned stop through Kubernetes removes the programs first and never
+  blinds it. Each refusal is recorded in the tamper buffer, which a flood
+  cannot fill, and raised by the agent that comes back. enforce.denied is
+  false when blind mode is in dry-run.
+falsepositives:
+  - A pod that does one of these as part of its normal work, at the moment the agent is down; add its namespace to enforcement.protect_namespaces

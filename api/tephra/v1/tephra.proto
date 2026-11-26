@@ -68,6 +68,7 @@ message Repeats {
 message Enforce {
   string action = 1;
   bool denied = 2;
+  bool blind = 3;
 }
 
 // A signal sent to the agent; the sender is the record's process.
@@ -243,4 +244,9 @@ message File {
   string credential_pod = 12;
   // The credential belongs to another pod than the one that opened it.
   bool credential_other_pod = 13;
+  // Opens like this one counted in the kernel instead of sent, while its
+  // ring buffer was under pressure; the process is the one of the first.
+  uint64 count = 14;
+  string first_seen = 15;
+  string last_seen = 16;
 }

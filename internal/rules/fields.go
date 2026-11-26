@@ -79,12 +79,14 @@ func sub[T any](k kind, event string, pick func(*export.Record) *T, get func(*T)
 
 func ptraceOf(r *export.Record) *export.Ptrace { return r.Ptrace }
 func signalOf(r *export.Record) *export.Signal { return r.Signal }
-func memfdOf(r *export.Record) *export.Memfd   { return r.Memfd }
-func moduleOf(r *export.Record) *export.Module { return r.Module }
-func bpfOf(r *export.Record) *export.BPF       { return r.BPF }
-func credOf(r *export.Record) *export.Cred     { return r.Cred }
-func mountOf(r *export.Record) *export.Mount   { return r.Mount }
-func nsOf(r *export.Record) *export.Namespaces { return r.Namespaces }
+
+func enforceOf(r *export.Record) *export.Enforce { return r.Enforce }
+func memfdOf(r *export.Record) *export.Memfd     { return r.Memfd }
+func moduleOf(r *export.Record) *export.Module   { return r.Module }
+func bpfOf(r *export.Record) *export.BPF         { return r.BPF }
+func credOf(r *export.Record) *export.Cred       { return r.Cred }
+func mountOf(r *export.Record) *export.Mount     { return r.Mount }
+func nsOf(r *export.Record) *export.Namespaces   { return r.Namespaces }
 
 func init() {
 	for name, f := range map[string]field{
@@ -95,6 +97,9 @@ func init() {
 		"signal.number":              sub(kInt, "signal", signalOf, func(s *export.Signal) value { return integer(int64(s.Number)) }),
 		"signal.name":                sub(kString, "signal", signalOf, func(s *export.Signal) value { return present(s.Name) }),
 		"signal.target_pid":          sub(kInt, "signal", signalOf, func(s *export.Signal) value { return integer(int64(s.TargetPID)) }),
+		"enforce.action":             sub(kString, "enforce", enforceOf, func(e *export.Enforce) value { return str(e.Action) }),
+		"enforce.denied":             sub(kBool, "enforce", enforceOf, func(e *export.Enforce) value { return boolean(e.Denied) }),
+		"enforce.blind":              sub(kBool, "enforce", enforceOf, func(e *export.Enforce) value { return boolean(e.Blind) }),
 		"signal.lost":                sub(kInt, "signal", signalOf, func(s *export.Signal) value { return integer(int64(s.Lost)) }),
 		"ptrace.lost":                sub(kInt, "ptrace", ptraceOf, func(p *export.Ptrace) value { return integer(int64(p.Lost)) }),
 		"memfd.flags":                sub(kInt, "memfd", memfdOf, func(m *export.Memfd) value { return integer(int64(m.Flags)) }),

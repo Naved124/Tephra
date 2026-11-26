@@ -645,13 +645,13 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 		}
 	case *events.Enforce:
 		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
-		rec.Enforce = &export.Enforce{Action: ev.Action, Denied: ev.Denied()}
-		if ev.Action == "file_write" {
+		rec.Enforce = &export.Enforce{Action: ev.Action, Denied: ev.Denied(), Blind: ev.Blind()}
+		if ev.Action == "file_write" || ev.Action == "file_read" {
 			path := ev.Path
 			if ev.Flags&events.EnforceNoPath != 0 {
 				path = ""
 			}
-			rec.File = &export.File{Path: path, Write: true, Inode: ev.Inode, Dev: ev.Dev, MatchedBy: "block"}
+			rec.File = &export.File{Path: path, Write: ev.Action == "file_write", Inode: ev.Inode, Dev: ev.Dev, MatchedBy: "block"}
 			// Refused through a hard link: name the protected file, as
 			// a file_open record does.
 			if e.inodes != nil {

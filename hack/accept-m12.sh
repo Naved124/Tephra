@@ -93,7 +93,7 @@ pass "a pod comes into scope when labelled tephra.dev/enforce=true, not before"
 pod=$(agent_pods | head -n1)
 kubectl -n "$NAMESPACE" exec "${pod#pod/}" -- /tephrad enforce status | grep -q "^mode ${MODE}," ||
 	fail "${pod}: tephrad enforce status does not report mode ${MODE}"
-kubectl -n "$NAMESPACE" exec "${pod#pod/}" -- /tephrad enforce off | grep -qx "enforcement is off" ||
+kubectl -n "$NAMESPACE" exec "${pod#pod/}" -- /tephrad enforce off | grep -qx "enforcement and blind mode are off until the next agent starts" ||
 	fail "${pod}: tephrad enforce off did not report success"
 [ "$(gauge "$pod" tephra_enforce_mode)" = "0" ] || fail "${pod}: still enforcing after the kill switch"
 pass "the kill switch turns enforcement off in the kernel"

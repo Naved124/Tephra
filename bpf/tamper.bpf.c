@@ -8,6 +8,11 @@ const struct module_event *__tephra_module_event __attribute__((unused));
 const struct bpf_event *__tephra_bpf_event __attribute__((unused));
 const struct signal_event *__tephra_signal_event __attribute__((unused));
 
+/* SIGKILL, and SIGSTOP, SIGTSTP, SIGTTIN and SIGTTOU, which stop a task. */
+#define SIGKILL_ 9
+#define SIGSTOP_ 19
+#define SIGTTOU_ 22
+
 /* The syscall's own entry function, so only this syscall pays for the hook.
  * Only the flags are read: the name is a user pointer the caller can change
  * under us. */
@@ -115,9 +120,14 @@ int BPF_PROG(tephra_signal, struct task_struct *p, struct kernel_siginfo *info,
 	struct task_struct *leader;
 	struct signal_event e;
 
-	if (!c || !s || sig == 0 || !event_enabled(c, EVENT_SIGNAL))
+	if (sig == 0 || !is_agent(p))
 		return 0;
-	if (!is_agent(p))
+	/* A kill or a stop blinds the sensor from this moment, before the
+	 * signal is delivered, whether signal events are reported or not. */
+	if ((sig == SIGKILL_ || (sig >= SIGSTOP_ && sig <= SIGTTOU_)) &&
+	    !agent_task())
+		blind_mark_down();
+	if (!c || !s || !event_enabled(c, EVENT_SIGNAL))
 		return 0;
 	s->seen++;
 

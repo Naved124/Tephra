@@ -289,18 +289,27 @@ int BPF_PROG(tephra_exec, struct task_struct *p, pid_t old_pid,
  * container's namespaces and mount its root filesystem. The enforcement
  * programs' mark (runtime_tasks) passes from parent to child here; the
  * child's own exec of the container's program clears it. Done whatever the
- * event settings, and only while enforcement is not off. */
+ * event settings, while enforcement or blind mode is on: blind mode covers
+ * every new pod, and without the mark runc's init cannot mount the
+ * container's root while the sensor is blind, so no pod starts on the node,
+ * the next agent included. */
 static __always_inline void runtime_mark_inherit(struct task_struct *child)
 {
 	struct task_key pk = {}, ck = {};
 	struct enforce_cfg *ec;
-	__u32 zero = 0;
+	struct blind_cfg *bc;
+	__u32 zero = 0, em = ENFORCE_OFF, bm = BLIND_OFF;
 	__u8 one = 1;
 
 	if (BPF_CORE_READ(child, pid) != BPF_CORE_READ(child, tgid))
 		return; /* a thread shares its process's key */
 	ec = bpf_map_lookup_elem(&enforce_cfg, &zero);
-	if (!ec || ec->mode == ENFORCE_OFF)
+	if (ec)
+		em = ec->mode;
+	bc = bpf_map_lookup_elem(&blind_cfg, &zero);
+	if (bc)
+		bm = bc->mode;
+	if (em == ENFORCE_OFF && bm == BLIND_OFF)
 		return;
 	pk.start_time_ns =
 	    BPF_CORE_READ((struct task_struct *)bpf_get_current_task_btf(),
@@ -366,6 +375,10 @@ int BPF_PROG(tephra_exit, struct task_struct *p)
 	struct stats_val *s = stats_get(EVENT_EXIT);
 	struct exit_event e;
 
+	/* The agent's last thread: the sensor is blind from here on, however
+	 * it ended. A planned stop has detached this program by now. */
+	if (BPF_CORE_READ(p, signal, live.counter) == 0 && agent_task())
+		blind_mark_down();
 	if (!c || !s || !event_enabled(c, EVENT_EXIT))
 		return 0;
 	s->seen++;

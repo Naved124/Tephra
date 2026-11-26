@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Naved124/tephra/internal/events"
 	"github.com/Naved124/tephra/internal/filter"
@@ -83,17 +84,26 @@ export:
 
 func TestInvalid(t *testing.T) {
 	for body, want := range map[string]string{
-		"clusterr: x\n":                                "clusterr",
-		"events: [execve]\n":                           `unknown event type "execve"`,
-		"ring_buffer_size: 1000000\n":                  "power of two",
-		"net_ignore: [10.0.0.0]\n":                     "is not a CIDR",
-		"k8s_api: [10.96.0.1]\n":                       "is not an address and port",
-		"watch: [{path: etc, kind: exact}]\n":          "not an absolute path",
-		"watch: [{path: /etc, kind: glob}]\n":          "is not exact, prefix or name",
-		"watch: [{path: /, kind: prefix}]\n":           "every file open",
-		"watch: [{path: /a, kind: exact, ops: [x]}]\n": "is not read or write",
-		"export: {queue: 0}\n":                         "must be positive",
-		"export: [1]\n":                                "cannot unmarshal",
+		"clusterr: x\n":                                                 "clusterr",
+		"events: [execve]\n":                                            `unknown event type "execve"`,
+		"ring_buffer_size: 1000000\n":                                   "power of two",
+		"net_ignore: [10.0.0.0]\n":                                      "is not a CIDR",
+		"k8s_api: [10.96.0.1]\n":                                        "is not an address and port",
+		"watch: [{path: etc, kind: exact}]\n":                           "not an absolute path",
+		"watch: [{path: /etc, kind: glob}]\n":                           "is not exact, prefix or name",
+		"watch: [{path: /, kind: prefix}]\n":                            "every file open",
+		"watch: [{path: /a, kind: exact, ops: [x]}]\n":                  "is not read or write",
+		"export: {queue: 0}\n":                                          "must be positive",
+		"export: [1]\n":                                                 "cannot unmarshal",
+		"file_summary_window: 500ms\n":                                  "under 1s",
+		"blind: {mode: maybe}\n":                                        "is not on, dry_run or off",
+		"blind: {stale_after: 1s}\n":                                    "under 2s",
+		"tamper: {keep_recording: false}\n":                             "needs tamper.keep_recording",
+		"blind: {actions: [kill]}\n":                                    "is not exec_unlinked",
+		"blind: {files: [{path: etc/x, kind: exact, ops: [read]}]}\n":   "not an absolute path",
+		"blind: {files: [{path: a/b, kind: name, ops: [read]}]}\n":      "is not a file name",
+		"blind: {files: [{path: /etc/x, kind: prefix, ops: [read]}]}\n": "is not exact or name",
+		"blind: {files: [{path: /etc/x, kind: exact}]}\n":               "ops is empty",
 	} {
 		_, err := load(t, body)
 		if err == nil || !strings.Contains(err.Error(), want) {
@@ -102,5 +112,41 @@ func TestInvalid(t *testing.T) {
 	}
 	if _, err := Load("/nonexistent/config.yaml"); err == nil {
 		t.Error("missing file accepted")
+	}
+}
+
+// Blind mode is on by default, with Tier 1: what ordinary pods never do
+// and an attacker does next, after blinding the sensor.
+func TestBlindDefaults(t *testing.T) {
+	c := Default()
+	if c.Blind.Mode != BlindOn || c.Blind.StaleAfter != 12*time.Second {
+		t.Errorf("blind defaults %+v, want on and 12s", c.Blind)
+	}
+	ws, err := c.BlindWatches()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]uint32{}
+	for _, w := range ws {
+		got[w.Path] = w.Bits
+		if w.Bits&(filter.Read|filter.Write) != 0 {
+			t.Errorf("blind watch %s reports opens (bits %b): it must only mark the file", w.Path, w.Bits)
+		}
+	}
+	want := map[string]uint32{
+		"/etc/shadow":                   filter.BlindRead | filter.BlindWrite,
+		"/etc/ld.so.preload":            filter.BlindWrite,
+		"authorized_keys":               filter.BlindWrite,
+		"release_agent":                 filter.BlindWrite,
+		"/proc/sys/kernel/core_pattern": filter.BlindWrite,
+	}
+	for p, b := range want {
+		if got[p] != b {
+			t.Errorf("blind watch %s: bits %b, want %b", p, got[p], b)
+		}
+	}
+	c.Blind.Mode = BlindOff
+	if ws, _ := c.BlindWatches(); len(ws) != 0 {
+		t.Errorf("blind mode off still adds %d watches", len(ws))
 	}
 }

@@ -138,6 +138,9 @@ func (r *Report) Markdown() string {
 		drops += res.Drops
 	}
 	fmt.Fprintf(&b, "**%d scenarios: %d detected, %d partial, %d missed", len(r.Results), counts[Detected], counts[Partial], counts[Missed])
+	if counts[RefusedWhileBlind] > 0 {
+		fmt.Fprintf(&b, ", %d refused while the sensor was blind", counts[RefusedWhileBlind])
+	}
 	if counts["error"] > 0 {
 		fmt.Fprintf(&b, ", %d could not be run", counts["error"])
 	}

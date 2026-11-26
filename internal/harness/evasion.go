@@ -18,6 +18,9 @@ const DropsReported = "drops reported"
 // Measured is the verdict of an evasion scenario as measured.
 func (r *Result) Measured() string {
 	v := r.Verdict()
+	if v == RefusedWhileBlind {
+		return v
+	}
 	if r.Heldout && v != Detected && v != "error" && len(r.Noticed) > 0 {
 		v = Detected
 	}
@@ -137,7 +140,7 @@ func table(b *strings.Builder, results []*Result, heldout bool) {
 		if res.Error != "" {
 			prediction = "not run: " + res.Error
 		}
-		if m := res.Measured(); m == Detected || m == DropsReported {
+		if m := res.Measured(); m == Detected || m == DropsReported || m == RefusedWhileBlind {
 			detected++
 		}
 		other := dash(strings.Join(res.AlsoFired, ", "))
@@ -152,7 +155,7 @@ func table(b *strings.Builder, results []*Result, heldout bool) {
 			res.ID, res.Title, strings.Join(rules, "; "), res.Predicted, res.Measured(), prediction,
 			other, res.Drops, res.AgentRestarts)
 	}
-	fmt.Fprintf(b, "\n%d of %d detected or visible; %d of %d predictions held.\n\n", detected, len(results), held, len(results))
+	fmt.Fprintf(b, "\n%d of %d detected, visible or refused while blind; %d of %d predictions held.\n\n", detected, len(results), held, len(results))
 }
 
 func dash(s string) string {

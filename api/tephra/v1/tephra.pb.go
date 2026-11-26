@@ -389,6 +389,7 @@ type Enforce struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Action        string                 `protobuf:"bytes,1,opt,name=action,proto3" json:"action,omitempty"`
 	Denied        bool                   `protobuf:"varint,2,opt,name=denied,proto3" json:"denied,omitempty"`
+	Blind         bool                   `protobuf:"varint,3,opt,name=blind,proto3" json:"blind,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -433,6 +434,13 @@ func (x *Enforce) GetAction() string {
 func (x *Enforce) GetDenied() bool {
 	if x != nil {
 		return x.Denied
+	}
+	return false
+}
+
+func (x *Enforce) GetBlind() bool {
+	if x != nil {
+		return x.Blind
 	}
 	return false
 }
@@ -1776,8 +1784,13 @@ type File struct {
 	CredentialPod string `protobuf:"bytes,12,opt,name=credential_pod,json=credentialPod,proto3" json:"credential_pod,omitempty"`
 	// The credential belongs to another pod than the one that opened it.
 	CredentialOtherPod bool `protobuf:"varint,13,opt,name=credential_other_pod,json=credentialOtherPod,proto3" json:"credential_other_pod,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// Opens like this one counted in the kernel instead of sent, while its
+	// ring buffer was under pressure; the process is the one of the first.
+	Count         uint64 `protobuf:"varint,14,opt,name=count,proto3" json:"count,omitempty"`
+	FirstSeen     string `protobuf:"bytes,15,opt,name=first_seen,json=firstSeen,proto3" json:"first_seen,omitempty"`
+	LastSeen      string `protobuf:"bytes,16,opt,name=last_seen,json=lastSeen,proto3" json:"last_seen,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *File) Reset() {
@@ -1901,6 +1914,27 @@ func (x *File) GetCredentialOtherPod() bool {
 	return false
 }
 
+func (x *File) GetCount() uint64 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *File) GetFirstSeen() string {
+	if x != nil {
+		return x.FirstSeen
+	}
+	return ""
+}
+
+func (x *File) GetLastSeen() string {
+	if x != nil {
+		return x.LastSeen
+	}
+	return ""
+}
+
 var File_api_tephra_v1_tephra_proto protoreflect.FileDescriptor
 
 const file_api_tephra_v1_tephra_proto_rawDesc = "" +
@@ -1944,10 +1978,11 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x05first\x18\x02 \x01(\tR\x05first\x12\x12\n" +
 	"\x04last\x18\x03 \x01(\tR\x04last\x12\x16\n" +
 	"\x06folded\x18\x04 \x01(\bR\x06folded\x12\x18\n" +
-	"\asamples\x18\x05 \x03(\tR\asamples\"9\n" +
+	"\asamples\x18\x05 \x03(\tR\asamples\"O\n" +
 	"\aEnforce\x12\x16\n" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x16\n" +
-	"\x06denied\x18\x02 \x01(\bR\x06denied\"g\n" +
+	"\x06denied\x18\x02 \x01(\bR\x06denied\x12\x14\n" +
+	"\x05blind\x18\x03 \x01(\bR\x05blind\"g\n" +
 	"\x06Signal\x12\x16\n" +
 	"\x06number\x18\x01 \x01(\rR\x06number\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
@@ -2073,7 +2108,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\x05total\x18\v \x01(\x04R\x05total\x12\x1d\n" +
 	"\n" +
 	"first_seen\x18\f \x01(\tR\tfirstSeen\x12\x1b\n" +
-	"\tlast_seen\x18\r \x01(\tR\blastSeen\"\xe7\x02\n" +
+	"\tlast_seen\x18\r \x01(\tR\blastSeen\"\xb9\x03\n" +
 	"\x04File\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
 	"\x06target\x18\x02 \x01(\tR\x06target\x12\x14\n" +
@@ -2089,7 +2124,11 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	" \x01(\tR\x05error\x12%\n" +
 	"\x0ek8s_credential\x18\v \x01(\tR\rk8sCredential\x12%\n" +
 	"\x0ecredential_pod\x18\f \x01(\tR\rcredentialPod\x120\n" +
-	"\x14credential_other_pod\x18\r \x01(\bR\x12credentialOtherPod29\n" +
+	"\x14credential_other_pod\x18\r \x01(\bR\x12credentialOtherPod\x12\x14\n" +
+	"\x05count\x18\x0e \x01(\x04R\x05count\x12\x1d\n" +
+	"\n" +
+	"first_seen\x18\x0f \x01(\tR\tfirstSeen\x12\x1b\n" +
+	"\tlast_seen\x18\x10 \x01(\tR\blastSeen29\n" +
 	"\bExporter\x12-\n" +
 	"\x06Export\x12\x11.tephra.v1.Record\x1a\x0e.tephra.v1.Ack(\x01B3Z1github.com/Naved124/tephra/api/tephra/v1;tephrav1b\x06proto3"
 

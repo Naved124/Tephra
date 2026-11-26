@@ -246,3 +246,36 @@ func PodCgroups(root string) map[string]uint64 {
 	})
 	return out
 }
+
+// PodRoots returns the cgroups that pods live under: the shallowest cgroup
+// whose name contains "kubepods" on each branch of the tree below root
+// (kubepods.slice with the systemd driver, kubepods with cgroupfs, and one
+// per node when several kind nodes share a kernel). Every pod's cgroup is
+// below one of them, including pods that do not exist yet.
+func PodRoots(root string) []uint64 {
+	var out []uint64
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if PodUID(d.Name()) != "" {
+			// A pod outside any kubepods cgroup: nothing deeper.
+			return fs.SkipDir
+		}
+		if !strings.Contains(d.Name(), "kubepods") {
+			return nil
+		}
+		var st syscall.Stat_t
+		if syscall.Stat(path, &st) == nil {
+			out = append(out, st.Ino)
+		}
+		return fs.SkipDir
+	})
+	return out
+}
