@@ -372,12 +372,13 @@ moves to another network while the VM is running, image pulls inside it fail;
 
 ## Releases
 
-Pushing a tag `vX.Y.Z` that matches the chart's `appVersion` runs [.github/workflows/release.yaml](.github/workflows/release.yaml),
+Pushing a tag `vX.Y.Z` (or `vX.Y.Z-rc.N` for a release candidate) that matches the chart's `appVersion` runs [.github/workflows/release.yaml](.github/workflows/release.yaml),
 which builds the two images, pushes them to `ghcr.io/tephrasec`, signs them
 with cosign (keyless, bound to that workflow) and pushes the chart with both
-images pinned by digest. The kind setup builds and loads its own images.
+images pinned by digest, and creates the GitHub release from
+`docs/releases/<tag>.md` (marked as a pre-release for a release candidate). The kind setup builds and loads its own images.
 
-From v0.2.0 the project lives in the `tephrasec` organisation: the Go module is
+From v0.1.0 the project lives in the `tephrasec` organisation: the Go module is
 `github.com/tephrasec/tephra`, the images are `ghcr.io/tephrasec/*`, and the
 enforcement label is `tephrasec.tech/enforce`. The old label `tephra.dev/enforce`
 no longer turns anything on.
