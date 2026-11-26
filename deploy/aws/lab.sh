@@ -10,20 +10,61 @@
 # Manager session, so the laptop needs the aws CLI, a login (aws sso login),
 # session-manager-plugin and terraform.
 #
-# Several labs can run at once, each named by LAB_NAME. SPOT=1 runs one on
-# spot capacity (cheaper, a separate vCPU quota, may be taken back; it cannot
-# be stopped, only destroyed). KERNEL_FLOOR=1 with UBUNTU_VERSION=22.04 boots
-# it on the 5.15 kernel.
+# Several labs can run at once, each named by LAB_NAME. A profile picks the
+# region, the image and the kernel together, one region per kernel so the
+# labs can run side by side within each region's vCPU quota:
+#
+#   LAB_PROFILE=floor-ubuntu    ap-south-1      Ubuntu 22.04, Canonical's 5.15
+#   LAB_PROFILE=current-ubuntu  us-east-1       Ubuntu 26.04, its 7.0 kernel
+#   LAB_PROFILE=floor-vanilla   ap-northeast-2  Ubuntu 22.04, upstream 5.15.y
+#                                               from kernel.org, unpatched
+#
+# A profile names the lab after itself unless LAB_NAME is set, and uses an
+# 8-vCPU c7i.2xlarge on demand. Without a profile the variables below apply
+# as before: KERNEL_FLOOR=1 with UBUNTU_VERSION=22.04 boots Canonical's 5.15,
+# KERNEL_VANILLA=1 the upstream one, and the region is the AWS profile's.
+# SPOT=1 runs a lab on spot capacity (cheaper, a separate vCPU quota, may be
+# taken back; it cannot be stopped, only destroyed). Each lab remembers its
+# region, so later commands need only LAB_NAME.
 set -euo pipefail
 # The AWS CLI profile to use; set AWS_PROFILE to override.
 export AWS_PROFILE="${AWS_PROFILE:-claude}"
 
+LAB_PROFILE="${LAB_PROFILE:-}"
+PROFILE_REGION=""
+case "$LAB_PROFILE" in
+"") ;;
+floor-ubuntu)
+	PROFILE_REGION=ap-south-1
+	: "${UBUNTU_VERSION:=22.04}" "${KERNEL_FLOOR:=1}"
+	;;
+current-ubuntu)
+	PROFILE_REGION=us-east-1
+	: "${UBUNTU_VERSION:=26.04}"
+	;;
+floor-vanilla)
+	PROFILE_REGION=ap-northeast-2
+	: "${UBUNTU_VERSION:=22.04}" "${KERNEL_VANILLA:=1}"
+	;;
+*)
+	echo "lab.sh: unknown LAB_PROFILE '$LAB_PROFILE' (floor-ubuntu, current-ubuntu, floor-vanilla)" >&2
+	exit 2
+	;;
+esac
+# The regions lab.sh status looks in, besides any a lab was created in.
+LAB_REGIONS="ap-south-1 us-east-1 ap-northeast-2"
+
+if [ -n "$LAB_PROFILE" ]; then
+	LAB_NAME="${LAB_NAME:-$LAB_PROFILE}"
+	INSTANCE_TYPE="${INSTANCE_TYPE:-c7i.2xlarge}"
+fi
 LAB_NAME="${LAB_NAME:-tephra-dev}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-m7i.xlarge}"
 UBUNTU_VERSION="${UBUNTU_VERSION:-24.04}"
 DISK_GIB="${DISK_GIB:-60}"
 SPOT="${SPOT:-0}"
 KERNEL_FLOOR="${KERNEL_FLOOR:-0}"
+KERNEL_VANILLA="${KERNEL_VANILLA:-0}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -31,6 +72,16 @@ TF="$REPO/deploy/terraform/lab"
 STATE="$REPO/deploy/vm/.state/aws-$LAB_NAME"
 KEY="$STATE/id_ed25519"
 REMOTE_DIR="tephra"
+
+# The lab's region: the one it was created in, else the profile's, else the
+# AWS profile's own.
+if [ -f "$STATE/region" ]; then
+	AWS_REGION="$(cat "$STATE/region")"
+	export AWS_REGION
+elif [ -n "$PROFILE_REGION" ]; then
+	export AWS_REGION="$PROFILE_REGION"
+fi
+[ -z "${AWS_REGION:-}" ] || export AWS_DEFAULT_REGION="$AWS_REGION"
 
 die() {
 	echo "lab.sh: $*" >&2
@@ -68,6 +119,11 @@ lab_ssh() {
 		"tephra@$id" "$@"
 }
 
+# The ssh command rsync runs, the same session as lab_ssh.
+rsync_ssh() {
+	echo "ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=$STATE/known_hosts -o LogLevel=ERROR -o IdentitiesOnly=yes -o 'ProxyCommand=aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p'"
+}
+
 wait_ssh() {
 	echo "waiting for the instance to accept a session"
 	local _
@@ -78,13 +134,40 @@ wait_ssh() {
 	die "the instance did not accept a session within 5 minutes"
 }
 
+# The bucket that keeps upstream kernel packages between labs, in the lab's
+# region. It is not part of any lab, so lab.sh destroy leaves it; it is
+# private, encrypted, and holds about 100 MB per kernel release.
+kernel_cache_bucket() {
+	local account bucket
+	account=$(aws sts get-caller-identity --query Account --output text)
+	bucket="tephra-kernel-cache-$account-$AWS_REGION"
+	if ! aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
+		if [ "$AWS_REGION" = us-east-1 ]; then
+			aws s3api create-bucket --bucket "$bucket" >/dev/null
+		else
+			aws s3api create-bucket --bucket "$bucket" \
+				--create-bucket-configuration "LocationConstraint=$AWS_REGION" >/dev/null
+		fi
+		aws s3api put-public-access-block --bucket "$bucket" --public-access-block-configuration \
+			BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+		aws s3api put-bucket-tagging --bucket "$bucket" --tagging 'TagSet=[{Key=project,Value=tephra-demo}]'
+		echo "created s3://$bucket for built kernels" >&2
+	fi
+	echo "$bucket"
+}
+
 cmd_up() {
 	need aws terraform session-manager-plugin ssh ssh-keygen rsync
 	aws sts get-caller-identity >/dev/null 2>&1 || die "no AWS credentials for profile $AWS_PROFILE"
 	mkdir -p "$STATE"
+	[ -z "${AWS_REGION:-}" ] || echo "$AWS_REGION" >"$STATE/region"
 	[ -f "$KEY" ] || ssh-keygen -q -t ed25519 -N "" -C "$LAB_NAME" -f "$KEY"
 	tf init -input=false >/dev/null
 	tf workspace select -or-create "$LAB_NAME" >/dev/null 2>&1 || true
+	local cache_bucket=""
+	if [ "$KERNEL_VANILLA" = 1 ]; then
+		cache_bucket=$(kernel_cache_bucket)
+	fi
 
 	local id
 	id=$(instance_id)
@@ -101,14 +184,40 @@ cmd_up() {
 		tf apply -input=false -auto-approve \
 			-var "name=$LAB_NAME" -var "instance_type=$INSTANCE_TYPE" -var "spot=$spot" \
 			-var "ubuntu_version=$UBUNTU_VERSION" -var "disk_gib=$DISK_GIB" \
+			-var "kernel_cache_bucket=$cache_bucket" \
 			-var "user_data=$(sed "s|__SSH_PUBKEY__|$(cat "$KEY.pub")|" "$REPO/deploy/vm/user-data.yaml.tmpl")"
 	fi
 	wait_ssh
+	# Polled with short sessions: one long one can be dropped while idle,
+	# which is not cloud-init failing.
 	echo "waiting for cloud-init"
-	lab_ssh 'cloud-init status --wait' || die "cloud-init failed; see /var/log/cloud-init-output.log on the instance"
+	local ci=""
+	while :; do
+		ci=$(lab_ssh 'cloud-init status 2>/dev/null | sed -n "s/^status: //p"' 2>/dev/null || echo unknown)
+		case "$ci" in
+		done) break ;;
+		error | degraded*) die "cloud-init failed; see /var/log/cloud-init-output.log on the instance" ;;
+		esac
+		sleep 15
+	done
 	lab_ssh 'sudo bash -s' <"$REPO/deploy/vm/provision.sh"
 	if [ "$KERNEL_FLOOR" = 1 ]; then
 		lab_ssh 'sudo bash -s' <"$REPO/deploy/vm/kernel-floor.sh"
+	fi
+	if [ "$KERNEL_VANILLA" = 1 ]; then
+		# The build takes long enough for an idle session to be dropped, so
+		# it runs as a job on the instance and is polled with short sessions.
+		lab_ssh 'cat >/tmp/kernel-vanilla.sh' <"$REPO/deploy/vm/kernel-vanilla.sh"
+		lab_ssh "sudo systemctl reset-failed tephra-kernel 2>/dev/null; sudo systemd-run --unit tephra-kernel --setenv VANILLA_VERSION=${VANILLA_VERSION:-} --setenv KERNEL_CACHE_S3=s3://$cache_bucket/kernel-vanilla --setenv AWS_DEFAULT_REGION=$AWS_REGION bash /tmp/kernel-vanilla.sh"
+		local state=""
+		while :; do
+			state=$(lab_ssh 'systemctl show -p ActiveState --value tephra-kernel' 2>/dev/null || echo unknown)
+			case "$state" in active | activating | unknown) ;; *) break ;; esac
+			lab_ssh 'sudo tail -n 1 /var/tmp/tephra-kernel/build.log 2>/dev/null | cut -c1-100' 2>/dev/null || true
+			sleep 30
+		done
+		lab_ssh 'sudo journalctl -u tephra-kernel -o cat --no-pager | tail -n 20'
+		[ "$(lab_ssh 'systemctl show -p Result --value tephra-kernel')" = success ] || die "the upstream kernel was not installed; see journalctl -u tephra-kernel on the instance"
 	fi
 	if lab_ssh 'test -e /run/tephra-reboot-needed'; then
 		echo "rebooting to activate BPF LSM and the chosen kernel"
@@ -126,8 +235,7 @@ cmd_sync() {
 	rsync -a --delete \
 		--exclude /bin/ --exclude /tephrad --exclude /bench/raw/ --exclude /bench/.cache/ --exclude /bench/DONE --exclude /.tools/ --exclude /deploy/vm/.state/ --exclude '.terraform/' --exclude '*.tfstate*' \
 		--exclude-from "$REPO/.git/info/exclude" \
-		-e "ssh -i $KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=$STATE/known_hosts -o LogLevel=ERROR -o IdentitiesOnly=yes -o 'ProxyCommand=aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p'" \
-		"$REPO/" "tephra@$id:$REMOTE_DIR/"
+		-e "$(rsync_ssh)" "$REPO/" "tephra@$id:$REMOTE_DIR/"
 }
 
 cmd_ssh() {
@@ -155,20 +263,27 @@ cmd_destroy() {
 	rm -rf "$STATE"
 }
 
-# Every lab instance in the account, not only LAB_NAME's, so that none is
-# forgotten.
+# Every lab instance in the account, not only LAB_NAME's, in every region a
+# profile uses or a lab was created in, so that none is forgotten.
 # shellcheck disable=SC2016,SC2001 # backticks are JMESPath literals; sed works per line
 cmd_status() {
-	local out
-	out=$(aws ec2 describe-instances --filters Name=tag-key,Values=lab \
-		Name=instance-state-name,Values=pending,running,stopping,stopped \
-		--query 'Reservations[].Instances[].[Tags[?Key==`lab`]|[0].Value,InstanceId,State.Name,InstanceType,InstanceLifecycle]' \
-		--output text)
-	if [ -z "$out" ]; then
-		echo "no lab instance"
-	else
-		echo "$out" | sed 's/None$/on-demand/'
-	fi
+	local regions region out any=0
+	regions=$({
+		echo "$LAB_REGIONS" | tr ' ' '\n'
+		cat "$REPO"/deploy/vm/.state/aws-*/region 2>/dev/null || true
+		[ -z "${AWS_REGION:-}" ] || echo "$AWS_REGION"
+		aws configure get region 2>/dev/null || true
+	} | grep . | sort -u)
+	for region in $regions; do
+		out=$(aws ec2 describe-instances --region "$region" --filters Name=tag-key,Values=lab \
+			Name=instance-state-name,Values=pending,running,stopping,stopped \
+			--query 'Reservations[].Instances[].[Tags[?Key==`lab`]|[0].Value,InstanceId,State.Name,InstanceType,InstanceLifecycle]' \
+			--output text)
+		[ -n "$out" ] || continue
+		any=1
+		echo "$out" | sed 's/None$/on-demand/' | sed "s/^/$region\t/"
+	done
+	[ "$any" = 1 ] || echo "no lab instance in: $(echo "$regions" | tr '\n' ' ')"
 }
 
 case "${1:-}" in

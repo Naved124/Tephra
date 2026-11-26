@@ -55,6 +55,12 @@ variable "disk_gib" {
   default = 60
 }
 
+variable "kernel_cache_bucket" {
+  description = "S3 bucket of built kernel packages the instance may read and write; empty for none."
+  type        = string
+  default     = ""
+}
+
 variable "user_data" {
   description = "Rendered cloud-init (deploy/vm/user-data.yaml.tmpl with the lab's public key)."
   type        = string
@@ -132,6 +138,29 @@ resource "aws_iam_role" "lab" {
 resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.lab.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+# The upstream-kernel lab keeps what it builds in one bucket, reached with
+# the instance's own role so no credentials go onto the instance.
+resource "aws_iam_role_policy" "kernel_cache" {
+  count = var.kernel_cache_bucket == "" ? 0 : 1
+  name  = "${var.name}-kernel-cache"
+  role  = aws_iam_role.lab.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = "arn:aws:s3:::${var.kernel_cache_bucket}"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "arn:aws:s3:::${var.kernel_cache_bucket}/*"
+      },
+    ]
+  })
 }
 
 resource "aws_iam_instance_profile" "lab" {
