@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/filter"
 )
 
 // Under ring buffer pressure the opens of one file by one program are sent

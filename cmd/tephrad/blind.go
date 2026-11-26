@@ -8,9 +8,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Naved124/tephra/internal/config"
-	"github.com/Naved124/tephra/internal/k8s"
-	"github.com/Naved124/tephra/internal/loader"
+	"github.com/tephrasec/tephra/internal/config"
+	"github.com/tephrasec/tephra/internal/k8s"
+	"github.com/tephrasec/tephra/internal/loader"
 )
 
 // blindActionIDs maps the names in blind.actions to enforce actions.

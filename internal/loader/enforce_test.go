@@ -17,8 +17,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/filter"
 )
 
 // The tests below refuse real actions. They run as root in the lab VM only

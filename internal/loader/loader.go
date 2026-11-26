@@ -16,8 +16,8 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/filter"
 )
 
 // DefaultRingBufSize is the size of the events ring buffer in bytes.

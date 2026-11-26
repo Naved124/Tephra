@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Naved124/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 // R031 is raised by the collector, not by an agent's rule engine: it is

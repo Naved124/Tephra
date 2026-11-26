@@ -18,8 +18,8 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"golang.org/x/sys/unix"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/filter"
 )
 
 // loadForTest loads the sensor and lifts the ignore on the test's own

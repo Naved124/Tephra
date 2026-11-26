@@ -1,4 +1,8 @@
+<p align="center"><img src="docs/assets/logo.svg" width="120" alt="Tephra logo: a radar sweep over a cluster of pods inside a shield"></p>
+
 # Tephra
+
+[tephrasec.tech](https://tephrasec.tech) · [Docs](https://tephrasec.tech/docs/) · [Rules](https://tephrasec.tech/rules/) · [Results](https://tephrasec.tech/results/)
 
 A runtime threat-detection sensor for Kubernetes nodes. eBPF programs observe
 process, file, network and privilege activity in the kernel; a Go agent
@@ -153,7 +157,7 @@ agent:
     dryRun: true      # report what would be refused; refuse nothing
 ```
 
-Only pods labelled `tephra.dev/enforce=true` are refused anything, never
+Only pods labelled `tephrasec.tech/enforce=true` are refused anything, never
 pods in kube-system or the agent's namespace, never host processes, and
 never the container runtime. Refusals are pinned under `/sys/fs/bpf/tephra`
 and stay in force while the agent restarts. To turn all of it off at once:
@@ -196,7 +200,7 @@ full table.
 
 > **Lab use only.** The harness runs real attack techniques: it opens a
 > reverse shell, mounts the node's disk, loads a kernel module. It refuses to
-> start unless every node of the cluster is labelled `tephra.dev/lab=true`,
+> start unless every node of the cluster is labelled `tephrasec.tech/lab=true`,
 > which the kind cluster of this repository is. There is no flag to override
 > that.
 
@@ -368,12 +372,15 @@ moves to another network while the VM is running, image pulls inside it fail;
 
 ## Releases
 
-Nothing is published yet. Pushing a tag `vX.Y.Z` that matches the chart's
-`appVersion` runs [.github/workflows/release.yaml](.github/workflows/release.yaml),
-which builds the two images, pushes them to `ghcr.io/naved124`, signs them
+Pushing a tag `vX.Y.Z` that matches the chart's `appVersion` runs [.github/workflows/release.yaml](.github/workflows/release.yaml),
+which builds the two images, pushes them to `ghcr.io/tephrasec`, signs them
 with cosign (keyless, bound to that workflow) and pushes the chart with both
-images pinned by digest. Until then the chart's default image names point at
-images that do not exist; the kind setup builds and loads its own.
+images pinned by digest. The kind setup builds and loads its own images.
+
+From v0.2.0 the project lives in the `tephrasec` organisation: the Go module is
+`github.com/tephrasec/tephra`, the images are `ghcr.io/tephrasec/*`, and the
+enforcement label is `tephrasec.tech/enforce`. The old label `tephra.dev/enforce`
+no longer turns anything on.
 
 ## Other targets
 

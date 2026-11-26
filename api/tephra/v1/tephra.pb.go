@@ -2130,7 +2130,7 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"first_seen\x18\x0f \x01(\tR\tfirstSeen\x12\x1b\n" +
 	"\tlast_seen\x18\x10 \x01(\tR\blastSeen29\n" +
 	"\bExporter\x12-\n" +
-	"\x06Export\x12\x11.tephra.v1.Record\x1a\x0e.tephra.v1.Ack(\x01B3Z1github.com/Naved124/tephra/api/tephra/v1;tephrav1b\x06proto3"
+	"\x06Export\x12\x11.tephra.v1.Record\x1a\x0e.tephra.v1.Ack(\x01B4Z2github.com/tephrasec/tephra/api/tephra/v1;tephrav1b\x06proto3"
 
 var (
 	file_api_tephra_v1_tephra_proto_rawDescOnce sync.Once

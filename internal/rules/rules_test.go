@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Naved124/tephra/internal/export"
-	"github.com/Naved124/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/filter"
 )
 
 // rule builds a rule file around a detection section.

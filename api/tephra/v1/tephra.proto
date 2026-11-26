@@ -7,7 +7,7 @@ syntax = "proto3";
 
 package tephra.v1;
 
-option go_package = "github.com/Naved124/tephra/api/tephra/v1;tephrav1";
+option go_package = "github.com/tephrasec/tephra/api/tephra/v1;tephrav1";
 
 service Exporter {
   // Export sends a batch of records as one stream. The collector answers

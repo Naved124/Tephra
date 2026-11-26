@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Naved124/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/events"
 )
 
 // scanOldest and scanFirstBorn are the full scans the index replaced.

@@ -2,7 +2,7 @@
 cluster: default
 
 image:
-  repository: ghcr.io/naved124/tephrad
+  repository: ghcr.io/tephrasec/tephrad
   # Defaults to the chart appVersion.
   tag: ""
   # sha256:... of the image. When set it is used instead of the tag, so the
@@ -91,7 +91,7 @@ agent:
     # turns pinned refusals off.
     onAgentExit: pinned
     # Only pods with this label set to "true" are refused anything.
-    label: tephra.dev/enforce
+    label: tephrasec.tech/enforce
     # Pods in these namespaces never are, label or not. The agent's own
     # namespace is always added.
     protectNamespaces:
@@ -138,7 +138,7 @@ agent:
 collector:
   enabled: true
   image:
-    repository: ghcr.io/naved124/tephra-collector
+    repository: ghcr.io/tephrasec/tephra-collector
     tag: ""
     digest: ""
     pullPolicy: IfNotPresent

@@ -15,7 +15,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	"github.com/Naved124/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/events"
 )
 
 // loadAsAgent loads the sensor with the test binary as the agent: its own

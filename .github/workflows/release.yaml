@@ -17,9 +17,9 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  AGENT_IMAGE: ghcr.io/naved124/tephrad
-  COLLECTOR_IMAGE: ghcr.io/naved124/tephra-collector
-  CHART_REPO: oci://ghcr.io/naved124/charts
+  AGENT_IMAGE: ghcr.io/tephrasec/tephrad
+  COLLECTOR_IMAGE: ghcr.io/tephrasec/tephra-collector
+  CHART_REPO: oci://ghcr.io/tephrasec/charts
 
 jobs:
   publish:

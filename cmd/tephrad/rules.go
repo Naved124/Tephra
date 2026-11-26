@@ -9,8 +9,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/Naved124/tephra/internal/export"
-	"github.com/Naved124/tephra/internal/rules"
+	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/rules"
 )
 
 const rulesUsage = `usage:

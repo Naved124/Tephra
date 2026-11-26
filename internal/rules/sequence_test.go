@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Naved124/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 const seqRule = `

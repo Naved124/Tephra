@@ -3,7 +3,7 @@
 package export
 
 import (
-	tephrav1 "github.com/Naved124/tephra/api/tephra/v1"
+	tephrav1 "github.com/tephrasec/tephra/api/tephra/v1"
 )
 
 // ToProto converts a record to its protobuf form. The two forms carry the

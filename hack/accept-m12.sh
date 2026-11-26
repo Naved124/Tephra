@@ -80,13 +80,13 @@ kubectl -n "$TEST_NS" run plain --image=busybox:1.37 --restart=Never -- sleep 60
 kubectl -n "$TEST_NS" wait --for=condition=Ready pod/plain --timeout=120s >/dev/null
 sleep 2
 [ "$(pods_in_scope)" = "$before" ] || fail "a pod without the label came into scope"
-kubectl -n "$TEST_NS" label pod plain tephra.dev/enforce=true >/dev/null
+kubectl -n "$TEST_NS" label pod plain tephrasec.tech/enforce=true >/dev/null
 for _ in $(seq 1 20); do
 	[ "$(pods_in_scope)" = "$((before + 1))" ] && break
 	sleep 0.5
 done
 [ "$(pods_in_scope)" = "$((before + 1))" ] || fail "the labelled pod did not come into scope"
-pass "a pod comes into scope when labelled tephra.dev/enforce=true, not before"
+pass "a pod comes into scope when labelled tephrasec.tech/enforce=true, not before"
 
 # --- 4. kill switch --------------------------------------------------------------
 

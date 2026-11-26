@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Naved124/tephra/internal/config"
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/export"
-	"github.com/Naved124/tephra/internal/filter"
-	"github.com/Naved124/tephra/internal/loader"
+	"github.com/tephrasec/tephra/internal/config"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/loader"
 )
 
 // The default blind configuration asks the kernel for every Tier 1 action,

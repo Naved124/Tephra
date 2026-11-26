@@ -15,8 +15,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/filter"
 )
 
 // Config is the agent configuration. The zero value is not usable; start
@@ -207,7 +207,7 @@ func Default() *Config {
 		Enforcement: Enforcement{
 			DryRun:            true,
 			OnAgentExit:       OnExitPinned,
-			Label:             "tephra.dev/enforce",
+			Label:             "tephrasec.tech/enforce",
 			ProtectNamespaces: []string{"kube-system"},
 			PinDir:            "/sys/fs/bpf/tephra",
 		},

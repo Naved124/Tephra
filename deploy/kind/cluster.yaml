@@ -14,14 +14,14 @@ kubeadmConfigPatches:
     containerLogMaxSize: 100Mi
     containerLogMaxFiles: 5
 nodes:
-  # tephra.dev/lab marks the cluster as a lab. The attack harness refuses to
+  # tephrasec.tech/lab marks the cluster as a lab. The attack harness refuses to
   # run against a cluster without it.
   - role: control-plane
     labels:
-      tephra.dev/lab: "true"
+      tephrasec.tech/lab: "true"
   - role: worker
     labels:
-      tephra.dev/lab: "true"
+      tephrasec.tech/lab: "true"
   - role: worker
     labels:
-      tephra.dev/lab: "true"
+      tephrasec.tech/lab: "true"

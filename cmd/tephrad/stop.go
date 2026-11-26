@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/export"
-	"github.com/Naved124/tephra/internal/loader"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/loader"
 )
 
 // stopWait is how long the agent waits, once asked to stop, for the kernel's

@@ -4,4 +4,7 @@ description: Kubernetes runtime threat-detection sensor built on eBPF
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
-home: https://github.com/Naved124/Tephra
+home: https://tephrasec.tech
+icon: https://tephrasec.tech/images/logo.png
+sources:
+  - https://github.com/tephrasec/tephra

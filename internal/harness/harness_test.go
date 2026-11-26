@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Naved124/tephra/internal/rules"
+	"github.com/tephrasec/tephra/internal/rules"
 )
 
 func nodes(labels ...string) []byte {
@@ -25,15 +25,15 @@ func nodes(labels ...string) []byte {
 // The harness runs attack techniques. It must refuse any cluster that is not
 // marked as a lab on every node.
 func TestLabGuard(t *testing.T) {
-	lab := `"tephra.dev/lab":"true"`
+	lab := `"tephrasec.tech/lab":"true"`
 	if k, err := checkLab(nodes(lab, lab, lab)); err != nil || k != "6.8.0" {
 		t.Errorf("lab cluster refused: %v", err)
 	}
 	for name, raw := range map[string][]byte{
 		"no label":            nodes(`"kubernetes.io/os":"linux"`),
 		"one node unlabelled": nodes(lab, `"x":"y"`, lab),
-		"label set to false":  nodes(`"tephra.dev/lab":"false"`),
-		"label with no value": nodes(`"tephra.dev/lab":""`),
+		"label set to false":  nodes(`"tephrasec.tech/lab":"false"`),
+		"label with no value": nodes(`"tephrasec.tech/lab":""`),
 		"no nodes":            []byte(`{"items":[]}`),
 		"not a node list":     []byte(`error from server`),
 	} {

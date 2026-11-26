@@ -5,9 +5,9 @@ package main
 import (
 	"time"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/export"
-	"github.com/Naved124/tephra/internal/loader"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/loader"
 )
 
 // drainFileSummaries takes every file summary the kernel holds and reports

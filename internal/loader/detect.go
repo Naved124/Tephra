@@ -12,7 +12,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 
-	"github.com/Naved124/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/events"
 )
 
 // DefaultDetectPinDir is where detection is pinned when it is kept running

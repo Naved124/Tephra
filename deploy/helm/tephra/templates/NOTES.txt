@@ -29,6 +29,6 @@ What you give up with them on:
 {{- end }}
   - Alerts may reach the collector up to {{ $w.interval | default "10ms" }} later.
 
-Details: https://github.com/Naved124/Tephra#connection-cost
+Details: https://github.com/tephrasec/tephra#connection-cost
 {{- end }}
 {{- end }}

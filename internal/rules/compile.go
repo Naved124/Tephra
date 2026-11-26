@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Naved124/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/filter"
 )
 
 // compileWatches derives the kernel file watches of a rule on file_open,

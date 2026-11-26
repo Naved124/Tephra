@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	tephrav1 "github.com/Naved124/tephra/api/tephra/v1"
+	tephrav1 "github.com/tephrasec/tephra/api/tephra/v1"
 )
 
 // Tuning of the collector stream.

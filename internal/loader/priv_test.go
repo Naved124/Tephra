@@ -16,7 +16,7 @@ import (
 	"github.com/cilium/ebpf/asm"
 	"golang.org/x/sys/unix"
 
-	"github.com/Naved124/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/events"
 )
 
 const wait = 5 * time.Second

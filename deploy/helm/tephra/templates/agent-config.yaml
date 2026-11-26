@@ -34,7 +34,7 @@ data:
       enabled: {{ $e.enabled | default false }}
       dry_run: {{ ne (toString $e.dryRun) "false" }}
       on_agent_exit: {{ $e.onAgentExit | default "pinned" | quote }}
-      label: {{ $e.label | default "tephra.dev/enforce" | quote }}
+      label: {{ $e.label | default "tephrasec.tech/enforce" | quote }}
       protect_namespaces: {{ toJson ($e.protectNamespaces | default (list "kube-system")) }}
       pin_dir: {{ $e.pinDir | default "/sys/fs/bpf/tephra" | quote }}
     {{- $t := .Values.agent.tamper | default dict }}

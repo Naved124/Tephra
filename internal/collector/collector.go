@@ -20,9 +20,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	tephrav1 "github.com/Naved124/tephra/api/tephra/v1"
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/export"
+	tephrav1 "github.com/tephrasec/tephra/api/tephra/v1"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 // Pusher stores a batch; *Loki implements it.

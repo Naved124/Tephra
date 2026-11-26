@@ -9,7 +9,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	"github.com/Naved124/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/filter"
 )
 
 // SetFilters makes the path, name and network filter maps hold exactly the
