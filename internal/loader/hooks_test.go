@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf/ringbuf"
 	"golang.org/x/sys/unix"
 
 	"github.com/Naved124/tephra/internal/events"
@@ -49,11 +50,23 @@ func loadForTest(t *testing.T, opts Options) *Sensor {
 // arrives in time.
 func next[T events.Event](t *testing.T, s *Sensor, wait time.Duration, match func(T) bool) T {
 	t.Helper()
+	return nextFrom(t, s.Events(), wait, match)
+}
+
+// nextTamper is next for the tamper buffer: signals sent to the agent and
+// attaches to it.
+func nextTamper[T events.Event](t *testing.T, s *Sensor, wait time.Duration, match func(T) bool) T {
+	t.Helper()
+	return nextFrom(t, s.TamperEvents(), wait, match)
+}
+
+func nextFrom[T events.Event](t *testing.T, rd *ringbuf.Reader, wait time.Duration, match func(T) bool) T {
+	t.Helper()
 	var zero T
 	deadline := time.Now().Add(wait)
 	for {
-		s.Events().SetDeadline(deadline)
-		rec, err := s.Events().Read()
+		rd.SetDeadline(deadline)
+		rec, err := rd.Read()
 		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				return zero

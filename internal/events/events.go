@@ -290,6 +290,9 @@ type Ptrace struct {
 	TargetPID     uint32
 	TargetStartNS uint64
 	Mode          uint32
+	// TamperSeq numbers an attach to the agent among tamper records; 0
+	// for any other target.
+	TamperSeq uint64
 }
 
 // Signal is struct signal_event: a signal sent to the agent. The header is
@@ -299,6 +302,8 @@ type Signal struct {
 	TargetPID     uint32
 	TargetStartNS uint64
 	Signal        uint32
+	// TamperSeq numbers the signal among tamper records.
+	TamperSeq uint64
 }
 
 // Memfd is struct memfd_event.
@@ -511,12 +516,12 @@ func Decode(raw []byte) (Event, error) {
 		if len(raw) < signalSize {
 			return nil, short(h, raw, signalSize)
 		}
-		return &Signal{Header: h, TargetPID: le.Uint32(raw[hdrSize:]), Signal: le.Uint32(raw[hdrSize+4:]), TargetStartNS: le.Uint64(raw[hdrSize+8:])}, nil
+		return &Signal{Header: h, TargetPID: le.Uint32(raw[hdrSize:]), Signal: le.Uint32(raw[hdrSize+4:]), TargetStartNS: le.Uint64(raw[hdrSize+8:]), TamperSeq: le.Uint64(raw[hdrSize+16:])}, nil
 	case TypePtrace:
 		if len(raw) < ptraceSize {
 			return nil, short(h, raw, ptraceSize)
 		}
-		return &Ptrace{Header: h, TargetPID: le.Uint32(raw[hdrSize:]), Mode: le.Uint32(raw[hdrSize+4:]), TargetStartNS: le.Uint64(raw[hdrSize+8:])}, nil
+		return &Ptrace{Header: h, TargetPID: le.Uint32(raw[hdrSize:]), Mode: le.Uint32(raw[hdrSize+4:]), TargetStartNS: le.Uint64(raw[hdrSize+8:]), TamperSeq: le.Uint64(raw[hdrSize+16:])}, nil
 	case TypeMemfd:
 		if len(raw) < memfdSize {
 			return nil, short(h, raw, memfdSize)

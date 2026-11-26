@@ -53,15 +53,150 @@ func TestSignalToAgent(t *testing.T) {
 	}
 	sender := uint32(cmd.Process.Pid)
 
-	got := next(t, s, 5*time.Second, func(e *events.Signal) bool { return e.TargetPID == self() })
+	got := nextTamper(t, s, 5*time.Second, func(e *events.Signal) bool { return e.TargetPID == self() })
 	if got == nil {
 		t.Fatal("no signal event")
 	}
 	if got.PID != sender || got.Signal != uint32(syscall.SIGCONT) || got.TargetStartNS != s.Self().StartNS {
 		t.Errorf("signal event %+v, want SIGCONT from %d", got, sender)
 	}
-	if e := next(t, s, time.Second, func(e *events.Signal) bool { return e.PID == self() }); e != nil {
+	if e := nextTamper(t, s, time.Second, func(e *events.Signal) bool { return e.PID == self() }); e != nil {
 		t.Errorf("the agent's signal to itself was reported: %+v", e)
+	}
+}
+
+// E19 and E23 flood the agent before killing it. A signal to the agent goes
+// to the tamper buffer, which the flood cannot fill: with the main ring
+// buffer full and dropping, the record of the signal still arrives.
+func TestSignalSurvivesFullRing(t *testing.T) {
+	s := loadAsAgent(t, Options{RingBufSize: 4096})
+	if !s.Available(events.TypeSignal) {
+		t.Skip("security_task_kill cannot be hooked on this kernel")
+	}
+	// Nothing reads the main buffer: a few hundred process starts fill
+	// its single page.
+	for i := 0; i < 300; i++ {
+		if err := exec.Command("/bin/true").Run(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := s.ReadStats(events.TypeExec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Dropped == 0 {
+		t.Fatalf("the main ring buffer did not fill: %+v", st)
+	}
+	cmd := exec.Command("/bin/kill", "-CONT", fmt.Sprint(os.Getpid()))
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("kill -CONT: %v", err)
+	}
+	got := nextTamper(t, s, 5*time.Second, func(e *events.Signal) bool { return e.TargetPID == self() })
+	if got == nil {
+		t.Fatalf("the signal was lost with the main buffer full (%d exec records dropped)", st.Dropped)
+	}
+	if got.PID != uint32(cmd.Process.Pid) {
+		t.Errorf("signal from %d, want the kill process %d", got.PID, cmd.Process.Pid)
+	}
+}
+
+// A record taken from the tamper buffer by an agent killed before it handled
+// it is gone from the buffer (E19). The kernel also keeps it in a table until
+// an agent marks it done, so the next agent can still handle it.
+func TestTamperRecordKept(t *testing.T) {
+	s := loadAsAgent(t, Options{})
+	if !s.Available(events.TypeSignal) {
+		t.Skip("security_task_kill cannot be hooked on this kernel")
+	}
+	cmd := exec.Command("/bin/kill", "-CONT", fmt.Sprint(os.Getpid()))
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("kill -CONT: %v", err)
+	}
+	got := nextTamper(t, s, 5*time.Second, func(e *events.Signal) bool { return e.PID == uint32(cmd.Process.Pid) })
+	if got == nil || got.TamperSeq == 0 {
+		t.Fatalf("signal record %+v without a tamper sequence number", got)
+	}
+	// Read from the buffer, not yet done: still kept, byte for byte.
+	pending, err := s.TamperPending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kept *events.Signal
+	for _, p := range pending {
+		if p.Seq != got.TamperSeq {
+			continue
+		}
+		ev, err := events.Decode(p.Raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kept, _ = ev.(*events.Signal)
+	}
+	if kept == nil || kept.PID != got.PID || kept.Signal != got.Signal || kept.TamperSeq != got.TamperSeq {
+		t.Fatalf("seq %d not kept as it was read: kept %+v, %d pending", got.TamperSeq, kept, len(pending))
+	}
+	if done, err := s.TamperDone(got.TamperSeq); err != nil || done {
+		t.Fatalf("done %v before marking (err %v)", done, err)
+	}
+	if err := s.SetTamperDone(got.TamperSeq); err != nil {
+		t.Fatal(err)
+	}
+	if done, err := s.TamperDone(got.TamperSeq); err != nil || !done {
+		t.Fatalf("not done after marking (err %v)", err)
+	}
+	pending, err = s.TamperPending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pending {
+		if p.Seq == got.TamperSeq {
+			t.Errorf("seq %d still pending after it was marked done", p.Seq)
+		}
+	}
+}
+
+// Even the tamper buffer can be filled, by signalling the agent thousands of
+// times. Each signal that finds it full is counted in the kernel, so the
+// agent still raises R030 for it; the count of what was reported is kept
+// beside it.
+func TestTamperLostCounted(t *testing.T) {
+	s := loadAsAgent(t, Options{})
+	if !s.Available(events.TypeSignal) {
+		t.Skip("security_task_kill cannot be hooked on this kernel")
+	}
+	lost0, reported0, err := s.TamperLost(TamperSignal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One shell sends them all; nothing reads the tamper buffer meanwhile.
+	sh := exec.Command("/bin/sh", "-c", fmt.Sprintf("i=0; while [ $i -lt 8000 ]; do kill -CONT %d; i=$((i+1)); done", os.Getpid()))
+	if out, err := sh.CombinedOutput(); err != nil {
+		t.Fatalf("signal loop: %v: %s", err, out)
+	}
+	lost, reported, err := s.TamperLost(TamperSignal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lost <= lost0 {
+		t.Fatalf("8000 signals into a 256 KiB tamper buffer lost none (lost %d)", lost)
+	}
+	st, err := s.ReadStats(events.TypeSignal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Dropped < lost-lost0 {
+		t.Errorf("signal stats dropped %d, fewer than the %d counted lost", st.Dropped, lost-lost0)
+	}
+	if err := s.SetTamperReported(TamperSignal, lost); err != nil {
+		t.Fatal(err)
+	}
+	if _, r, err := s.TamperLost(TamperSignal); err != nil || r != lost {
+		t.Errorf("reported count %d after setting %d (err %v; was %d)", r, lost, err, reported)
+	}
+	_ = reported0
+	// The buffer still holds the first signals, with their sender.
+	if e := nextTamper(t, s, time.Second, func(e *events.Signal) bool { return e.TargetPID == self() }); e == nil {
+		t.Error("no signal record kept in the full tamper buffer")
 	}
 }
 

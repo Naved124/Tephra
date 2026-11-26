@@ -46,6 +46,13 @@ int BPF_PROG(tephra_ptrace, struct task_struct *child, unsigned int mode)
 	else
 		e.target_pid = 0;
 
+	/* An attach to the agent is an attack on the sensor (R033): it goes
+	 * where a flood cannot crowd it out. */
+	if (is_agent(child)) {
+		e.tamper_seq = tamper_next();
+		tamper_output(&e, e.tamper_seq, TAMPER_LOST_PTRACE, s);
+		return 0;
+	}
 	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
 		s->dropped++;
 	else

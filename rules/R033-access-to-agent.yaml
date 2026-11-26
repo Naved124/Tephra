@@ -11,9 +11,12 @@ action: alert
 description: >-
   A process asked the kernel for attach-level access to the Tephra agent:
   ptrace attach, or reading or writing its memory through /proc/<pid>/mem or
-  process_vm_writev. The agent's own process is the one thing the sensor does
-  not report, so code injected into it would act unseen. The kernel reports
-  the request before it is granted. Nothing is exempt, the node included:
-  no routine task debugs the security sensor.
+  process_vm_writev. The agent's own process is the one thing the sensor
+  does not report, so code injected into it would act unseen. The kernel
+  reports the request before it is granted, into the tamper buffer that a
+  flood of other events cannot fill, and keeps it in a pinned table until an
+  agent has handled it, as for R030; a request lost to both is counted and
+  still raises this alert, with ptrace.lost set and no sender. Nothing is
+  exempt, the node included: no routine task debugs the security sensor.
 falsepositives:
   - An administrator debugging or profiling the agent on purpose

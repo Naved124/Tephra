@@ -191,6 +191,7 @@ type Sensor struct {
 	available   map[events.Type]bool
 	self        Self
 	reader      *ringbuf.Reader
+	tamper      *ringbuf.Reader
 	// enforceOff says why the enforcement programs are not attached;
 	// empty when they are.
 	enforceOff string
@@ -271,6 +272,11 @@ func Load(opts Options) (*Sensor, error) {
 	if err != nil {
 		_ = s.Close()
 		return nil, fmt.Errorf("open ring buffer: %w", err)
+	}
+	s.tamper, err = ringbuf.NewReader(s.coll.Maps["tamper_events"])
+	if err != nil {
+		_ = s.Close()
+		return nil, fmt.Errorf("open tamper ring buffer: %w", err)
 	}
 
 	served := map[string]string{}
@@ -495,6 +501,113 @@ func (s *Sensor) Events() *ringbuf.Reader {
 	return s.reader
 }
 
+// TamperEvents returns the reader of the tamper buffer, which holds signals
+// sent to the agent and attaches to it. Closing the sensor unblocks it too.
+func (s *Sensor) TamperEvents() *ringbuf.Reader {
+	return s.tamper
+}
+
+// TamperKind names a kind of tamper record.
+type TamperKind uint32
+
+// The kinds of tamper record, as the kernel counts their losses.
+const (
+	TamperSignal TamperKind = 0
+	TamperPtrace TamperKind = 1
+)
+
+// TamperLost returns how many tamper records of a kind found the tamper
+// buffer full, and how many of those the agent has already reported.
+func (s *Sensor) TamperLost(k TamperKind) (lost, reported uint64, err error) {
+	var perCPU []uint64
+	if err := s.coll.Maps["tamper_lost"].Lookup(uint32(k), &perCPU); err != nil {
+		return 0, 0, fmt.Errorf("read tamper_lost[%d]: %w", k, err)
+	}
+	for _, v := range perCPU {
+		lost += v
+	}
+	if err := s.coll.Maps["tamper_lost_seen"].Lookup(uint32(k), &reported); err != nil {
+		return 0, 0, fmt.Errorf("read tamper_lost_seen[%d]: %w", k, err)
+	}
+	return lost, reported, nil
+}
+
+// SetTamperReported records how many lost tamper records of a kind the
+// agent has reported.
+func (s *Sensor) SetTamperReported(k TamperKind, n uint64) error {
+	return s.coll.Maps["tamper_lost_seen"].Put(uint32(k), n)
+}
+
+// TamperRecord is a tamper record kept in the kernel's table of the last
+// ones: its sequence number and the record as the ring buffer carries it.
+type TamperRecord struct {
+	Seq uint64
+	Raw []byte
+}
+
+// tamperCPUBits and tamperSlots are TAMPER_CPU_BITS and TAMPER_SLOTS.
+const (
+	tamperCPUBits = 12
+	tamperSlots   = 16
+)
+
+func tamperPlace(seq uint64) (slot uint32, cpu int) {
+	return uint32((seq >> tamperCPUBits) % tamperSlots), int(seq & (1<<tamperCPUBits - 1))
+}
+
+// TamperPending returns the tamper records kept in the kernel that no agent
+// has marked done.
+func (s *Sensor) TamperPending() ([]TamperRecord, error) {
+	var out []TamperRecord
+	for slot := uint32(0); slot < tamperSlots; slot++ {
+		var last []tephraTamperSlot
+		if err := s.coll.Maps["tamper_last"].Lookup(slot, &last); err != nil {
+			return nil, fmt.Errorf("read tamper_last[%d]: %w", slot, err)
+		}
+		var done []uint64
+		if err := s.coll.Maps["tamper_done"].Lookup(slot, &done); err != nil {
+			return nil, fmt.Errorf("read tamper_done[%d]: %w", slot, err)
+		}
+		for cpu, t := range last {
+			if t.Seq == 0 || cpu < len(done) && t.Seq <= done[cpu] {
+				continue
+			}
+			out = append(out, TamperRecord{Seq: t.Seq, Raw: append([]byte(nil), t.Data[:]...)})
+		}
+	}
+	return out, nil
+}
+
+// TamperDone says whether the tamper record seq was marked done. A record
+// whose slot has since been marked done for a later one counts as done.
+func (s *Sensor) TamperDone(seq uint64) (bool, error) {
+	slot, cpu := tamperPlace(seq)
+	var done []uint64
+	if err := s.coll.Maps["tamper_done"].Lookup(slot, &done); err != nil {
+		return false, fmt.Errorf("read tamper_done[%d]: %w", slot, err)
+	}
+	return cpu < len(done) && seq <= done[cpu], nil
+}
+
+// SetTamperDone marks the tamper record seq done. Only the agent writes
+// tamper_done, so reading and writing back the slot's values is safe.
+func (s *Sensor) SetTamperDone(seq uint64) error {
+	slot, cpu := tamperPlace(seq)
+	var done []uint64
+	m := s.coll.Maps["tamper_done"]
+	if err := m.Lookup(slot, &done); err != nil {
+		return fmt.Errorf("read tamper_done[%d]: %w", slot, err)
+	}
+	if cpu >= len(done) {
+		return fmt.Errorf("tamper record %d from CPU %d of %d", seq, cpu, len(done))
+	}
+	if seq <= done[cpu] {
+		return nil
+	}
+	done[cpu] = seq
+	return m.Put(slot, done)
+}
+
 // ReadStats returns the counters for one event type, summed over all CPUs.
 func (s *Sensor) ReadStats(t events.Type) (Stats, error) {
 	var perCPU []tephraStatsVal
@@ -521,6 +634,10 @@ func (s *Sensor) Close() error {
 	if s.reader != nil {
 		errs = append(errs, s.reader.Close())
 		s.reader = nil
+	}
+	if s.tamper != nil {
+		errs = append(errs, s.tamper.Close())
+		s.tamper = nil
 	}
 	if s.coll != nil {
 		s.coll.Close()

@@ -75,6 +75,7 @@ message Signal {
   uint32 number = 1;
   string name = 2;
   uint32 target_pid = 3;
+  uint64 lost = 4;
 }
 
 message Ptrace {
@@ -83,6 +84,7 @@ message Ptrace {
   string target_command_line = 3;
   uint32 mode = 4;
   bool target_is_agent = 5;
+  uint64 lost = 6;
 }
 
 message Memfd {

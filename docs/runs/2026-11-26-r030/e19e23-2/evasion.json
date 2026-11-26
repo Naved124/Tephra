@@ -1,0 +1,75 @@
+{
+  "date": "2026-11-26",
+  "sensor": "v0.1.0-35-g451a3fc-dirty (tephra/tephrad:dev)",
+  "kernel": "5.15.0-1121-aws",
+  "results": [
+    {
+      "id": "E19",
+      "title": "Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001",
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 15071,
+          "event": "{\"ts\":\"2026-11-26T09:09:20.495348Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":2515576,\"start_time_ns\":3873016581805,\"Image\":\"/bin/dd\",\"CommandLine\":\"dd if=/etc/shadow of=/dev/null\",\"uid\":0,\"gid\":0,\"cgroup_id\":31087,\"tree\":\"2515576.3873016581805\"},\"container\":{\"id\":\"106c26396f2a3bb10f1e068e0b035e68878102addfb15cece9096c479667d8cd\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e19-588946\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":1844600,\"dev\":345,\"matched_by\":\"inode\"}}"
+        },
+        {
+          "rule": "R030",
+          "verdict": "detected",
+          "latency_ms": 10070,
+          "event": "{\"ts\":\"2026-11-26T09:09:15.493779Z\",\"type\":\"signal\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R030\",\"title\":\"Signal sent to the Tephra agent\",\"level\":\"critical\",\"tags\":[\"attack.defense_evasion\",\"attack.t1562.001\"]},\"process\":{\"pid\":2491392,\"start_time_ns\":3858001867666,\"Image\":\"sh\",\"CommandLine\":\"\",\"uid\":0,\"gid\":0,\"cgroup_id\":31087,\"tree\":\"2491392.3858001867666\"},\"parent\":{\"pid\":2487450,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id 12dcb8ff91d2d4ae68dddd9e713f199f2f977c7c4be95305aa6b91c39d83c4d4 -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"106c26396f2a3bb10f1e068e0b035e68878102addfb15cece9096c479667d8cd\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e19-588946\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"signal\":{\"number\":9,\"name\":\"SIGKILL\",\"target_pid\":2231779}}"
+        }
+      ],
+      "visible_ms": 42363,
+      "ring_buffer_drops": 144411,
+      "note": "Held out, written before the fix it tests. A second pod on the same node reads /etc/shadow in a loop, each read a new process, so the agent's queue to the collector fills with R005 alerts. The victim then kills the agent and reads /etc/shadow with dd while it is down. Predicted partial: the signal is recorded before the backlog's flood, so R030 is queued while there is room; the read with dd comes after tens of thousands of R005 alerts and is dropped with them.",
+      "predicted": "partial",
+      "heldout": true,
+      "noticed": [
+        "R005",
+        "R030"
+      ],
+      "agent_restarts": 1
+    },
+    {
+      "id": "E23",
+      "title": "Flood alerts from 200 differently named programs, kill the agent, read /etc/shadow",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001",
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 15070,
+          "event": "{\"ts\":\"2026-11-26T09:11:50.851594Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":2760049,\"start_time_ns\":4023372779607,\"Image\":\"/bin/dd\",\"CommandLine\":\"dd if=/etc/shadow of=/dev/null\",\"uid\":0,\"gid\":0,\"cgroup_id\":31705,\"tree\":\"2760049.4023372779607\"},\"container\":{\"id\":\"98c5c176163eda837c859ce1d3d38096e13ae64b2ee76ab7ba6159d07cd457a9\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e23-0f9f14\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":1844600,\"dev\":400,\"matched_by\":\"inode\"}}"
+        },
+        {
+          "rule": "R030",
+          "verdict": "detected",
+          "latency_ms": 10068,
+          "event": "{\"ts\":\"2026-11-26T09:11:45.849763Z\",\"type\":\"signal\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R030\",\"title\":\"Signal sent to the Tephra agent\",\"level\":\"critical\",\"tags\":[\"attack.defense_evasion\",\"attack.t1562.001\"]},\"process\":{\"pid\":2726652,\"start_time_ns\":4008356881605,\"Image\":\"sh\",\"CommandLine\":\"\",\"uid\":0,\"gid\":0,\"cgroup_id\":31705,\"tree\":\"2726652.4008356881605\"},\"parent\":{\"pid\":2721494,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id ac05015382be2d43c4665cde6704e679360c9c767ad626a6e254b26a160981c7 -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"98c5c176163eda837c859ce1d3d38096e13ae64b2ee76ab7ba6159d07cd457a9\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e23-0f9f14\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"signal\":{\"number\":9,\"name\":\"SIGKILL\",\"target_pid\":2553912}}"
+        }
+      ],
+      "visible_ms": 63745,
+      "ring_buffer_drops": 454159,
+      "note": "Held out, written before the fix it tests. Like E19, but the flooding pod reads /etc/shadow with 200 copies of cat under different names, so that a fix grouping repeated alerts by program cannot fold them into one. Each copy is also a program that was not in the image. Predicted partial, as E19: R030 is queued before the flood fills the queue, the read with dd is dropped.",
+      "predicted": "partial",
+      "heldout": true,
+      "noticed": [
+        "R005",
+        "R030"
+      ],
+      "agent_restarts": 1
+    }
+  ]
+}
