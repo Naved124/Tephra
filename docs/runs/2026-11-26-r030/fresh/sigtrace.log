@@ -1,0 +1,40 @@
+Attaching 1 probe...
+09:36:18 sig 9 to tephrad pid 4112265 from sh pid 4116919
+09:38:51 sig 15 to tephrad pid 4112368 from runc pid 154671
+09:38:51 sig 15 to tephrad pid 4133950 from runc pid 154678
+09:38:51 sig 15 to tephrad pid 4112470 from runc pid 154686
+09:39:41 sig 9 to tephrad pid 155324 from sh pid 161133
+09:42:17 sig 15 to tephrad pid 155143 from runc pid 475450
+09:42:17 sig 15 to tephrad pid 185586 from runc pid 475456
+09:42:17 sig 15 to tephrad pid 155298 from runc pid 475462
+09:43:07 sig 9 to tephrad pid 475956 from sh pid 480440
+09:45:40 sig 15 to tephrad pid 476106 from runc pid 713502
+09:45:40 sig 15 to tephrad pid 497985 from runc pid 713508
+09:45:40 sig 15 to tephrad pid 476007 from runc pid 713515
+09:46:29 sig 9 to tephrad pid 713970 from sh pid 719896
+09:49:05 sig 15 to tephrad pid 742137 from runc pid 1027257
+09:49:05 sig 15 to tephrad pid 714174 from runc pid 1027264
+09:49:05 sig 15 to tephrad pid 714070 from runc pid 1027271
+09:49:54 sig 9 to tephrad pid 1027909 from sh pid 1032439
+09:52:28 sig 15 to tephrad pid 1027810 from runc pid 1261950
+09:52:28 sig 15 to tephrad pid 1027710 from runc pid 1261956
+09:52:28 sig 15 to tephrad pid 1049505 from runc pid 1261964
+09:53:18 sig 9 to tephrad pid 1262453 from sh pid 1268046
+09:55:51 sig 15 to tephrad pid 1290786 from runc pid 1577038
+09:55:51 sig 15 to tephrad pid 1262601 from runc pid 1577045
+09:55:51 sig 15 to tephrad pid 1262491 from runc pid 1577052
+09:56:40 sig 9 to tephrad pid 1577603 from sh pid 1582533
+09:59:13 sig 15 to tephrad pid 1577703 from runc pid 1810261
+09:59:13 sig 15 to tephrad pid 1599134 from runc pid 1810255
+09:59:14 sig 15 to tephrad pid 1577502 from runc pid 1810269
+10:00:03 sig 9 to tephrad pid 1811081 from sh pid 1816537
+10:02:37 sig 15 to tephrad pid 1839508 from runc pid 2130177
+10:02:37 sig 15 to tephrad pid 1810983 from runc pid 2130183
+10:02:37 sig 15 to tephrad pid 1810883 from runc pid 2130191
+10:03:16 sig 9 to tephrad pid 2130825 from sh pid 2131325
+10:03:32 sig 9 to tephrad pid 2131428 from sh pid 2131852
+10:05:09 sig 15 to tephrad pid 2130723 from runc pid 2132455
+10:05:09 sig 15 to tephrad pid 2131915 from runc pid 2132462
+10:05:09 sig 15 to tephrad pid 2130621 from runc pid 2132469
+
+

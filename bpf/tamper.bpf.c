@@ -104,8 +104,8 @@ int BPF_PROG(tephra_bpf, int cmd, union bpf_attr *attr, unsigned int size)
  * kernel raises itself (a fault, a terminal's ^C) do not. Only signals sent
  * to the agent are reported, by anyone but the agent: Go signals its own
  * threads all the time. The event is out before the signal is delivered, so
- * even a SIGKILL leaves it in the ring buffer, which outlives the agent when
- * it is pinned. */
+ * even a SIGKILL leaves it in the tamper buffer, which a flood of other
+ * events cannot fill and which outlives the agent when pinned. */
 SEC("fentry/security_task_kill")
 int BPF_PROG(tephra_signal, struct task_struct *p, struct kernel_siginfo *info,
 	     int sig)
@@ -133,9 +133,7 @@ int BPF_PROG(tephra_signal, struct task_struct *p, struct kernel_siginfo *info,
 		e.target_pid = 0;
 	e.target_start_time_ns = BPF_CORE_READ(leader, start_boottime);
 
-	if (bpf_ringbuf_output(&events, &e, sizeof(e), rb_flags()))
-		s->dropped++;
-	else
-		s->emitted++;
+	e.tamper_seq = tamper_next();
+	tamper_output(&e, e.tamper_seq, TAMPER_LOST_SIGNAL, s);
 	return 0;
 }

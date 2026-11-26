@@ -95,6 +95,8 @@ func init() {
 		"signal.number":              sub(kInt, "signal", signalOf, func(s *export.Signal) value { return integer(int64(s.Number)) }),
 		"signal.name":                sub(kString, "signal", signalOf, func(s *export.Signal) value { return present(s.Name) }),
 		"signal.target_pid":          sub(kInt, "signal", signalOf, func(s *export.Signal) value { return integer(int64(s.TargetPID)) }),
+		"signal.lost":                sub(kInt, "signal", signalOf, func(s *export.Signal) value { return integer(int64(s.Lost)) }),
+		"ptrace.lost":                sub(kInt, "ptrace", ptraceOf, func(p *export.Ptrace) value { return integer(int64(p.Lost)) }),
 		"memfd.flags":                sub(kInt, "memfd", memfdOf, func(m *export.Memfd) value { return integer(int64(m.Flags)) }),
 		"module.name":                sub(kString, "module_load", moduleOf, func(m *export.Module) value { return str(m.Name) }),
 		"bpf.prog_type":              sub(kInt, "bpf_load", bpfOf, func(b *export.BPF) value { return integer(int64(b.ProgType)) }),

@@ -15,12 +15,20 @@ detection:
 action: alert
 description: >-
   A process sent a signal to the Tephra agent: to kill it (E07), freeze it
-  while something else happens and kill it before it wakes (E14), or stop it.
-  Kubernetes stops the agent through the container runtime, and a node that
-  shuts down through its first process; both are recognised by the identity
-  of the file, so a rollout, upgrade, uninstall or drain does not fire. The
-  kernel reports the signal before delivering it, so even a SIGKILL leaves
-  this record in the pinned ring buffer for the next agent. SIGHUP only makes
-  the agent re-read files it is given through ConfigMaps, and is not reported.
+  while something else happens and kill it before it wakes (E14), or stop
+  it. Kubernetes stops the agent through the container runtime, and a node
+  that shuts down through its first process; both are recognised by the
+  identity of the file, so a rollout, upgrade, uninstall or drain does not
+  fire. A signal to the agent always produces this alert. The kernel records
+  it before delivering it, so even a SIGKILL leaves the record, in a tamper
+  buffer of its own that a flood of other events cannot fill (E19, E23). The
+  kernel also keeps the last signals in a pinned table until an agent has
+  handled them, so a record the dying agent read but never handled is raised
+  by the next agent, sender included. Only thousands of signals to the agent
+  can push one out of both; each one then is counted in the kernel and still
+  raises this alert, with signal.lost set and no sender, while the signals
+  that pushed it out name who sent them. The same signal can be raised twice
+  when an agent dies within seconds of handling it. SIGHUP only makes the
+  agent re-read files it is given through ConfigMaps, and is not reported.
 falsepositives:
   - An administrator signalling the agent by hand from the node instead of through Kubernetes

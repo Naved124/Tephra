@@ -32,8 +32,8 @@ const (
 
 	unixPathMax = 108
 
-	ptraceSize        = hdrSize + 16
-	signalSize        = hdrSize + 16
+	ptraceSize        = hdrSize + 24
+	signalSize        = hdrSize + 24
 	memfdSize         = hdrSize + 8
 	moduleSize        = hdrSize + 56
 	bpfSize           = hdrSize + 24
@@ -122,7 +122,10 @@ const (
 // 3: net_event carries the task's exec count (quiet connections).
 // 4: net_summary, the counted connections of quiet processes, and
 // net_summary_sent, how much of them was reported, are pinned.
-const LayoutVersion = 4
+// 5: signals to the agent and attaches to it go to tamper_events, pinned
+// with tamper_lost and tamper_lost_seen, and carry a tamper_seq; the last of
+// them are kept in tamper_last, with tamper_done and tamper_seq.
+const LayoutVersion = 5
 
 // Layout is keyed by C struct name.
 var Layout = map[string]Struct{
@@ -174,10 +177,10 @@ var Layout = map[string]Struct{
 		"path":     {unixPath, unixPathMax},
 	}},
 	"ptrace_event": {Size: ptraceSize, Fields: map[string]Field{
-		"h": {0, hdrSize}, "target_pid": {hdrSize, 4}, "mode": {hdrSize + 4, 4}, "target_start_time_ns": {hdrSize + 8, 8},
+		"h": {0, hdrSize}, "target_pid": {hdrSize, 4}, "mode": {hdrSize + 4, 4}, "target_start_time_ns": {hdrSize + 8, 8}, "tamper_seq": {hdrSize + 16, 8},
 	}},
 	"signal_event": {Size: signalSize, Fields: map[string]Field{
-		"h": {0, hdrSize}, "target_pid": {hdrSize, 4}, "sig": {hdrSize + 4, 4}, "target_start_time_ns": {hdrSize + 8, 8},
+		"h": {0, hdrSize}, "target_pid": {hdrSize, 4}, "sig": {hdrSize + 4, 4}, "target_start_time_ns": {hdrSize + 8, 8}, "tamper_seq": {hdrSize + 16, 8},
 	}},
 	"memfd_event": {Size: memfdSize, Fields: map[string]Field{
 		"h": {0, hdrSize}, "memfd_flags": {hdrSize, 4}, "_pad": {hdrSize + 4, 4},

@@ -1,0 +1,59 @@
+{
+  "date": "2026-11-26",
+  "sensor": "v0.1.0-35-g451a3fc-dirty (tephra/tephrad:dev)",
+  "kernel": "5.15.0-1121-aws",
+  "results": [
+    {
+      "id": "E19",
+      "title": "Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001",
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "missed",
+          "why": "scenario did not run"
+        },
+        {
+          "rule": "R030",
+          "verdict": "missed",
+          "why": "scenario did not run"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out, written before the fix it tests. A second pod on the same node reads /etc/shadow in a loop, each read a new process, so the agent's queue to the collector fills with R005 alerts. The victim then kills the agent and reads /etc/shadow with dd while it is down. Predicted partial: the signal is recorded before the backlog's flood, so R030 is queued while there is room; the read with dd comes after tens of thousands of R005 alerts and is dropped with them.",
+      "error": "read drop counters: kubectl --context kind-tephra get --raw /api/v1/namespaces/tephra/pods/tephra-agent-jbs6x:9090/proxy/metrics: exit status 1: Error from server (ServiceUnavailable): error trying to reach service: dial tcp 10.244.2.38:9090: connect: connection refused",
+      "predicted": "partial"
+    },
+    {
+      "id": "E23",
+      "title": "Flood alerts from 200 differently named programs, kill the agent, read /etc/shadow",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001",
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "missed",
+          "why": "scenario did not run"
+        },
+        {
+          "rule": "R030",
+          "verdict": "missed",
+          "why": "scenario did not run"
+        }
+      ],
+      "ring_buffer_drops": 0,
+      "note": "Held out, written before the fix it tests. Like E19, but the flooding pod reads /etc/shadow with 200 copies of cat under different names, so that a fix grouping repeated alerts by program cannot fold them into one. Each copy is also a program that was not in the image. Predicted partial, as E19: R030 is queued before the flood fills the queue, the read with dd is dropped.",
+      "error": "read drop counters: kubectl --context kind-tephra get --raw /api/v1/namespaces/tephra/pods/tephra-agent-jbs6x:9090/proxy/metrics: exit status 1: Error from server (ServiceUnavailable): error trying to reach service: dial tcp 10.244.2.38:9090: connect: connection refused",
+      "predicted": "partial"
+    }
+  ]
+}

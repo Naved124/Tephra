@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-26",
+  "sensor": "v0.1.0-35-g451a3fc-dirty (tephra/tephrad:dev)",
+  "kernel": "5.15.0-1121-aws",
+  "results": [
+    {
+      "id": "E19",
+      "title": "Bury the agent in alerts from another pod, kill it, then read /etc/shadow with another program",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001",
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 15074,
+          "event": "{\"ts\":\"2026-11-26T09:43:12.040566Z\",\"type\":\"file_open\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":410904,\"start_time_ns\":5904561919985,\"Image\":\"/bin/dd\",\"CommandLine\":\"dd if=/etc/shadow of=/dev/null\",\"uid\":0,\"gid\":0,\"cgroup_id\":46742,\"tree\":\"386362.5889540000000\"},\"parent\":{\"pid\":386362,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"is_main_binary\":true},\"ancestors\":[\"/bin/sh\",\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"9045652d5c41ea66e7f8aa657abc7b68fc3ccd2dec0007e211297532cf1cde71\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e19-763952\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":1844600,\"dev\":404,\"matched_by\":\"inode\"}}"
+        },
+        {
+          "rule": "R030",
+          "verdict": "detected",
+          "latency_ms": 10073,
+          "event": "{\"ts\":\"2026-11-26T09:43:07.039094Z\",\"type\":\"signal\",\"node\":\"tephra-worker2\",\"rule\":{\"id\":\"R030\",\"title\":\"Signal sent to the Tephra agent\",\"level\":\"critical\",\"tags\":[\"attack.defense_evasion\",\"attack.t1562.001\"]},\"process\":{\"pid\":386362,\"start_time_ns\":5889540000000,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"uid\":0,\"gid\":0,\"cgroup_id\":46742,\"is_main_binary\":true,\"tree\":\"386362.5889540000000\"},\"parent\":{\"pid\":382491,\"Image\":\"/usr/local/bin/containerd-shim-runc-v2\",\"CommandLine\":\"/usr/local/bin/containerd-shim-runc-v2 -namespace k8s.io -id d80c877aa43e7f28ca3d8c84ec0937d88ca19ea7fef1f1c1214f0a5654fb1972 -address /run/containerd/containerd.sock\",\"runtime\":true},\"ancestors\":[\"/usr/local/bin/containerd-shim-runc-v2\",\"/usr/lib/systemd/systemd\"],\"container\":{\"id\":\"9045652d5c41ea66e7f8aa657abc7b68fc3ccd2dec0007e211297532cf1cde71\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e19-763952\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"signal\":{\"number\":9,\"name\":\"SIGKILL\",\"target_pid\":382229}}"
+        }
+      ],
+      "visible_ms": 17111,
+      "ring_buffer_drops": 0,
+      "note": "Held out, written before the fix it tests. A second pod on the same node reads /etc/shadow in a loop, each read a new process, so the agent's queue to the collector fills with R005 alerts. The victim then kills the agent and reads /etc/shadow with dd while it is down. Predicted partial: the signal is recorded before the backlog's flood, so R030 is queued while there is room; the read with dd comes after tens of thousands of R005 alerts and is dropped with them.",
+      "predicted": "partial",
+      "heldout": true,
+      "noticed": [
+        "R005",
+        "R030",
+        "R031"
+      ],
+      "agent_restarts": 1
+    }
+  ]
+}

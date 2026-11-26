@@ -211,6 +211,8 @@ struct ptrace_event {
 	__u32 target_pid; /* tgid in the node's pid namespace; 0 if outside */
 	__u32 mode;	  /* PTRACE_MODE_* bits */
 	__u64 target_start_time_ns;
+	__u64 tamper_seq; /* see tamper_last; 0 when the target is not the agent
+			   */
 };
 
 /* A process sent a signal to the agent. The sender is the header. */
@@ -219,6 +221,7 @@ struct signal_event {
 	__u32 target_pid; /* the agent's tgid in the node's pid namespace */
 	__u32 sig;
 	__u64 target_start_time_ns;
+	__u64 tamper_seq; /* see tamper_last */
 };
 
 struct memfd_event {
@@ -399,6 +402,119 @@ struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
 	__uint(max_entries, 16 * 1024 * 1024); /* resized by the agent */
 } events SEC(".maps");
+
+/* Records of an attack on the agent itself: a signal sent to it, an attach
+ * to it. They have a buffer of their own so that a flood of ordinary events,
+ * which an attacker can make before acting, cannot crowd them out. Few
+ * processes ever do either, so 256 KiB holds thousands. Pinned with events. */
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 256 * 1024);
+} tamper_events SEC(".maps");
+
+#define TAMPER_LOST_SIGNAL 0
+#define TAMPER_LOST_PTRACE 1
+
+/* Tamper records that found the tamper buffer full, by kind. The agent
+ * raises an alert for every one it has not reported yet, so filling even
+ * this buffer leaves an alert without the sender. */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 2);
+	__type(key, __u32);
+	__type(value, __u64);
+} tamper_lost SEC(".maps");
+
+/* How many of tamper_lost the agent has reported, by kind. Written only by
+ * the agent; pinned so that the next agent does not report them again. */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 2);
+	__type(key, __u32);
+	__type(value, __u64);
+} tamper_lost_seen SEC(".maps");
+
+/* The last tamper records of each CPU. A record read from the tamper buffer
+ * by an agent that is killed before it handles it, as a SIGKILL's own record
+ * is, is gone from the buffer; it is still here, and the agent marks it done
+ * in tamper_done only once it has handled it. Whatever is here and not done,
+ * the agent (this one or the next) handles. Pinned with events.
+ *
+ * Each CPU numbers its own records: seq is the CPU's count << 12 | the CPU,
+ * so numbers never repeat and need no atomic shared by all CPUs. A record
+ * goes to slot count % TAMPER_SLOTS of its CPU. */
+#define TAMPER_SLOTS	16
+#define TAMPER_DATA	112
+#define TAMPER_CPU_BITS 12
+
+struct tamper_slot {
+	__u64 seq;
+	__u8 data[TAMPER_DATA]; /* the signal_event or ptrace_event */
+};
+
+_Static_assert(sizeof(struct signal_event) <= TAMPER_DATA, "tamper slot");
+_Static_assert(sizeof(struct ptrace_event) == sizeof(struct signal_event),
+	       "tamper_output copies one size for both");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, TAMPER_SLOTS);
+	__type(key, __u32);
+	__type(value, struct tamper_slot);
+} tamper_last SEC(".maps");
+
+/* The seq handled in each slot of each CPU. Written only by the agent. */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, TAMPER_SLOTS);
+	__type(key, __u32);
+	__type(value, __u64);
+} tamper_done SEC(".maps");
+
+/* Each CPU's count of tamper records. */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} tamper_seq SEC(".maps");
+
+/* The next sequence number of this CPU; 0 if there is none. */
+static __always_inline __u64 tamper_next(void)
+{
+	__u32 zero = 0;
+	__u64 *n = bpf_map_lookup_elem(&tamper_seq, &zero);
+
+	if (!n)
+		return 0;
+	*n += 1;
+	return *n << TAMPER_CPU_BITS |
+	       (bpf_get_smp_processor_id() & ((1 << TAMPER_CPU_BITS) - 1));
+}
+
+/* e is a signal_event or ptrace_event whose tamper_seq is set. */
+static __always_inline void tamper_output(void *e, __u64 seq, __u32 kind,
+					  struct stats_val *s)
+{
+	__u32 slot = (seq >> TAMPER_CPU_BITS) % TAMPER_SLOTS;
+	struct tamper_slot *t = bpf_map_lookup_elem(&tamper_last, &slot);
+	__u64 size = sizeof(struct signal_event);
+	__u64 *lost;
+
+	if (seq && t) {
+		t->seq = 0;
+		__builtin_memcpy(t->data, e, sizeof(struct signal_event));
+		t->seq = seq;
+	}
+	if (bpf_ringbuf_output(&tamper_events, e, size, 0) == 0) {
+		s->emitted++;
+		return;
+	}
+	s->dropped++;
+	lost = bpf_map_lookup_elem(&tamper_lost, &kind);
+	if (lost)
+		(*lost)++;
+}
 
 /* Events larger than the 512-byte BPF stack are built here. */
 struct {

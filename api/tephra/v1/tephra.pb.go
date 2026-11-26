@@ -443,6 +443,7 @@ type Signal struct {
 	Number        uint32                 `protobuf:"varint,1,opt,name=number,proto3" json:"number,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	TargetPid     uint32                 `protobuf:"varint,3,opt,name=target_pid,json=targetPid,proto3" json:"target_pid,omitempty"`
+	Lost          uint64                 `protobuf:"varint,4,opt,name=lost,proto3" json:"lost,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -498,6 +499,13 @@ func (x *Signal) GetTargetPid() uint32 {
 	return 0
 }
 
+func (x *Signal) GetLost() uint64 {
+	if x != nil {
+		return x.Lost
+	}
+	return 0
+}
+
 type Ptrace struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	TargetPid         uint32                 `protobuf:"varint,1,opt,name=target_pid,json=targetPid,proto3" json:"target_pid,omitempty"`
@@ -505,6 +513,7 @@ type Ptrace struct {
 	TargetCommandLine string                 `protobuf:"bytes,3,opt,name=target_command_line,json=targetCommandLine,proto3" json:"target_command_line,omitempty"`
 	Mode              uint32                 `protobuf:"varint,4,opt,name=mode,proto3" json:"mode,omitempty"`
 	TargetIsAgent     bool                   `protobuf:"varint,5,opt,name=target_is_agent,json=targetIsAgent,proto3" json:"target_is_agent,omitempty"`
+	Lost              uint64                 `protobuf:"varint,6,opt,name=lost,proto3" json:"lost,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -572,6 +581,13 @@ func (x *Ptrace) GetTargetIsAgent() bool {
 		return x.TargetIsAgent
 	}
 	return false
+}
+
+func (x *Ptrace) GetLost() uint64 {
+	if x != nil {
+		return x.Lost
+	}
+	return 0
 }
 
 type Memfd struct {
@@ -1931,19 +1947,21 @@ const file_api_tephra_v1_tephra_proto_rawDesc = "" +
 	"\asamples\x18\x05 \x03(\tR\asamples\"9\n" +
 	"\aEnforce\x12\x16\n" +
 	"\x06action\x18\x01 \x01(\tR\x06action\x12\x16\n" +
-	"\x06denied\x18\x02 \x01(\bR\x06denied\"S\n" +
+	"\x06denied\x18\x02 \x01(\bR\x06denied\"g\n" +
 	"\x06Signal\x12\x16\n" +
 	"\x06number\x18\x01 \x01(\rR\x06number\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1d\n" +
 	"\n" +
-	"target_pid\x18\x03 \x01(\rR\ttargetPid\"\xb6\x01\n" +
+	"target_pid\x18\x03 \x01(\rR\ttargetPid\x12\x12\n" +
+	"\x04lost\x18\x04 \x01(\x04R\x04lost\"\xca\x01\n" +
 	"\x06Ptrace\x12\x1d\n" +
 	"\n" +
 	"target_pid\x18\x01 \x01(\rR\ttargetPid\x12!\n" +
 	"\ftarget_image\x18\x02 \x01(\tR\vtargetImage\x12.\n" +
 	"\x13target_command_line\x18\x03 \x01(\tR\x11targetCommandLine\x12\x12\n" +
 	"\x04mode\x18\x04 \x01(\rR\x04mode\x12&\n" +
-	"\x0ftarget_is_agent\x18\x05 \x01(\bR\rtargetIsAgent\"\x1d\n" +
+	"\x0ftarget_is_agent\x18\x05 \x01(\bR\rtargetIsAgent\x12\x12\n" +
+	"\x04lost\x18\x06 \x01(\x04R\x04lost\"\x1d\n" +
 	"\x05Memfd\x12\x14\n" +
 	"\x05flags\x18\x01 \x01(\rR\x05flags\"\x1c\n" +
 	"\x06Module\x12\x12\n" +

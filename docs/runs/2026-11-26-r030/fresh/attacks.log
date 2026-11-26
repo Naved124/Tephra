@@ -1,0 +1,45 @@
+A01 Reverse shell from a web server pod to a listener pod
+A01  detected  R001=detected R002=detected  also: R004,R027
+A02 Run a harmless binary from a memfd with no file on disk
+A02  detected  R003=detected  also: R032
+A03 Download a tool into a running container and execute it
+A03  detected  R004=detected R025=detected  also: R032
+A04 Read /etc/shadow from a non-system process
+A04  detected  R005=detected
+A05 Read the service account token, then query the Kubernetes API
+A05  detected  R006=detected R013=detected R026=detected  also: R004
+A06 Write an entry to /etc/ld.so.preload
+A06  detected  R007=detected
+A07 Add a cron entry
+A07  detected  R008=detected
+A08 Append a key to authorized_keys
+A08  detected  R009=detected
+A09 Open the containerd socket through a hostPath mount
+A09  detected  R010=detected  also: R028
+A10 Write a cgroup release_agent from a privileged pod
+A10  detected  R011=detected  also: R017
+A11 Truncate shell history
+A11  detected  R012=detected
+A12 Connect to a lab listener on a mining-pool port
+A12  detected  R014=detected  also: R004
+A13 ptrace attach to a neighbouring process
+A13  detected  R015=detected
+A14 Load a benign kernel module from a privileged pod
+A14  detected  R016=detected
+A15 Mount the host root filesystem from a privileged pod
+A15  detected  R017=detected
+A16 Enter host namespaces with nsenter from a hostPID pod
+A16  detected  R018=detected
+A17 Load a BPF program with a second tool
+A17  detected  R020=detected
+A18 Delete shell history and link it to /dev/null
+A18  detected  R022=detected
+A19 Move a file onto /etc/ld.so.preload
+A19  detected  R023=detected
+A20 Refused read of /etc/shadow by an unprivileged user
+A20  detected  R024=detected
+A21 Start a program with LD_PRELOAD set
+A21  detected  R021=detected
+A22 Effective uid goes from non-zero to zero outside an exec
+A22  detected  R019=detected
+22 scenarios, 0 not detected; report in docs/runs/2026-11-26-r030/fresh/attacks/coverage.md

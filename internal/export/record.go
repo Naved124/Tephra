@@ -270,6 +270,9 @@ type Ptrace struct {
 	Mode              uint32 `json:"mode"`
 	// TargetIsAgent says the target is the Tephra agent itself.
 	TargetIsAgent bool `json:"target_is_agent,omitempty"`
+	// Lost counts attaches to the agent whose records found the tamper
+	// buffer full, as for Signal.Lost.
+	Lost uint64 `json:"lost,omitempty"`
 }
 
 // Enforce is set on enforce events.
@@ -344,4 +347,8 @@ type Signal struct {
 	Number    uint32 `json:"number"`
 	Name      string `json:"name"`
 	TargetPID uint32 `json:"target_pid"`
+	// Lost counts signals to the agent whose records found the tamper
+	// buffer full: the kernel saw them, but not who sent them. A record
+	// with Lost set stands for all of them and has no sender.
+	Lost uint64 `json:"lost,omitempty"`
 }

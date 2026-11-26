@@ -96,6 +96,24 @@ type Identifier interface {
 // SetIdentity sets who recognises binaries by their content.
 func (e *Enricher) SetIdentity(ids Identifier) { e.ids = ids }
 
+// Lost returns the record standing for n tamper records of type t that the
+// kernel counted but could not store: the node and what happened are known,
+// not who did it. Rules match it like any record of its type.
+func (e *Enricher) Lost(t events.Type, n uint64, now time.Time) *export.Record {
+	rec := &export.Record{
+		TS:   now.UTC().Format("2006-01-02T15:04:05.000000Z"),
+		Type: t.String(),
+		Node: e.node,
+	}
+	switch t {
+	case events.TypeSignal:
+		rec.Signal = &export.Signal{Name: "unknown", Lost: n}
+	case events.TypePtrace:
+		rec.Ptrace = &export.Ptrace{TargetIsAgent: true, Lost: n}
+	}
+	return rec
+}
+
 // Wall renders a kernel boot-clock time as the records' wall-clock time.
 func (e *Enricher) Wall(bootNS uint64) string {
 	return e.boot.Add(time.Duration(bootNS)).UTC().Format("2006-01-02T15:04:05.000000Z")
@@ -580,7 +598,9 @@ func (e *Enricher) Handle(ev events.Event, now time.Time) *export.Record {
 	case *events.Ptrace:
 		p, _ = e.known(proctree.Key{PID: ev.PID, StartNS: ev.StartTimeNS})
 		rec.Ptrace = &export.Ptrace{TargetPID: ev.TargetPID, Mode: ev.Mode}
-		rec.Ptrace.TargetIsAgent = e.agent.PID != 0 &&
+		// The kernel numbers only attaches to an agent, which may be
+		// an earlier one when the record is replayed from its table.
+		rec.Ptrace.TargetIsAgent = ev.TamperSeq != 0 || e.agent.PID != 0 &&
 			proctree.Key{PID: ev.TargetPID, StartNS: ev.TargetStartNS} == e.agent
 		if target, ok := e.byPID(ev.TargetPID); ok {
 			rec.Ptrace.TargetImage = target.Image

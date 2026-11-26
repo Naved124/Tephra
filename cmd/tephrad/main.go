@@ -73,6 +73,18 @@ type counters struct {
 	quietErrors atomic.Uint64
 	// connSummaries counts connection_summary records made.
 	connSummaries atomic.Uint64
+	// tamperLost counts tamper records the kernel could not store, as
+	// reported in lost-record alerts; tamperErrors failed reads of them.
+	tamperLost   atomic.Uint64
+	tamperErrors atomic.Uint64
+	// tamperReplayed counts tamper records handled from the kernel's table
+	// because none arrived through the buffer; tamperDuplicates those that
+	// arrived a second time and were dropped.
+	tamperReplayed   atomic.Uint64
+	tamperDuplicates atomic.Uint64
+	// tamperUnordered counts tamper records queued before the main buffer
+	// was read up to them, because that took longer than tamperOrderWait.
+	tamperUnordered atomic.Uint64
 	// whileDown counts events in an adopted ring buffer that were recorded
 	// before this agent started: while no agent was reading. ownDropped
 	// counts the agent's own events reported by an earlier agent's programs.
@@ -240,9 +252,17 @@ type agent struct {
 	o            options
 	cur          *settings
 	sensor       *loader.Sensor
-	tree         *proctree.Tree
-	tracker      *inodewatch.Tracker
-	creds        *credwatch.Watcher
+	// tamper is the kernel's store of tamper records; the sensor, or nil
+	// without one. tamperSeen holds the tamper records handled and not yet
+	// marked done, with when; tamperStart is when the agent started.
+	tamper      tamperStore
+	tamperSeen  map[uint64]time.Time
+	tamperStart time.Time
+	// bootNS reads the kernel's boot clock; replaced in tests.
+	bootNS  func() uint64
+	tree    *proctree.Tree
+	tracker *inodewatch.Tracker
+	creds   *credwatch.Watcher
 	// pods is nil outside a cluster.
 	pods     *k8s.PodIndex
 	runtimes *runtimeid.Set
@@ -373,6 +393,10 @@ func (a *agent) startRing() uint32 { return uint32(a.o.ringBufSize) }
 
 // handle runs one event through enrichment, the rules and the sinks.
 func (a *agent) handle(ev events.Event) {
+	if seq := tamperSeqOf(ev); seq != 0 && !a.tamperFirst(seq, time.Now()) {
+		a.c.tamperDuplicates.Add(1)
+		return
+	}
 	a.noteLag(ev.Hdr().TSBootNS)
 	rec := a.enricher.Handle(ev, time.Now())
 	if rec == nil {
@@ -657,6 +681,9 @@ func run(log *slog.Logger, o options) error {
 		log:          log,
 		o:            o,
 		sensor:       sensor,
+		tamper:       sensor,
+		tamperStart:  time.Now(),
+		bootNS:       bootNS,
 		tree:         tree,
 		tracker:      inodewatch.New(o.procRoot, sensor),
 		creds:        credwatch.New(o.procRoot, sensor, filter.Read),
@@ -717,14 +744,26 @@ func run(log *slog.Logger, o options) error {
 	// When the later stages fall behind, the reader blocks, the ring
 	// buffer fills and the kernel counts the drops.
 	queue := make(chan events.Event, o.queueLen)
-	readErr := make(chan error, 1)
+	readErr := make(chan error, 2)
 	var backlogBefore uint64
 	if sensor.Backlog() {
 		backlogBefore = startBoot
 	}
+	flushed := make(chan struct{}, 1)
 	go func() {
-		readErr <- read(sensor.Events(), queue, c, log, sensor.Own, backlogBefore, s.cfg.RingWakeup.Interval)
+		readErr <- read(sensor.Events(), queue, c, log, sensor.Own, backlogBefore, s.cfg.RingWakeup.Interval, flushed, nil)
 	}()
+	// Attacks on the agent come through a buffer of their own, read
+	// without batching: they are few, and each one matters at once. Each
+	// waits until the main buffer has been read up to it, so that what led
+	// to it, such as the start of the runc that sends a planned SIGTERM, is
+	// handled first.
+	go func() {
+		readErr <- read(sensor.TamperEvents(), queue, c, log, sensor.Own, backlogBefore, 0, nil, mainFirst(sensor.Events(), flushed, tamperOrderWait, c))
+	}()
+	// Records the tamper buffer could not hold, including any counted
+	// while no agent was reading.
+	a.checkTamperLost(time.Now())
 
 	// Credentials: resolved now, when a pod changes (a new container's ID
 	// arrives with its status), and every 30 seconds, which picks up a
@@ -769,6 +808,7 @@ func run(log *slog.Logger, o options) error {
 		case <-creds.C:
 			a.resolveCredentials()
 		case now := <-groups.C:
+			a.tamperTick(now)
 			a.flushGroups(now)
 			if a.drainSoon {
 				a.drainSummaries(now)
@@ -842,7 +882,11 @@ func run(log *slog.Logger, o options) error {
 //
 // With interval set the kernel wakes the reader only once a batch waits, so
 // it also reads every interval.
-func read(rd *ringbuf.Reader, queue chan<- events.Event, c *counters, log *slog.Logger, own func(*events.Header) bool, backlogBefore uint64, interval time.Duration) error {
+//
+// flushed, if set, is told each time a Flush of rd has been read through:
+// every record that was in the buffer when Flush was called is queued.
+// before, if set, runs before each record is queued.
+func read(rd *ringbuf.Reader, queue chan<- events.Event, c *counters, log *slog.Logger, own func(*events.Header) bool, backlogBefore uint64, interval time.Duration, flushed chan<- struct{}, before func()) error {
 	var rec ringbuf.Record
 	for {
 		if interval > 0 {
@@ -851,6 +895,15 @@ func read(rd *ringbuf.Reader, queue chan<- events.Event, c *counters, log *slog.
 		if err := rd.ReadInto(&rec); err != nil {
 			if errors.Is(err, ringbuf.ErrClosed) {
 				return nil
+			}
+			if errors.Is(err, ringbuf.ErrFlushed) {
+				if flushed != nil {
+					select {
+					case flushed <- struct{}{}:
+					default:
+					}
+				}
+				continue
 			}
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				continue
@@ -872,6 +925,9 @@ func read(rd *ringbuf.Reader, queue chan<- events.Event, c *counters, log *slog.
 		}
 		if h.TSBootNS < backlogBefore {
 			c.whileDown.Add(1)
+		}
+		if before != nil {
+			before()
 		}
 		queue <- ev
 	}
