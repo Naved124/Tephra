@@ -11,6 +11,11 @@
  *   - reports every refusal, and in dry-run mode every refusal it would have
  *     made.
  *
+ * While the sensor is blind (blind_now in common.h) they also refuse the
+ * actions in blind_cfg below the pod cgroups, whatever the enforcement mode
+ * and whether or not a pod opted in, and report each refusal into the
+ * tamper buffer, which a flood cannot fill.
+ *
  * They need CONFIG_BPF_LSM and "bpf" in the kernel's active LSM list. */
 #include "common.h"
 
@@ -60,6 +65,42 @@ static __always_inline bool enforce_scope(void)
 			in = true;
 	}
 	return in;
+}
+
+/* Whether blind mode applies to the current task: it runs in a pod (below
+ * one of blind_cgroups) that the operator does not trust (none of its
+ * cgroups in blind_protect). */
+static __always_inline bool blind_scope(void)
+{
+	__u64 id = bpf_get_current_cgroup_id();
+	bool in = false;
+	int level;
+
+	if (bpf_map_lookup_elem(&blind_protect, &id))
+		return false;
+	if (bpf_map_lookup_elem(&blind_cgroups, &id))
+		in = true;
+	for (level = 1; level <= ENFORCE_MAX_DEPTH; level++) {
+		id = bpf_get_current_ancestor_cgroup_id(level);
+		if (!id)
+			break;
+		if (bpf_map_lookup_elem(&blind_protect, &id))
+			return false;
+		if (bpf_map_lookup_elem(&blind_cgroups, &id))
+			in = true;
+	}
+	return in;
+}
+
+/* The blind configuration if the sensor is blind, the action is in its
+ * list and the task is in its scope; else NULL. */
+static __always_inline struct blind_cfg *blind_get(__u32 action)
+{
+	struct blind_cfg *bc = blind_now();
+
+	if (!bc || !(bc->actions & (1U << action)) || !blind_scope())
+		return NULL;
+	return bc;
 }
 
 static __always_inline void task_key_of(struct task_struct *task,
@@ -127,6 +168,57 @@ static __always_inline int enforce_report(struct enforce_cfg *ec,
 	return deny ? -EPERM_ : 0;
 }
 
+/* Reports a refusal made while blind, into the tamper buffer, and returns
+ * what the hook must return. */
+static __always_inline int blind_report(bool deny, struct enforce_event *e,
+					__u32 action, __u32 path_len,
+					__u32 flags)
+{
+	struct tephra_cfg *c = cfg_get();
+	struct stats_val *s = stats_get(EVENT_ENFORCE);
+	__u32 kind = TAMPER_LOST_BLIND, total, zero = 0;
+	struct blind_key bk = {};
+	__u64 now = bpf_ktime_get_boot_ns(), *last, *quiet, *lost;
+
+	bk.cgroup_id = bpf_get_current_cgroup_id();
+	bk.inode = e->inode;
+	bk.action = action;
+	last = bpf_map_lookup_elem(&blind_reported, &bk);
+	if (last && now - *last < 1000000000ULL) {
+		quiet = bpf_map_lookup_elem(&blind_quiet, &zero);
+		if (quiet)
+			(*quiet)++;
+		return deny ? -EPERM_ : 0;
+	}
+	bpf_map_update_elem(&blind_reported, &bk, &now, BPF_ANY);
+
+	if (c && s) {
+		s->seen++;
+		if (!fill_hdr(&e->h, c, EVENT_ENFORCE)) {
+			s->filtered++;
+		} else {
+			e->h.flags = flags | ENFORCE_F_BLIND |
+				     (deny ? ENFORCE_F_DENIED : 0);
+			e->action = action;
+			e->path_len = path_len;
+			e->_pad = 0;
+			total = offsetof(struct enforce_event, path) + path_len;
+			if (total > sizeof(*e))
+				total = sizeof(*e);
+			e->h.size = total;
+			if (bpf_ringbuf_output(&tamper_events, e, total, 0)) {
+				s->dropped++;
+				lost = bpf_map_lookup_elem(&tamper_lost, &kind);
+				if (lost)
+					(*lost)++;
+			} else {
+				s->emitted++;
+			}
+		}
+	}
+	return deny ? -EPERM_ : 0;
+}
+
 static __always_inline struct enforce_event *enforce_event_get(void)
 {
 	__u32 zero = 0;
@@ -140,19 +232,36 @@ static __always_inline struct enforce_event *enforce_event_get(void)
 	return e;
 }
 
-/* An action with nothing to describe beyond the task itself. */
+/* An action with nothing to describe beyond the task itself. Blind mode
+ * goes first: it refuses whatever the enforcement mode. */
 static __always_inline int enforce_plain(__u32 action, bool runtime_exempt)
 {
+	struct blind_cfg *bc = blind_get(action);
 	struct enforce_cfg *ec = enforce_get(action);
+	__u32 bm = BLIND_OFF, em = ENFORCE_OFF;
 	struct enforce_event *e;
+	bool deny;
 
-	if (!ec || !enforce_scope())
+	/* Decided on the modes, never on the two pointers together: clang
+	 * turns "!bc && !ec" into an OR of pointers, which the verifier
+	 * refuses (5.15: "bitwise operator |= on pointer prohibited"). */
+	if (bc)
+		bm = bc->mode;
+	if (ec && enforce_scope())
+		em = ec->mode;
+	if (bm == BLIND_OFF && em == ENFORCE_OFF)
 		return 0;
 	if (runtime_exempt && runtime_at_work(bpf_get_current_task_btf()))
 		return 0;
+	/* Refused if either says so: blind mode only adds refusals. */
+	deny = bm == BLIND_ON || em == ENFORCE_ON;
 	e = enforce_event_get();
 	if (!e)
-		return ec->mode == ENFORCE_ON ? -EPERM_ : 0;
+		return deny ? -EPERM_ : 0;
+	if (bm != BLIND_OFF)
+		return blind_report(deny, e, action, 0, 0);
+	if (!ec)
+		return 0;
 	return enforce_report(ec, e, action, 0, 0);
 }
 
@@ -162,17 +271,26 @@ SEC("lsm/bprm_check_security")
 int BPF_PROG(tephra_lsm_exec, struct linux_binprm *bprm, int ret)
 {
 	struct task_struct *task = bpf_get_current_task_btf();
+	struct blind_cfg *bmode, *bc;
 	struct enforce_cfg *ec;
 	struct enforce_event *e;
 	struct inode *inode;
 	struct task_key k;
-	__u32 zero = 0;
+	__u32 zero = 0, bm = BLIND_OFF, em = ENFORCE_OFF;
 	__u8 one = 1;
+	bool deny;
 
 	if (ret)
 		return ret;
 	ec = bpf_map_lookup_elem(&enforce_cfg, &zero);
-	if (!ec || ec->mode == ENFORCE_OFF)
+	if (ec)
+		em = ec->mode;
+	/* The runtime is tracked whenever blind mode is on, blind or not, so
+	 * that containers still start while the sensor is blind. */
+	bmode = bpf_map_lookup_elem(&blind_cfg, &zero);
+	if (bmode)
+		bm = bmode->mode;
+	if (em == ENFORCE_OFF && bm == BLIND_OFF)
 		return 0;
 
 	/* A runtime binary executing something is the runtime at work, and
@@ -186,83 +304,118 @@ int BPF_PROG(tephra_lsm_exec, struct linux_binprm *bprm, int ret)
 	}
 	bpf_map_delete_elem(&runtime_tasks, &k);
 
-	if (!(ec->actions & (1U << ENF_EXEC_UNLINKED)))
-		return 0;
 	inode = BPF_CORE_READ(bprm, file, f_inode);
 	if (BPF_CORE_READ(inode, i_nlink) != 0)
 		return 0;
-	if (!enforce_scope())
+	bc = blind_get(ENF_EXEC_UNLINKED);
+	bm = BLIND_OFF;
+	if (bc)
+		bm = bc->mode;
+	if (em != ENFORCE_OFF &&
+	    (!ec || !(ec->actions & (1U << ENF_EXEC_UNLINKED)) ||
+	     !enforce_scope()))
+		em = ENFORCE_OFF;
+	if (bm == BLIND_OFF && em == ENFORCE_OFF)
 		return 0;
+	deny = bm == BLIND_ON || em == ENFORCE_ON;
 	e = enforce_event_get();
 	if (!e)
-		return ec->mode == ENFORCE_ON ? -EPERM_ : 0;
+		return deny ? -EPERM_ : 0;
 	e->inode = BPF_CORE_READ(inode, i_ino);
 	e->dev = BPF_CORE_READ(inode, i_sb, s_dev);
+	if (bm != BLIND_OFF)
+		return blind_report(deny, e, ENF_EXEC_UNLINKED, 0, 0);
+	if (!ec)
+		return 0;
 	return enforce_report(ec, e, ENF_EXEC_UNLINKED, 0, 0);
 }
 
 /* Opens for writing of files marked WATCH_BLOCK, found the same three ways
- * as watched files: by identity, by name, by path. Opens for reading leave
- * at once. */
+ * as watched files: by identity, by name, by path. While the sensor is
+ * blind, also opens of files marked WATCH_BLIND_WRITE or WATCH_BLIND_READ.
+ * Anything else leaves at once. */
 SEC("lsm/file_open")
 int BPF_PROG(tephra_lsm_file_open, struct file *file, int ret)
 {
-	struct enforce_cfg *ec;
+	struct enforce_cfg *ec = NULL;
+	struct blind_cfg *bc;
 	struct enforce_event *e;
 	struct inode_key ik = {};
 	struct name_key nk = {};
 	struct path_key pk;
 	struct inode *inode;
-	__u32 flags, *bits, n;
-	bool hit = false;
+	__u32 flags, *bits, n, all = 0, blind_bit, action;
+	__u32 bm = BLIND_OFF, em = ENFORCE_OFF;
+	bool write, deny;
 	long len;
 
 	if (ret)
 		return ret;
-	ec = enforce_get(ENF_FILE_WRITE);
-	if (!ec)
-		return 0;
 	flags = BPF_CORE_READ(file, f_flags);
-	if (!(flags & (O_ACCMODE | O_TRUNC)))
-		return 0;
-	if (!enforce_scope())
+	write = flags & (O_ACCMODE | O_TRUNC);
+	action = write ? ENF_FILE_WRITE : ENF_FILE_READ;
+	blind_bit = write ? WATCH_BLIND_WRITE : WATCH_BLIND_READ;
+	bc = blind_get(action);
+	if (bc)
+		bm = bc->mode;
+	if (write) {
+		ec = enforce_get(ENF_FILE_WRITE);
+		if (ec && enforce_scope())
+			em = ec->mode;
+	}
+	if (bm == BLIND_OFF && em == ENFORCE_OFF)
 		return 0;
 
 	inode = BPF_CORE_READ(file, f_inode);
 	ik.inode = BPF_CORE_READ(inode, i_ino);
 	ik.dev = BPF_CORE_READ(inode, i_sb, s_dev);
 	bits = bpf_map_lookup_elem(&inode_watch, &ik);
-	if (bits && (*bits & WATCH_BLOCK))
-		hit = true;
-	if (!hit) {
-		bpf_probe_read_kernel_str(
-		    nk.name, sizeof(nk.name),
-		    BPF_CORE_READ(file, f_path.dentry, d_name.name));
-		bits = bpf_map_lookup_elem(&name_watch, &nk);
-		if (bits && (*bits & WATCH_BLOCK))
-			hit = true;
-	}
+	if (bits)
+		all |= *bits;
+	bpf_probe_read_kernel_str(
+	    nk.name, sizeof(nk.name),
+	    BPF_CORE_READ(file, f_path.dentry, d_name.name));
+	bits = bpf_map_lookup_elem(&name_watch, &nk);
+	if (bits)
+		all |= *bits;
 
 	e = enforce_event_get();
-	if (!e)
-		return hit && ec->mode == ENFORCE_ON ? -EPERM_ : 0;
-	len = bpf_d_path((void *)&file->f_path, e->path, sizeof(e->path));
-	if (len <= 0 || len > PATH_LEN)
+	if (e) {
+		len =
+		    bpf_d_path((void *)&file->f_path, e->path, sizeof(e->path));
+		if (len <= 0 || len > PATH_LEN)
+			len = 0;
+		if (len) {
+			n = len;
+			if (n > WATCH_PATH_LEN)
+				n = WATCH_PATH_LEN;
+			pk.prefixlen = n * 8;
+			__builtin_memcpy(pk.path, e->path, WATCH_PATH_LEN);
+			bits = bpf_map_lookup_elem(&path_watch, &pk);
+			if (bits)
+				all |= *bits;
+		}
+		e->inode = ik.inode;
+		e->dev = ik.dev;
+	} else {
 		len = 0;
-	if (!hit && len) {
-		n = len;
-		if (n > WATCH_PATH_LEN)
-			n = WATCH_PATH_LEN;
-		pk.prefixlen = n * 8;
-		__builtin_memcpy(pk.path, e->path, WATCH_PATH_LEN);
-		bits = bpf_map_lookup_elem(&path_watch, &pk);
-		if (bits && (*bits & WATCH_BLOCK))
-			hit = true;
 	}
-	if (!hit)
+
+	if (!(all & blind_bit))
+		bm = BLIND_OFF;
+	if (!(all & WATCH_BLOCK))
+		em = ENFORCE_OFF;
+	if (bm == BLIND_OFF && em == ENFORCE_OFF)
 		return 0;
-	e->inode = ik.inode;
-	e->dev = ik.dev;
+	/* Refused if either says so: blind mode only adds refusals. */
+	deny = bm == BLIND_ON || em == ENFORCE_ON;
+	if (!e)
+		return deny ? -EPERM_ : 0;
+	if (bm != BLIND_OFF)
+		return blind_report(deny, e, action, len,
+				    len ? 0 : ENFORCE_F_NO_PATH);
+	if (!ec)
+		return 0;
 	return enforce_report(ec, e, ENF_FILE_WRITE, len,
 			      len ? 0 : ENFORCE_F_NO_PATH);
 }

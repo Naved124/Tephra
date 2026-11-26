@@ -105,6 +105,10 @@ var (
 		"cred_change": {events.TypeCredChange},
 		"mount":       {events.TypeMount},
 		"setns":       {events.TypeSetns},
+		// Refusals by the enforcement programs. Those of blocking rules
+		// are matched to their rules by MatchEnforce; a rule on this
+		// event sees the rest, such as refusals made while blind.
+		"enforce": {events.TypeEnforce},
 	}
 	idRE = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*$`)
 	// attack.<tactic>, or attack.t1234 with an optional .001 sub-technique.
@@ -216,7 +220,7 @@ func parseRule(file string, n *yaml.Node) (*Rule, error) {
 	case !levels[r.Level]:
 		return nil, fail(n, "rule %s: level %q is not one of info, low, medium, high, critical", r.ID, r.Level)
 	case sequence == nil && ruleEvents[r.Event] == nil:
-		return nil, fail(n, "rule %s: event %q is not a known event type (exec, fork, exit, connect, accept, file_open, file_change, file_denied, ptrace, signal, memfd, module_load, bpf_load, cred_change, mount, setns)", r.ID, r.Event)
+		return nil, fail(n, "rule %s: event %q is not a known event type (exec, fork, exit, connect, accept, file_open, file_change, file_denied, ptrace, signal, memfd, module_load, bpf_load, cred_change, mount, setns, enforce)", r.ID, r.Event)
 	case r.Action != "alert" && r.Action != "block":
 		return nil, fail(actionAt, "rule %s: action %q is not alert or block", r.ID, r.Action)
 	case r.Action == "block" && sequence != nil:

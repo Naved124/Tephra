@@ -1,0 +1,2 @@
+{"time":"2026-11-26T12:45:58.886273855Z","level":"INFO","msg":"blind mode","mode":"on","stale_after":"12s","actions":["exec_unlinked","file_write","module_load","mount","ptrace"],"files":5}
+{"time":"2026-11-26T12:45:58.887562052Z","level":"INFO","msg":"blind-mode scope","pod_roots":1,"protected_pods":2}

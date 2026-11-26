@@ -25,7 +25,7 @@ const DefaultDetectPinDir = DefaultPinDir + "/detect"
 // connections they counted for quiet processes are adopted the same way, and
 // so are the tamper buffer and its counts of lost records, so that an attack
 // on the agent is reported by the agent that comes after it.
-var detectMaps = []string{"events", "stats", "net_summary", "net_summary_sent", "tamper_events", "tamper_lost", "tamper_lost_seen", "tamper_last", "tamper_done", "tamper_seq"}
+var detectMaps = []string{"events", "stats", "net_summary", "net_summary_sent", "file_summary", "file_sum_count", "tamper_events", "tamper_lost", "tamper_lost_seen", "tamper_last", "tamper_done", "tamper_seq"}
 
 // adoptPinned opens the maps pinned in dir, creating dir. It returns no maps
 // when dir is empty.

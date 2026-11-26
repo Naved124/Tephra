@@ -125,7 +125,9 @@ const (
 // 5: signals to the agent and attaches to it go to tamper_events, pinned
 // with tamper_lost and tamper_lost_seen, and carry a tamper_seq; the last of
 // them are kept in tamper_last, with tamper_done and tamper_seq.
-const LayoutVersion = 5
+// 6: tamper_lost counts refusals made while blind as well, and enforce
+// records gain ENFORCE_F_BLIND and the file_read action.
+const LayoutVersion = 6
 
 // Layout is keyed by C struct name.
 var Layout = map[string]Struct{

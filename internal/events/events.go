@@ -250,10 +250,12 @@ type FileChange struct {
 const (
 	EnforceDenied = 1 << 0
 	EnforceNoPath = 1 << 1
+	// EnforceBlind marks a refusal made because the sensor was blind.
+	EnforceBlind = 1 << 2
 )
 
 // EnforceActions names enum enforce_action in bpf/common.h, by value.
-var EnforceActions = []string{"", "exec_unlinked", "file_write", "ptrace", "module_load", "mount"}
+var EnforceActions = []string{"", "exec_unlinked", "file_write", "ptrace", "module_load", "mount", "file_read"}
 
 // Enforce is struct enforce_event: an action an enforcement program refused
 // (Denied) or would have refused in dry-run mode.
@@ -262,12 +264,16 @@ type Enforce struct {
 	Action string
 	Inode  uint64
 	Dev    uint32
-	// Path is set for file_write.
+	// Path is set for file_write and file_read.
 	Path string
 }
 
 // Denied reports whether the action was refused, as opposed to reported.
 func (e *Enforce) Denied() bool { return e.Flags&EnforceDenied != 0 }
+
+// Blind reports whether the action was judged by blind mode: the sensor was
+// blind when it was taken.
+func (e *Enforce) Blind() bool { return e.Flags&EnforceBlind != 0 }
 
 // FileDenied is struct denied_event: an open the kernel refused.
 type FileDenied struct {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -30,6 +31,14 @@ const (
 	ActionPtrace       = filter.ActionPtrace
 	ActionModule       = filter.ActionModule
 	ActionMount        = filter.ActionMount
+	ActionFileRead     = filter.ActionFileRead
+)
+
+// Blind modes, BLIND_* in bpf/common.h.
+const (
+	BlindOff    uint32 = 0
+	BlindDryRun uint32 = 1
+	BlindOn     uint32 = 2
 )
 
 // DefaultPinDir is where enforcement is pinned.
@@ -38,7 +47,7 @@ const DefaultPinDir = "/sys/fs/bpf/tephra"
 // lsmActions says which actions each enforcement program refuses.
 var lsmActions = map[string][]uint32{
 	"tephra_lsm_exec":      {ActionExecUnlinked},
-	"tephra_lsm_file_open": {ActionFileWrite},
+	"tephra_lsm_file_open": {ActionFileWrite, ActionFileRead},
 	"tephra_lsm_ptrace":    {ActionPtrace},
 	"tephra_lsm_mount":     {ActionMount},
 	// A module arrives through one of two hooks; the action is in force
@@ -51,7 +60,14 @@ var lsmActions = map[string][]uint32{
 // them, so there is no moment at which a refusal in force is forgotten. The
 // watch maps are not among them: the programs of the old agent keep their
 // own until the new agent's programs, with maps already filled, take over.
-var pinnedMaps = []string{"enforce_cfg", "enforce_cgroups", "protect_cgroups", "runtime_inodes", "runtime_tasks"}
+//
+// The blind-mode maps are among them: the programs an agent leaves pinned
+// read the heartbeat the next agent writes, and the next agent sees when its
+// predecessor went down.
+var pinnedMaps = []string{"enforce_cfg", "enforce_cgroups", "protect_cgroups", "runtime_inodes", "runtime_tasks",
+	"blind_cfg", "blind_heartbeat", "blind_down", "blind_cgroups", "blind_protect",
+	// Counted while the agent is gone; the next agent reads it.
+	"blind_quiet"}
 
 // lsmListPaths are where the kernel's list of active security modules can
 // be read: securityfs, and the same file through the node's first process
@@ -81,9 +97,15 @@ func LSMActive() (bool, string) {
 }
 
 // EnforcementAvailable reports whether the enforcement programs are
-// attached, and if not, why.
+// attached for enforcement, and if not, why.
 func (s *Sensor) EnforcementAvailable() (bool, string) {
 	return s.enforceOff == "", s.enforceOff
+}
+
+// BlindAvailable reports whether the enforcement programs are attached for
+// blind mode, and if not, why.
+func (s *Sensor) BlindAvailable() (bool, string) {
+	return s.blindOff == "", s.blindOff
 }
 
 // Enforcing reports whether an action's programs are all attached.
@@ -229,6 +251,79 @@ func (s *Sensor) SetEnforcement(mode uint32, actions []uint32) ([]uint32, error)
 	return in, nil
 }
 
+// SetBlind sets blind mode: what it refuses while the sensor is blind, and
+// how old the heartbeat may get before the sensor counts as blind. Actions
+// whose programs are not attached are left out; the result says which are
+// in.
+func (s *Sensor) SetBlind(mode uint32, actions []uint32, stale time.Duration) ([]uint32, error) {
+	var bits uint32
+	var in []uint32
+	if s.blindOff != "" {
+		mode = BlindOff
+	}
+	for _, a := range actions {
+		if s.Enforcing(a) {
+			bits |= 1 << a
+			in = append(in, a)
+		}
+	}
+	cfg := tephraBlindCfg{Mode: mode, Actions: bits, StaleNs: uint64(stale)}
+	if err := s.coll.Maps["blind_cfg"].Put(uint32(0), &cfg); err != nil {
+		return nil, fmt.Errorf("write blind_cfg map: %w", err)
+	}
+	return in, nil
+}
+
+// Heartbeat tells the kernel the agent is alive at boot-clock time now. A
+// heartbeat newer than the last time the agent went down ends blindness.
+func (s *Sensor) Heartbeat(now uint64) error {
+	return s.coll.Maps["blind_heartbeat"].Put(uint32(0), now)
+}
+
+// BlindQuiet counts the refusals made while blind that were not reported
+// one by one: repeats, within a second, of one pod's refusal of one action
+// on one file. Every one of them was refused.
+func (s *Sensor) BlindQuiet() (uint64, error) {
+	m := s.coll.Maps["blind_quiet"]
+	if m == nil {
+		return 0, nil
+	}
+	var per []uint64
+	if err := m.Lookup(uint32(0), &per); err != nil {
+		return 0, fmt.Errorf("read blind_quiet: %w", err)
+	}
+	var n uint64
+	for _, v := range per {
+		n += v
+	}
+	return n, nil
+}
+
+// BlindTimes returns the last heartbeat and the last time the kernel saw an
+// agent go down, in boot-clock ns.
+func (s *Sensor) BlindTimes() (heartbeat, down uint64, err error) {
+	if err := s.coll.Maps["blind_heartbeat"].Lookup(uint32(0), &heartbeat); err != nil {
+		return 0, 0, fmt.Errorf("read blind_heartbeat: %w", err)
+	}
+	if err := s.coll.Maps["blind_down"].Lookup(uint32(0), &down); err != nil {
+		return 0, 0, fmt.Errorf("read blind_down: %w", err)
+	}
+	return heartbeat, down, nil
+}
+
+// SetBlindCgroups names the cgroups pods live under; blind mode applies
+// below them only.
+func (s *Sensor) SetBlindCgroups(ids []uint64) error {
+	return replace(s.coll.Maps["blind_cgroups"], idSet(ids))
+}
+
+// SetBlindProtect names the cgroups blind mode leaves alone: those of the
+// pods the operator trusts. The agent's own is not among them: while the
+// sensor is blind, the agent is not there to need it.
+func (s *Sensor) SetBlindProtect(ids []uint64) error {
+	return replace(s.coll.Maps["blind_protect"], idSet(ids))
+}
+
 // Enforcement reads the mode and action bits now in force.
 func (s *Sensor) Enforcement() (mode, actions uint32) {
 	var cfg tephraEnforceCfg
@@ -292,22 +387,41 @@ func PinnedEnforcement(pinDir string) (mode, actions uint32, pinned bool, err er
 	return cfg.Mode, cfg.Actions, true, nil
 }
 
-// KillSwitch turns enforcement off through the pinned map, without the
-// agent: the next refusal does not happen. It reports whether anything was
-// pinned.
+// KillSwitch turns enforcement and blind mode off through the pinned maps,
+// without the agent: the next refusal does not happen. It is the way out
+// when no agent can run on the node to do it. The next agent sets both again
+// from its configuration. It reports whether anything was pinned.
 func KillSwitch(pinDir string) (bool, error) {
+	pinned := false
 	m, err := ebpf.LoadPinnedMap(filepath.Join(pinDir, "enforce_cfg"), nil)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
 		return false, err
+	default:
+		pinned = true
+		defer func() { _ = m.Close() }()
+		var cfg tephraEnforceCfg
+		if err := m.Lookup(uint32(0), &cfg); err != nil {
+			return true, err
+		}
+		cfg.Mode = EnforceOff
+		if err := m.Put(uint32(0), &cfg); err != nil {
+			return true, err
+		}
 	}
-	defer func() { _ = m.Close() }()
-	var cfg tephraEnforceCfg
-	if err := m.Lookup(uint32(0), &cfg); err != nil {
+	b, err := ebpf.LoadPinnedMap(filepath.Join(pinDir, "blind_cfg"), nil)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return pinned, nil
+	case err != nil:
+		return pinned, err
+	}
+	defer func() { _ = b.Close() }()
+	var bc tephraBlindCfg
+	if err := b.Lookup(uint32(0), &bc); err != nil {
 		return true, err
 	}
-	cfg.Mode = EnforceOff
-	return true, m.Put(uint32(0), &cfg)
+	bc.Mode = BlindOff
+	return true, b.Put(uint32(0), &bc)
 }

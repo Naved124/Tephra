@@ -103,11 +103,24 @@ type counters struct {
 	seqEvicted atomic.Uint64
 	// Enforcement: the mode in force (0 off, 1 dry-run, 2 on), the pods
 	// in scope, and the actions refused or reported.
-	enforcePods      atomic.Uint64
-	enforceDenied    atomic.Uint64
-	enforceWouldDeny atomic.Uint64
-	exported         atomic.Uint64
-	exportErrors     atomic.Uint64
+	enforcePods atomic.Uint64
+	// blindRoots counts the pod roots blind mode applies below;
+	// blindRefused the refusals made while blind, as reported by the
+	// kernel; blindHeartbeatErrors failed heartbeats.
+	// File summaries: reported as file_summary records, reported
+	// through the rules because no record of them got through, or not
+	// attributed to a process; and failed reads of the map.
+	fileSummaries        atomic.Uint64
+	fileSumUndelivered   atomic.Uint64
+	fileSumUnattributed  atomic.Uint64
+	fileSumErrors        atomic.Uint64
+	blindRoots           atomic.Uint64
+	blindRefused         atomic.Uint64
+	blindHeartbeatErrors atomic.Uint64
+	enforceDenied        atomic.Uint64
+	enforceWouldDeny     atomic.Uint64
+	exported             atomic.Uint64
+	exportErrors         atomic.Uint64
 	// grouped counts alerts counted into a group instead of sent;
 	// summaries counts the summaries sent for them.
 	grouped      atomic.Uint64
@@ -221,6 +234,8 @@ func (s *settings) enabled() []events.Type {
 
 func (s *settings) filters() filter.Set {
 	extra, _ := s.cfg.Watches()
+	blind, _ := s.cfg.BlindWatches()
+	extra = append(extra, blind...)
 	ignore, _ := s.cfg.NetIgnorePrefixes()
 	return filter.Set{Watches: append(s.rules.Watches(), extra...), NetIgnore: ignore}
 }
@@ -302,7 +317,8 @@ func (a *agent) apply(s *settings) error {
 	}
 	a.tracker.SetWatches(f.Exacts())
 	a.observeRoots()
-	a.enricher.SetWatched(f.Match)
+	// Watches that only blind mode uses report nothing.
+	a.enricher.SetWatched(func(p string) uint32 { return f.Match(p) &^ (filter.BlindRead | filter.BlindWrite) })
 	a.runtimes.SetPaths(s.cfg.RuntimeBinaries)
 	runtimeBinaries := a.runtimes.Refresh()
 	if runtimeBinaries == 0 {
@@ -626,6 +642,7 @@ func run(log *slog.Logger, o options) error {
 	sensor, err := loader.Load(loader.Options{
 		RingBufSize: s.cfg.RingBufferSize, Enabled: s.enabled(), Filters: s.filters(),
 		Enforce:       s.cfg.Enforcement.Enabled,
+		Blind:         s.cfg.Blind.Mode != config.BlindOff,
 		PinDir:        s.cfg.Enforcement.PinDir,
 		Pin:           s.cfg.Enforcement.OnAgentExit == config.OnExitPinned,
 		KeepRecording: s.cfg.Tamper.KeepRecording,
@@ -708,8 +725,20 @@ func run(log *slog.Logger, o options) error {
 	if err := sensor.SetRingWakeup(s.cfg.RingWakeup.Bytes); err != nil {
 		return err
 	}
+	if err := sensor.SetFileSummaryWindow(s.cfg.FileSummaryWindow); err != nil {
+		return err
+	}
+	// What an earlier agent's programs counted is reported first.
+	a.drainFileSummaries(time.Now())
+	lastFileDrain := time.Now()
 	if ok, _ := sensor.EnforcementAvailable(); ok && pods != nil {
 		go a.enforceScope(ctx, pods, s.cfg.Enforcement, os.Getenv("POD_NAMESPACE"))
+	}
+	if err := a.applyBlind(s.cfg.Blind); err != nil {
+		return err
+	}
+	if ok, _ := sensor.BlindAvailable(); ok {
+		go a.blindScope(ctx, pods, s.cfg.Enforcement.ProtectNamespaces)
 	}
 
 	var exporting sync.WaitGroup
@@ -808,6 +837,11 @@ func run(log *slog.Logger, o options) error {
 		case <-creds.C:
 			a.resolveCredentials()
 		case now := <-groups.C:
+			a.heartbeat()
+			if w := a.cur.cfg.FileSummaryWindow; w > 0 && now.Sub(lastFileDrain) >= w {
+				lastFileDrain = now
+				a.drainFileSummaries(now)
+			}
 			a.tamperTick(now)
 			a.flushGroups(now)
 			if a.drainSoon {
@@ -817,12 +851,20 @@ func run(log *slog.Logger, o options) error {
 			log.Info("signal received, shutting down")
 			// What was counted so far is sent, not lost with the agent.
 			a.drainSummaries(time.Now())
+			a.drainFileSummaries(time.Now())
 			a.flushGroups(time.Now().Add(export.GroupWindow))
 			if sensor.KeepsRecording() {
 				if planned, why := a.awaitStop(queue); planned {
 					// The last health record says the silence that
 					// follows is expected.
 					a.sendHealth(node, time.Now(), true)
+					// Blind mode ends with a planned stop, before the
+					// heartbeat does: an upgrade or an uninstall must not
+					// leave the node refusing anything. The next agent
+					// switches it on again.
+					if _, err := sensor.SetBlind(loader.BlindOff, nil, 0); err != nil {
+						log.Error("could not switch blind mode off for the planned stop", "error", err.Error())
+					}
 					sensor.UnpinDetection()
 					log.Info("planned stop: detection unpinned", "reason", why)
 				} else {

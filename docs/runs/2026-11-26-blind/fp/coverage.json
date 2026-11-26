@@ -1,0 +1,36 @@
+{
+  "date": "",
+  "sensor": "",
+  "kernel": "",
+  "results": null,
+  "false_positives": {
+    "date": "2026-11-26",
+    "sensor": "v0.1.0-37-gd6659dd-dirty (tephra/tephrad:dev)",
+    "kernel": "5.15.0-1121-aws",
+    "minutes": 30,
+    "alerts": [
+      {
+        "rule": "R002",
+        "level": "medium",
+        "namespace": "tephra-fp",
+        "count": 120,
+        "example": "/bin/sh [sh -c ls / \u003e /dev/null; exit]"
+      },
+      {
+        "rule": "R004",
+        "level": "low",
+        "namespace": "tephra-fp",
+        "count": 11,
+        "example": "/sbin/apk [apk manifest nginx]"
+      },
+      {
+        "rule": "R032",
+        "level": "medium",
+        "namespace": "tephra-fp",
+        "count": 24,
+        "example": "/bin/sh [/bin/sh -c mkdir -p /app \u0026\u0026 echo 'echo hello' \u003e /app/run.sh \u0026\u0026 chmod +x /app/run.sh]"
+      }
+    ],
+    "ring_buffer_drops": 0
+  }
+}

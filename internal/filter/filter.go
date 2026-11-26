@@ -21,6 +21,10 @@ const (
 	// Block refuses opens for writing where enforcement applies. It
 	// reports nothing by itself.
 	Block uint32 = 1 << 3
+	// BlindRead and BlindWrite refuse opens for reading or writing while
+	// the sensor is blind. They report nothing by themselves.
+	BlindRead  uint32 = 1 << 4
+	BlindWrite uint32 = 1 << 5
 )
 
 // What enforcement can refuse, enum enforce_action in bpf/common.h.
@@ -37,6 +41,9 @@ const (
 	ActionModule uint32 = 4
 	// ActionMount is a mount.
 	ActionMount uint32 = 5
+	// ActionFileRead is an open for reading of a file watched with
+	// BlindRead; refused only while the sensor is blind.
+	ActionFileRead uint32 = 6
 )
 
 // Kind is how a watch selects files.
@@ -84,6 +91,12 @@ type Watch struct {
 type Set struct {
 	Watches   []Watch
 	NetIgnore []netip.Prefix
+}
+
+// Acts says whether a watch does anything: reports opens, reports refused
+// ones, or marks the file for enforcement or for blind mode.
+func (w Watch) Acts() bool {
+	return w.Bits&(Read|Write|Denied|Block|BlindRead|BlindWrite) != 0
 }
 
 // Exacts returns the watches of kind Exact, merged by path.

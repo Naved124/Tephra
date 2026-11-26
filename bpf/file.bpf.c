@@ -8,6 +8,90 @@ const struct denied_event *__tephra_denied_event __attribute__((unused));
 /* The LSM hook runs for every open that reaches a file, whichever syscall or
  * io_uring operation asked for it. Unfiltered opens are the highest-volume
  * event on a node, so nothing is emitted unless a watch matches. */
+#define FILE_SUM_NONE	 0 /* not under pressure, or no room: send */
+#define FILE_SUM_TRACKED 1 /* send, and tell file_sum_sent how it went */
+#define FILE_SUM_COUNTED 2 /* counted: do not send */
+
+/* Whether the main ring buffer is at least half full. */
+static __always_inline bool rb_pressure(void)
+{
+	__u64 size = bpf_ringbuf_query(&events, BPF_RB_RING_SIZE);
+
+	return size &&
+	       bpf_ringbuf_query(&events, BPF_RB_AVAIL_DATA) * 2 >= size;
+}
+
+/* Decides, under pressure, whether this open is sent or counted. */
+static __always_inline int file_sum_window(struct task_struct *task,
+					   struct file_event *e, bool write,
+					   struct file_sum_key *k)
+{
+	struct file_sum_val *v;
+	__u32 zero = 0;
+	__u64 *window, now;
+	struct inode *exe;
+
+	window = bpf_map_lookup_elem(&file_sum_cfg, &zero);
+	if (!window || !*window || !rb_pressure())
+		return FILE_SUM_NONE;
+
+	exe = BPF_CORE_READ(task, mm, exe_file, f_inode);
+	k->cgroup_id = e->h.cgroup_id;
+	k->prog_inode = BPF_CORE_READ(exe, i_ino);
+	k->prog_dev = BPF_CORE_READ(exe, i_sb, s_dev);
+	k->file_inode = e->inode;
+	k->file_dev = e->dev;
+	k->write = write;
+	now = e->h.ts_boot_ns;
+
+	v = bpf_map_lookup_elem(&file_summary, k);
+	if (v) {
+		if (now - v->window_ns < *window) {
+			__sync_fetch_and_add(&v->count, 1);
+			v->last_ns = now;
+			file_sum_inc(0);
+			return FILE_SUM_COUNTED;
+		}
+		/* A new window: this open is sent. The count stays for the
+		 * agent to take. */
+		v->window_ns = now;
+		return FILE_SUM_TRACKED;
+	}
+	v = bpf_map_lookup_elem(&file_sum_scratch, &zero);
+	if (!v)
+		return FILE_SUM_NONE;
+	v->count = 0;
+	v->window_ns = now;
+	v->last_ns = now;
+	v->delivered = 0;
+	v->_pad = 0;
+	bpf_probe_read_kernel(&v->first, sizeof(v->first), e);
+	if (bpf_map_update_elem(&file_summary, k, v, BPF_NOEXIST)) {
+		/* Full, or another CPU added it first: send this one. */
+		if (!bpf_map_lookup_elem(&file_summary, k))
+			file_sum_inc(1);
+		return FILE_SUM_NONE;
+	}
+	return FILE_SUM_TRACKED;
+}
+
+/* Records whether the open that began a window reached the buffer; one that
+ * did not is counted. */
+static __always_inline void file_sum_sent(struct file_sum_key *k, bool ok)
+{
+	struct file_sum_val *v = bpf_map_lookup_elem(&file_summary, k);
+
+	if (!v)
+		return;
+	if (ok) {
+		v->delivered = 1;
+		return;
+	}
+	__sync_fetch_and_add(&v->count, 1);
+	v->last_ns = bpf_ktime_get_boot_ns();
+	file_sum_inc(0);
+}
+
 SEC("fentry/security_file_open")
 int BPF_PROG(tephra_file_open, struct file *file)
 {
@@ -19,7 +103,9 @@ int BPF_PROG(tephra_file_open, struct file *file)
 	struct path_key pk;
 	struct file_event *e;
 	struct inode *inode;
+	struct file_sum_key sk = {};
 	__u32 zero = 0, want, *bits, match = 0, watch = 0, flags, total;
+	int sum;
 	long len;
 
 	if (!c || !s || !event_enabled(c, EVENT_FILE_OPEN))
@@ -113,10 +199,21 @@ int BPF_PROG(tephra_file_open, struct file *file)
 		s->dropped++;
 		return 0;
 	}
-	if (bpf_ringbuf_output(&events, e, total, rb_flags()))
+
+	sum = file_sum_window(task, e, want == WATCH_WRITE, &sk);
+	if (sum == FILE_SUM_COUNTED) {
+		s->filtered++;
+		return 0;
+	}
+	if (bpf_ringbuf_output(&events, e, total, rb_flags())) {
 		s->dropped++;
-	else
+		if (sum == FILE_SUM_TRACKED)
+			file_sum_sent(&sk, false);
+	} else {
 		s->emitted++;
+		if (sum == FILE_SUM_TRACKED)
+			file_sum_sent(&sk, true);
+	}
 	return 0;
 }
 

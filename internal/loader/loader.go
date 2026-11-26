@@ -36,6 +36,10 @@ type Options struct {
 	// Enforce loads and attaches the enforcement programs. They start
 	// switched off; SetEnforcement turns them on.
 	Enforce bool
+	// Blind loads and attaches the enforcement programs for blind mode,
+	// and pins them in PinDir whatever Pin says: blind mode is for the
+	// time after the agent is gone. SetBlind turns it on.
+	Blind bool
 	// PinDir is a directory on a BPF filesystem. With Enforce and Pin,
 	// the enforcement links and policy maps are pinned there, so that
 	// refusals outlive the agent; a later Load adopts the policy maps
@@ -192,6 +196,8 @@ type Sensor struct {
 	self        Self
 	reader      *ringbuf.Reader
 	tamper      *ringbuf.Reader
+	// blindOff says why blind mode is not available; empty when it is.
+	blindOff string
 	// enforceOff says why the enforcement programs are not attached;
 	// empty when they are.
 	enforceOff string
@@ -235,12 +241,21 @@ func Load(opts Options) (*Sensor, error) {
 	spec.Maps["events"].MaxEntries = size
 
 	s := &Sensor{available: map[events.Type]bool{}, enforcing: map[uint32]bool{}}
+	// The enforcement programs serve enforcement, blind mode, or both.
+	lsmOff := ""
+	if !opts.Enforce && !opts.Blind {
+		lsmOff = "neither enforcement nor blind mode is enabled"
+	} else if ok, why := LSMActive(); !ok {
+		lsmOff = why
+	}
+	s.enforceOff, s.blindOff = lsmOff, lsmOff
 	if !opts.Enforce {
 		s.enforceOff = "enforcement is not enabled"
-	} else if ok, why := LSMActive(); !ok {
-		s.enforceOff = why
 	}
-	if s.enforceOff == "" && opts.Pin {
+	if !opts.Blind {
+		s.blindOff = "blind mode is not enabled"
+	}
+	if lsmOff == "" && (opts.Pin || opts.Blind) {
 		s.pinDir = opts.PinDir
 	} else if opts.PinDir != "" {
 		// Whatever an earlier agent left pinned would go on refusing.
@@ -317,8 +332,13 @@ func Load(opts Options) (*Sensor, error) {
 		attached[at.Program] = true
 	}
 	s.dropStaleLinks(attached)
-	if s.enforceOff == "" && len(s.enforcing) == 0 {
-		s.enforceOff = "no enforcement program could be attached"
+	if len(s.enforcing) == 0 {
+		if s.enforceOff == "" {
+			s.enforceOff = "no enforcement program could be attached"
+		}
+		if s.blindOff == "" {
+			s.blindOff = "no enforcement program could be attached"
+		}
 	}
 	// A type whose hook failed to attach is off; rewrite the bitmask.
 	s.settle()
@@ -354,7 +374,7 @@ func (s *Sensor) precheck(spec *ebpf.CollectionSpec) []hook {
 	kernel, err := btf.LoadKernelSpec()
 	var keep []hook
 	for _, h := range hooks {
-		if h.lsm && s.enforceOff != "" {
+		if h.lsm && s.enforceOff != "" && s.blindOff != "" {
 			s.drop(spec, h, s.enforceOff)
 			continue
 		}

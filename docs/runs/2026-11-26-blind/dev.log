@@ -1,0 +1,226 @@
+Creating cluster "tephra" ...
+ • Ensuring node image (kindest/node:v1.37.0) 🖼️  ...
+ ✓ Ensuring node image (kindest/node:v1.37.0) 🖼️
+ • Preparing nodes 📦 📦 📦   ...
+ ✓ Preparing nodes 📦 📦 📦 
+ • Writing configuration 📜  ...
+ ✓ Writing configuration 📜
+ • Starting control-plane 🕹️  ...
+ ✓ Starting control-plane 🕹️
+ • Installing CNI 🔌  ...
+ ✓ Installing CNI 🔌
+ • Installing StorageClass 💾  ...
+ ✓ Installing StorageClass 💾
+ • Joining worker nodes 🚜  ...
+ ✓ Joining worker nodes 🚜
+ • Waiting ≤ 2m0s for control-plane = Ready ⏳  ...
+ ✓ Waiting ≤ 2m0s for control-plane = Ready ⏳
+ • Ready after 7s 💚
+Set kubectl context to "kind-tephra"
+You can now use your cluster with:
+
+kubectl cluster-info --context kind-tephra
+
+Thanks for using kind! 😊
+docker build -f deploy/docker/tephrad.Dockerfile --build-arg VERSION=v0.1.0-37-gd6659dd-dirty -t tephra/tephrad:dev .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  5.986MB
+Step 1/14 : FROM golang:1.27.3 AS build
+ ---> e519d3b0a5b2
+Step 2/14 : RUN apt-get update     && apt-get install -y --no-install-recommends clang llvm libbpf-dev     && rm -rf /var/lib/apt/lists/*
+ ---> Using cache
+ ---> a40ef38c3649
+Step 3/14 : WORKDIR /src
+ ---> Using cache
+ ---> e4727059f1a1
+Step 4/14 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> c3293bd6b768
+Step 5/14 : RUN go mod download
+ ---> Using cache
+ ---> 39326abb832d
+Step 6/14 : COPY api/ api/
+ ---> Using cache
+ ---> 076a128c93cf
+Step 7/14 : COPY bpf/ bpf/
+ ---> 3327e0137e0f
+Step 8/14 : COPY cmd/ cmd/
+ ---> 92f70d59c7c3
+Step 9/14 : COPY internal/ internal/
+ ---> 375b52ff5225
+Step 10/14 : ARG VERSION=dev
+ ---> Running in 2ae938caf2b4
+ ---> Removed intermediate container 2ae938caf2b4
+ ---> 58760079c35b
+Step 11/14 : RUN go generate ./...     && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/tephrad ./cmd/tephrad
+ ---> Running in 790d8bf80792
+ ---> Removed intermediate container 790d8bf80792
+ ---> 48355187f1d6
+Step 12/14 : FROM gcr.io/distroless/static-debian12
+ ---> d75cdd72874d
+Step 13/14 : COPY --from=build /out/tephrad /tephrad
+ ---> bacb65757849
+Step 14/14 : ENTRYPOINT ["/tephrad"]
+ ---> Running in ae16e273c6aa
+ ---> Removed intermediate container ae16e273c6aa
+ ---> 1c29efdba4c9
+Successfully built 1c29efdba4c9
+Successfully tagged tephra/tephrad:dev
+docker build -f deploy/docker/collector.Dockerfile --build-arg VERSION=v0.1.0-37-gd6659dd-dirty -t tephra/collector:dev .
+DEPRECATED: The legacy builder is deprecated and will be removed in a future release.
+            Install the buildx component to build images with BuildKit:
+            https://docs.docker.com/go/buildx/
+
+Sending build context to Docker daemon  5.986MB
+Step 1/12 : FROM golang:1.27.3 AS build
+ ---> e519d3b0a5b2
+Step 2/12 : WORKDIR /src
+ ---> Using cache
+ ---> cd9f486d4a73
+Step 3/12 : COPY go.mod go.sum ./
+ ---> Using cache
+ ---> 39d5088da208
+Step 4/12 : RUN go mod download
+ ---> Using cache
+ ---> c1686b101df6
+Step 5/12 : COPY api/ api/
+ ---> Using cache
+ ---> cf0ab12b9fe7
+Step 6/12 : COPY cmd/collector/ cmd/collector/
+ ---> Using cache
+ ---> 908c0bb4b3c4
+Step 7/12 : COPY internal/ internal/
+ ---> 7bcbf58d41e4
+Step 8/12 : ARG VERSION=dev
+ ---> Running in ad1d2ff2f2d4
+ ---> Removed intermediate container ad1d2ff2f2d4
+ ---> 63e5c1980616
+Step 9/12 : RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/collector ./cmd/collector
+ ---> Running in a0f41ccb6ba8
+ ---> Removed intermediate container a0f41ccb6ba8
+ ---> 73cd5af48d18
+Step 10/12 : FROM gcr.io/distroless/static-debian12:nonroot
+ ---> afa5c872c891
+Step 11/12 : COPY --from=build /out/collector /collector
+ ---> Using cache
+ ---> a7744f7547e3
+Step 12/12 : ENTRYPOINT ["/collector"]
+ ---> Using cache
+ ---> 26f5d0dcdba0
+Successfully built 26f5d0dcdba0
+Successfully tagged tephra/collector:dev
+kind load docker-image tephra/tephrad:dev tephra/collector:dev --name tephra
+Image: "tephra/tephrad:dev" with ID "sha256:1c29efdba4c90f94d7ffe89ddbd630c5d8352252c8232a7a0801f856bec02e4a" not yet present on node "tephra-worker", loading...
+Image: "tephra/tephrad:dev" with ID "sha256:1c29efdba4c90f94d7ffe89ddbd630c5d8352252c8232a7a0801f856bec02e4a" not yet present on node "tephra-control-plane", loading...
+Image: "tephra/tephrad:dev" with ID "sha256:1c29efdba4c90f94d7ffe89ddbd630c5d8352252c8232a7a0801f856bec02e4a" not yet present on node "tephra-worker2", loading...
+Image: "tephra/collector:dev" with ID "sha256:26f5d0dcdba0f25afc4c219669bd8d1cfe673289f99d10f6bfff167f20916723" not yet present on node "tephra-worker", loading...
+Image: "tephra/collector:dev" with ID "sha256:26f5d0dcdba0f25afc4c219669bd8d1cfe673289f99d10f6bfff167f20916723" not yet present on node "tephra-control-plane", loading...
+Image: "tephra/collector:dev" with ID "sha256:26f5d0dcdba0f25afc4c219669bd8d1cfe673289f99d10f6bfff167f20916723" not yet present on node "tephra-worker2", loading...
+helm upgrade --install tephra deploy/helm/tephra \
+	--kube-context kind-tephra \
+	--namespace tephra --create-namespace \
+	-f deploy/helm/tephra/values-kind.yaml \
+	--set-string 'agent.podAnnotations.tephra\.dev/image-id='"$(docker image inspect -f '{{.Id}}' tephra/tephrad:dev)" \
+	--set-string 'collector.podAnnotations.tephra\.dev/image-id='"$(docker image inspect -f '{{.Id}}' tephra/collector:dev)"
+Release "tephra" does not exist. Installing it now.
+level=INFO msg="found symbolic link in path. Contents of linked file included and used" path=/home/tephra/tephra/deploy/helm/tephra/rules resolved=/home/tephra/tephra/rules
+NAME: tephra
+LAST DEPLOYED: Thu Nov 26 12:43:29 2026
+NAMESPACE: tephra
+STATUS: deployed
+REVISION: 1
+DESCRIPTION: Install complete
+TEST SUITE: None
+NOTES:
+Tephra 0.1.0 is installed in namespace tephra.
+
+Agents:  kubectl -n tephra get pods -l app.kubernetes.io/component=agent
+
+RECOMMENDED: turn on the two connection-cost options.
+
+  helm upgrade tephra <chart> -n tephra --reuse-values \
+    --set agent.quietConnections=true --set agent.ringWakeup.bytes=65536
+
+They are off by default so that nothing changes without you choosing it.
+On a pod that makes or takes many connections, the agent otherwise handles
+every one of them. Measured on a 5.15 node (alerts only, 200,000
+connections): throughput -19.9% and the agent at 77% of a CPU with both
+off; -3.7% and 1% with both on. In the lab's attack, evasion and
+false-positive runs they caused no missed detection and no new alert.
+
+What you give up with them on:
+  - Connections of processes that no rule can fire on are exported as one
+    connection_summary record per process and destination every 10 seconds
+    (count, first and last time), not one event each. The client's own port
+    of each connection, and the exact time of each one, are not kept.
+  - Alerts may reach the collector up to 10ms later.
+
+Details: https://github.com/Naved124/Tephra#connection-cost
+make accept
+make[1]: Entering directory '/home/tephra/tephra'
+kubectl -n tephra rollout restart daemonset/tephra-agent
+daemonset.apps/tephra-agent restarted
+NAMESPACE=tephra RELEASE=tephra hack/accept-m0.sh
+Waiting for daemon set "tephra-agent" rollout to finish: 0 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 out of 3 new pods have been updated...
+Waiting for daemon set "tephra-agent" rollout to finish: 0 of 3 updated pods are available...
+Waiting for daemon set "tephra-agent" rollout to finish: 1 of 3 updated pods are available...
+Waiting for daemon set "tephra-agent" rollout to finish: 2 of 3 updated pods are available...
+daemon set "tephra-agent" successfully rolled out
+pod/tephra-agent-jqsgp: {"time":"2026-11-26T12:43:34.155015928Z","level":"INFO","msg":"program attached","program":"tephra_fork","hook":"tp_btf/sched_process_fork"}
+pod/tephra-agent-mdcm5: {"time":"2026-11-26T12:43:34.144642664Z","level":"INFO","msg":"program attached","program":"tephra_fork","hook":"tp_btf/sched_process_fork"}
+pod/tephra-agent-tm97n: {"time":"2026-11-26T12:43:34.957084506Z","level":"INFO","msg":"program attached","program":"tephra_fork","hook":"tp_btf/sched_process_fork"}
+PASS: program attached on 3/3 nodes
+NAMESPACE=tephra RELEASE=tephra hack/accept-m1.sh
+probe pod on tephra-worker, agent pod/tephra-agent-jqsgp
+ok: one exec event within 1s: {"ts":"2026-11-26T12:43:43.309653Z","node":"tephra-worker","Image":"/bin/ls","CommandLine":"ls -la /tmp","uid":1000}
+  pod/tephra-agent-jqsgp exec: seen 10191 = filtered 112 + emitted 10079 + dropped 0
+  pod/tephra-agent-jqsgp fork: seen 10814 = filtered 716 + emitted 10098 + dropped 0
+  pod/tephra-agent-jqsgp exit: seen 10774 = filtered 674 + emitted 10100 + dropped 0
+  pod/tephra-agent-mdcm5 exec: seen 10206 = filtered 10172 + emitted 34 + dropped 0
+  pod/tephra-agent-mdcm5 fork: seen 10867 = filtered 10830 + emitted 37 + dropped 0
+  pod/tephra-agent-mdcm5 exit: seen 10827 = filtered 10790 + emitted 37 + dropped 0
+  pod/tephra-agent-tm97n exec: seen 10189 = filtered 10183 + emitted 6 + dropped 0
+  pod/tephra-agent-tm97n fork: seen 10752 = filtered 10746 + emitted 6 + dropped 0
+  pod/tephra-agent-tm97n exit: seen 10720 = filtered 10714 + emitted 6 + dropped 0
+ok: after 10,000 execs (+10013 seen on tephra-worker), emitted + dropped + filtered == seen on every agent
+PASS: M1
+NAMESPACE=tephra RELEASE=tephra hack/accept-m2.sh
+ok: pod event attributed: {"k8s":{"namespace":"tephra-test","pod":"probe","labels":{"app":"probe"}},"container":{"name":"probe","image":"docker.io/library/busybox:1.37"},"ancestors":["/usr/local/bin/containerd-shim-runc-v2","/usr/lib/systemd/systemd"]}
+ok: host process labelled host, reported once: {"node":"tephra-worker","k8s":{"namespace":"host"},"Image":"/usr/bin/ls"}
+ok: after agent restart, a child of a pre-existing process resolves: {"parent":{"pid":1354,"Image":"/bin/sh","CommandLine":"/bin/sh -c while true; do sleep 5; done","is_main_binary":true,"container_first":true},"k8s":{"pod":"probe"},"ancestors":["/bin/sh","/usr/local/bin/containerd-shim-runc-v2","/usr/lib/systemd/systemd"]}
+PASS: M2
+NAMESPACE=tephra RELEASE=tephra hack/accept-m3.sh
+ok: connect, accept, unix_connect and file_open hooks attached on tephra-worker
+ok: ipv4: one connect event to 10.244.2.5:8080 and its accept: {"Image":"/bin/wget","network":{"direction":"outbound","family":"ipv4","protocol":"tcp","DestinationIp":"10.244.2.5","DestinationPort":8080}}
+ok: ipv6: one connect event to fd00:10:244:2::5:8080 and its accept: {"Image":"/bin/wget","network":{"direction":"outbound","family":"ipv6","protocol":"tcp","DestinationIp":"fd00:10:244:2::5","DestinationPort":8080}}
+ok: one file_open event for a watched path: {"Image":"/bin/cat","file":{"path":"/etc/shadow","flags":32768,"write":false,"truncate":false,"inode":2359726,"dev":373,"matched_by":"inode"}}
+ok: the same file through a hard link is reported by identity: {"path":"/tmp/innocent","target":"/etc/shadow","flags":32768,"write":false,"truncate":false,"inode":2359726,"dev":373,"matched_by":"inode"}
+ok: an unwatched path gives no event; filtered grew by 1564
+ok: after a file-heavy workload (+46849 opens seen on tephra-worker), zero drops of any type on every agent
+PASS: M3
+NAMESPACE=tephra RELEASE=tephra hack/accept-m4.sh
+ok: R001 fired on a bind shell: {"rule":"R001","level":"high","Image":"/bin/sh","parent":"/bin/httpd","pod":"probe"}
+ok: R005 fired on /etc/shadow, and on a hard link to it: {"rule":"R005","file":{"path":"/tmp/innocent","target":"/etc/shadow"}}
+ok: an invalid rule stops start-up: /etc/tephra/rules/R999-broken.yaml:8: rule R999: unknown field "process.Imagee"
+ok: a rule added to the ConfigMap fires after SIGHUP, same pod, 0 restarts: {"rule":"R900","CommandLine":"/bin/true tephra-reload-marker"}
+ok: an invalid rule is refused on reload and the running rules stay in force: /etc/tephra/rules/R901-broken.yaml:7: rule R901: unknown field "nope"
+PASS: M4
+NAMESPACE=tephra RELEASE=tephra hack/accept-m5.sh
+ok: Grafana has the dashboard (Alerts over time, by level; Top rules; Top pods; Latest alerts; Events per second, by type; Ring buffer drops, by node; Export queue depth, by node; Records dropped at export, by node; Collector push errors) and the high-or-critical alert rule; anonymous access is refused
+ok: Loki is not reachable from an ordinary pod
+ok: alert visible through Grafana 1532 ms after the action: {"rule":"R004","level":"low","pod":"probe","CommandLine":"wget -q -T 1 -O /dev/null http://127.0.0.1:9/m5-1795697097-18179"}
+ok: sensor health for the dashboard: {"kernel_seen":126101,"ringbuf_dropped":0,"export_queue_depth":15,"export_dropped_events":0}
+ok: collector killed mid-stream: 3000 of 3000 marked events stored, 0 counted as queue overflow, 2 streams sent again, none lost silently
+PASS: M5
+NAMESPACE=tephra RELEASE=tephra hack/accept-m6.sh
+ok: DaemonSet: privileged false, no privilege escalation, read-only root, drop ALL, add BPF PERFMON SYS_PTRACE SYS_RESOURCE
+ok: on every node the running agent holds exactly 000000c001080000 (effective, permitted and bounding) and cannot gain more
+ok: all 17 detection event types have a hook attached on every node
+PASS: M6
+make[1]: Leaving directory '/home/tephra/tephra'

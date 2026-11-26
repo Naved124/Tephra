@@ -306,3 +306,37 @@ func TestCgroupRemembersRemoved(t *testing.T) {
 		t.Error("a cgroup removed long ago still resolves")
 	}
 }
+
+// Pods live under a kubepods cgroup; there may be several (one per kind
+// node sharing a kernel), and their names vary with the cgroup driver.
+func TestPodRoots(t *testing.T) {
+	root := t.TempDir()
+	for _, d := range []string{
+		"system.slice/docker-a.scope/kubelet.slice/kubelet-kubepods.slice/kubelet-kubepods-besteffort.slice",
+		"system.slice/docker-b.scope/kubepods/burstable",
+		"system.slice/sshd.service",
+		"user.slice",
+	} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ino := func(p string) uint64 {
+		var st syscall.Stat_t
+		if err := syscall.Stat(filepath.Join(root, p), &st); err != nil {
+			t.Fatal(err)
+		}
+		return st.Ino
+	}
+	got := map[uint64]bool{}
+	for _, id := range PodRoots(root) {
+		got[id] = true
+	}
+	want := map[uint64]bool{
+		ino("system.slice/docker-a.scope/kubelet.slice/kubelet-kubepods.slice"): true,
+		ino("system.slice/docker-b.scope/kubepods"):                             true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("pod roots %v, want %v (the shallowest kubepods cgroup of each branch)", got, want)
+	}
+}

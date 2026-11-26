@@ -303,6 +303,7 @@ enum enforce_action {
 	ENF_PTRACE = 3,	    /* ptrace attach */
 	ENF_MODULE = 4,	    /* kernel module load */
 	ENF_MOUNT = 5,	    /* mount */
+	ENF_FILE_READ = 6,  /* open for reading; only while blind */
 };
 
 #define ENFORCE_OFF    0
@@ -313,6 +314,8 @@ enum enforce_action {
  * clear when it was only reported (dry run). */
 #define ENFORCE_F_DENIED  (1U << 0)
 #define ENFORCE_F_NO_PATH (1U << 1)
+/* Refused because the sensor was blind, whatever the enforcement mode. */
+#define ENFORCE_F_BLIND (1U << 2)
 
 /* An action an enforcement program refused, or would have. path is set for
  * ENF_FILE_WRITE only. */
@@ -347,6 +350,10 @@ struct task_key {
 #define WATCH_DENIED (1U << 2)
 /* An open for writing is refused where enforcement applies. */
 #define WATCH_BLOCK (1U << 3)
+/* Refused while the sensor is blind (see blind_now): an open for reading,
+ * an open for writing. Like WATCH_BLOCK they report nothing by themselves. */
+#define WATCH_BLIND_READ  (1U << 4)
+#define WATCH_BLIND_WRITE (1U << 5)
 
 struct path_key {
 	__u32 prefixlen; /* in bits */
@@ -414,13 +421,14 @@ struct {
 
 #define TAMPER_LOST_SIGNAL 0
 #define TAMPER_LOST_PTRACE 1
+#define TAMPER_LOST_BLIND  2 /* a refusal made while blind */
 
 /* Tamper records that found the tamper buffer full, by kind. The agent
  * raises an alert for every one it has not reported yet, so filling even
  * this buffer leaves an alert without the sender. */
 struct {
 	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-	__uint(max_entries, 2);
+	__uint(max_entries, 3);
 	__type(key, __u32);
 	__type(value, __u64);
 } tamper_lost SEC(".maps");
@@ -685,6 +693,73 @@ struct {
 	__type(value, __u64);
 } net_quiet_count SEC(".maps");
 
+/* File summaries. While the main ring buffer is at least half full, the
+ * opens of one file by one program in one cgroup are sent once a window
+ * (file_sum_cfg, set by the agent; zero turns this off) and counted in
+ * between. An open that finds the buffer full is counted too, so a flood
+ * that fills it leaves counts, not silent drops. The entry keeps the first
+ * open's header and path. The agent takes every entry once a window and
+ * reports its count, through the rules when no record of the key reached the
+ * buffer; the next open of the key then starts a new entry and is sent.
+ * Pinned with the ring buffer, for the next agent. */
+struct file_sum_key {
+	__u64 cgroup_id;
+	__u64 prog_inode; /* the opening task's executable */
+	__u64 file_inode;
+	__u32 prog_dev;
+	__u32 file_dev;
+	__u32 write;
+	__u32 _pad;
+};
+
+struct file_sum_val {
+	__u64 count;	 /* opens not sent as records */
+	__u64 window_ns; /* boot time the window began */
+	__u64 last_ns;
+	__u32 delivered; /* a record of the key reached the buffer */
+	__u32 _pad;
+	struct file_event first; /* header and path of the first open */
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 4096);
+	__type(key, struct file_sum_key);
+	__type(value, struct file_sum_val);
+} file_summary SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64); /* window in ns; 0: off */
+} file_sum_cfg SEC(".maps");
+
+/* Work area for a new file_summary value. */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct file_sum_val);
+} file_sum_scratch SEC(".maps");
+
+/* [0]: opens counted in file_summary instead of sent; [1]: opens under
+ * pressure that file_summary had no room for. */
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 2);
+	__type(key, __u32);
+	__type(value, __u64);
+} file_sum_count SEC(".maps");
+
+static __always_inline void file_sum_inc(__u32 i)
+{
+	__u64 *n = bpf_map_lookup_elem(&file_sum_count, &i);
+
+	if (n)
+		(*n)++;
+}
+
 /* Work area for build_path: a path is assembled from its last component
  * backwards, ending at byte PATH_LEN - 1. The upper half is never written
  * and stays zero, which bounds every access for the verifier. */
@@ -837,6 +912,124 @@ static __always_inline bool is_agent(struct task_struct *task)
 static __always_inline bool agent_task(void)
 {
 	return is_agent(bpf_get_current_task_btf());
+}
+
+/* Blind mode. An attacker's first move is to blind the sensor: kill it,
+ * freeze it, or wedge it. While the sensor is blind, the enforcement
+ * programs, pinned and still attached, refuse a short list of actions that
+ * ordinary pods do not take and that an attacker takes next, whatever the
+ * enforcement mode. The sensor is blind
+ *
+ *   - from the moment its process exits or is sent SIGKILL or a stop
+ *     signal (the kernel sees both before anyone can act on them),
+ *   - while its heartbeat is older than blind_cfg.stale_ns (a wedged agent),
+ *
+ * until an agent writes a newer heartbeat. A planned stop removes the pins,
+ * and with them the programs, before the agent exits, so it never blinds. */
+struct blind_cfg {
+	__u32 mode;    /* BLIND_OFF, BLIND_DRYRUN or BLIND_ON */
+	__u32 actions; /* bit (1 << enforce_action) per action refused */
+	__u64 stale_ns;
+};
+
+#define BLIND_OFF    0
+#define BLIND_DRYRUN 1
+#define BLIND_ON     2
+
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct blind_cfg);
+} blind_cfg SEC(".maps");
+
+/* Boot-clock time of the agent's last heartbeat; written by the agent. */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} blind_heartbeat SEC(".maps");
+
+/* Boot-clock time the agent was last seen going down; written here. */
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} blind_down SEC(".maps");
+
+/* The cgroups pods live under (kubepods): blind mode applies below them and
+ * nowhere else, so the node's own processes are never refused anything. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 64);
+	__type(key, __u64);
+	__type(value, __u8);
+} blind_cgroups SEC(".maps");
+
+/* Pods the operator trusts (enforcement.protect_namespaces). */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 4096);
+	__type(key, __u64);
+	__type(value, __u8);
+} blind_protect SEC(".maps");
+
+/* Refusals made while blind are reported once a second for each pod
+ * cgroup, action and file: every one is refused, but a pod that repeats one
+ * in a loop must not fill the tamper buffer, which holds the records of
+ * attacks on the agent. The rest are counted in blind_quiet. */
+struct blind_key {
+	__u64 cgroup_id;
+	__u64 inode;
+	__u32 action;
+	__u32 _pad;
+};
+
+struct {
+	__uint(type, BPF_MAP_TYPE_LRU_HASH);
+	__uint(max_entries, 4096);
+	__type(key, struct blind_key);
+	__type(value, __u64); /* boot-clock time of the last report */
+} blind_reported SEC(".maps");
+
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} blind_quiet SEC(".maps");
+
+static __always_inline void blind_mark_down(void)
+{
+	__u32 zero = 0;
+	__u64 *down = bpf_map_lookup_elem(&blind_down, &zero);
+
+	if (down)
+		*down = bpf_ktime_get_boot_ns();
+}
+
+/* The blind configuration if the sensor is blind now and the mode is not
+ * off, else NULL. */
+static __always_inline struct blind_cfg *blind_now(void)
+{
+	__u32 zero = 0;
+	struct blind_cfg *bc = bpf_map_lookup_elem(&blind_cfg, &zero);
+	__u64 *hb, *down, now;
+
+	if (!bc || bc->mode == BLIND_OFF)
+		return NULL;
+	hb = bpf_map_lookup_elem(&blind_heartbeat, &zero);
+	down = bpf_map_lookup_elem(&blind_down, &zero);
+	if (!hb || !down || !*hb)
+		return NULL; /* no agent has run yet */
+	if (*down > *hb)
+		return bc;
+	now = bpf_ktime_get_boot_ns();
+	if (bc->stale_ns && now > *hb && now - *hb > bc->stale_ns)
+		return bc;
+	return NULL;
 }
 
 /* Reads the number @pid has at @level of the pid namespace hierarchy, and the

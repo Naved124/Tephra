@@ -99,6 +99,13 @@ agent:
     pinDir: /sys/fs/bpf/tephra
     # Capabilities added to agent.capabilities while enforcement is enabled.
     extraCapabilities: []
+  # While the kernel's ring buffer is at least half full, the opens of one
+  # watched file by one program in one pod are sent once per window and
+  # counted in between, so a flood of them cannot push other records out.
+  # Counts come as file_summary records with the file and program; opens of
+  # which no record got through come as file_open records with a count and
+  # go through the rules. "0s" turns it off.
+  fileSummaryWindow: 10s
   tamper:
     # Keep the kernel recording when the agent is killed, crashes or is
     # frozen: the programs and the ring buffer are pinned under pinDir and
@@ -107,6 +114,25 @@ agent:
     # left behind. "tephrad detect off" in the agent pod removes them by hand.
     keepRecording: true
     pinDir: /sys/fs/bpf/tephra/detect
+  # Blind mode: while the agent is gone, stopped or wedged, the kernel refuses
+  # a short list of actions to processes in pods, label or not. These are what
+  # ordinary pods never do and an attacker does after blinding the sensor:
+  # running a deleted or in-memory binary, ptrace, loading a module, mount,
+  # reading /etc/shadow, and writing ld.so.preload, authorized_keys,
+  # release_agent or core_pattern. Each refusal raises R038 once an agent is
+  # back. Pods in enforcement.protectNamespaces are left alone. Needs BPF
+  # LSM and tamper.keepRecording; a stop by Kubernetes switches it off first.
+  blind:
+    # on, dry_run (report, refuse nothing) or off.
+    mode: "on"
+    # How old the agent's heartbeat (every second) may get before the
+    # sensor counts as blind. A kill or stop signal to the agent, or its
+    # exit, counts at once.
+    staleAfter: 12s
+    # Leave empty for the defaults above. Actions: exec_unlinked, ptrace,
+    # module_load, mount. Files: {path, kind: exact|name, ops: [read, write]}.
+    actions: []
+    files: []
 
 # Receives the agents' gRPC streams and pushes them to Loki.
 collector:

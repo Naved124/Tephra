@@ -26,3 +26,20 @@ func TestSetMatch(t *testing.T) {
 		}
 	}
 }
+
+// A watch that only marks a file for blind mode acts: the loader must accept
+// it. One with no bits does nothing.
+func TestWatchActs(t *testing.T) {
+	for _, tc := range []struct {
+		bits uint32
+		want bool
+	}{
+		{Read, true}, {Write, true}, {Denied, true}, {Block, true},
+		{BlindRead, true}, {BlindWrite, true}, {BlindRead | BlindWrite, true},
+		{0, false},
+	} {
+		if got := (Watch{Kind: Exact, Path: "/etc/shadow", Bits: tc.bits}).Acts(); got != tc.want {
+			t.Errorf("bits %b: acts %v, want %v", tc.bits, got, tc.want)
+		}
+	}
+}

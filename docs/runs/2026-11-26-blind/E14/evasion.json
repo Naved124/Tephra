@@ -1,0 +1,43 @@
+{
+  "date": "2026-11-26",
+  "sensor": "v0.1.0-37-gd6659dd-dirty (tephra/tephrad:dev)",
+  "kernel": "5.15.0-1121-aws",
+  "results": [
+    {
+      "id": "E14",
+      "title": "Freeze the agent, read /etc/shadow, kill the agent before it reads its buffer",
+      "tags": [
+        "attack.defense_evasion",
+        "attack.t1562.001",
+        "attack.credential_access",
+        "attack.t1003.008"
+      ],
+      "rules": [
+        {
+          "rule": "R005",
+          "verdict": "detected",
+          "latency_ms": 65,
+          "event": "{\"ts\":\"2026-11-26T13:04:15.598551Z\",\"type\":\"file_open\",\"node\":\"tephra-worker\",\"rule\":{\"id\":\"R005\",\"title\":\"/etc/shadow opened by a process outside the allowlist\",\"level\":\"high\",\"tags\":[\"attack.credential_access\",\"attack.t1003.008\"]},\"process\":{\"pid\":1032458,\"start_time_ns\":3359534686784,\"Image\":\"/bin/cat\",\"CommandLine\":\"cat /etc/shadow\",\"uid\":0,\"gid\":0,\"cgroup_id\":46532,\"tree\":\"1032447.3359525710287\"},\"parent\":{\"pid\":1032447,\"Image\":\"/bin/sh\",\"CommandLine\":\"sh -s\",\"identity\":\"shell\"},\"ancestors\":[\"/bin/sh\"],\"container\":{\"id\":\"963e144d1321d3d7d768a2959c17368fb6d0def21a17ac6fbc534c807bffff42\",\"name\":\"victim\",\"image\":\"docker.io/library/busybox:1.37\"},\"k8s\":{\"namespace\":\"tephra-e14-d66bc8\",\"pod\":\"victim\",\"labels\":{\"app\":\"victim\"}},\"file\":{\"path\":\"/etc/shadow\",\"flags\":32768,\"write\":false,\"truncate\":false,\"inode\":2359726,\"dev\":381,\"matched_by\":\"inode\"}}"
+        }
+      ],
+      "also_fired": [
+        "R024",
+        "R030",
+        "R038"
+      ],
+      "visible_ms": 4105,
+      "ring_buffer_drops": 0,
+      "note": "Held out. The kernel records the read while the agent is stopped; killing the agent then frees the buffer that holds it. Privileged pod with the host's process namespace, as E07.",
+      "predicted": "missed",
+      "heldout": true,
+      "noticed": [
+        "R005",
+        "R024",
+        "R030",
+        "R031",
+        "R038"
+      ],
+      "agent_restarts": 1
+    }
+  ]
+}

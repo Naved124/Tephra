@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -53,6 +54,9 @@ type Config struct {
 	// Tamper configures what happens when the agent is stopped by
 	// anything other than Kubernetes.
 	Tamper Tamper `yaml:"tamper"`
+	// Blind configures what the kernel refuses while the sensor is
+	// blind. Read at start-up only.
+	Blind Blind `yaml:"blind"`
 	// QuietConnections lets the kernel skip the connections of a process
 	// that no loaded rule can fire on (rules.Set.Quiet), except connects
 	// to a destination port a rule names or to the Kubernetes API. While
@@ -62,6 +66,13 @@ type Config struct {
 	// RingWakeup batches the kernel's wake-ups of the agent. Read at
 	// start-up only.
 	RingWakeup RingWakeup `yaml:"ring_wakeup"`
+	// FileSummaryWindow: while the kernel's ring buffer is at least half
+	// full, the opens of one watched file by one program in one pod are
+	// sent once per window and counted in between, so a flood of them
+	// cannot push other records out. The counts are reported with the
+	// file's path once a window; opens of which no record got through
+	// are reported through the rules. Zero turns it off.
+	FileSummaryWindow time.Duration `yaml:"file_summary_window"`
 }
 
 // RingWakeup batches wake-ups. With Bytes zero the kernel wakes the agent for every record
@@ -83,6 +94,42 @@ type Tamper struct {
 	// PinDir is the directory on a BPF filesystem that holds the pins.
 	PinDir string `yaml:"pin_dir"`
 }
+
+// Blind configures blind mode. While the agent is gone, stopped or wedged,
+// the kernel refuses a short list of actions to processes in pods, whatever
+// the enforcement settings: the actions ordinary pods do not take and an
+// attacker takes next, after blinding the sensor. Pods in
+// Enforcement.ProtectNamespaces are left alone. It needs BPF LSM.
+type Blind struct {
+	// Mode is on (the default), dry_run (report what would be refused)
+	// or off.
+	Mode string `yaml:"mode"`
+	// StaleAfter is how old the agent's heartbeat may get before the
+	// sensor counts as blind. An agent that exits, or is sent SIGKILL or a
+	// stop signal, blinds it at once.
+	StaleAfter time.Duration `yaml:"stale_after"`
+	// Actions refused: exec_unlinked, ptrace, module_load, mount.
+	Actions []string `yaml:"actions"`
+	// Files whose opens are refused.
+	Files []BlindFile `yaml:"files"`
+}
+
+// BlindFile is a file blind mode protects.
+type BlindFile struct {
+	Path string `yaml:"path"`
+	// Kind is exact (a full path, also watched by identity) or name (a
+	// file name, wherever it is).
+	Kind string `yaml:"kind"`
+	// Ops is read or write, or both.
+	Ops []string `yaml:"ops"`
+}
+
+// Values of Blind.Mode.
+const (
+	BlindOn     = "on"
+	BlindDryRun = "dry_run"
+	BlindOff    = "off"
+)
 
 // Enforcement configures refusal in the kernel. It applies only to pods
 // that carry the opt-in label, and never to processes outside a pod.
@@ -154,8 +201,9 @@ func Default() *Config {
 			// helper, which they execute by file descriptor.
 			"/usr/lib/systemd/systemd-executor", "/lib/systemd/systemd-executor",
 		},
-		MetricsAddr: ":9090",
-		Export:      Export{RawEvents: true, Queue: 8192},
+		MetricsAddr:       ":9090",
+		FileSummaryWindow: 10 * time.Second,
+		Export:            Export{RawEvents: true, Queue: 8192},
 		Enforcement: Enforcement{
 			DryRun:            true,
 			OnAgentExit:       OnExitPinned,
@@ -164,7 +212,66 @@ func Default() *Config {
 			PinDir:            "/sys/fs/bpf/tephra",
 		},
 		Tamper: Tamper{KeepRecording: true, PinDir: "/sys/fs/bpf/tephra/detect"},
+		Blind: Blind{
+			Mode:       BlindOn,
+			StaleAfter: 12 * time.Second,
+			Actions:    []string{"exec_unlinked", "ptrace", "module_load", "mount"},
+			Files: []BlindFile{
+				{Path: "/etc/shadow", Kind: "exact", Ops: []string{"read", "write"}},
+				{Path: "/etc/ld.so.preload", Kind: "exact", Ops: []string{"write"}},
+				{Path: "authorized_keys", Kind: "name", Ops: []string{"write"}},
+				{Path: "release_agent", Kind: "name", Ops: []string{"write"}},
+				{Path: "/proc/sys/kernel/core_pattern", Kind: "exact", Ops: []string{"write"}},
+			},
+		},
 	}
+}
+
+// BlindActions are the actions blind mode can refuse, by name.
+var BlindActions = map[string]bool{"exec_unlinked": true, "ptrace": true, "module_load": true, "mount": true}
+
+// BlindWatches returns the file watches blind mode adds. They report
+// nothing; they mark the files the kernel refuses while blind.
+func (c *Config) BlindWatches() ([]filter.Watch, error) {
+	if c.Blind.Mode == BlindOff {
+		return nil, nil
+	}
+	out := make([]filter.Watch, 0, len(c.Blind.Files))
+	for _, f := range c.Blind.Files {
+		w := filter.Watch{Path: f.Path}
+		switch f.Kind {
+		case "exact":
+			w.Kind = filter.Exact
+			if len(f.Path) < 2 || f.Path[0] != '/' {
+				return nil, fmt.Errorf("blind.files: %q is not an absolute path", f.Path)
+			}
+			if len(f.Path) > filter.MaxPathLen {
+				return nil, fmt.Errorf("blind.files: %q is longer than %d bytes", f.Path, filter.MaxPathLen)
+			}
+		case "name":
+			w.Kind = filter.Name
+			if f.Path == "" || strings.Contains(f.Path, "/") || len(f.Path) > filter.MaxNameLen {
+				return nil, fmt.Errorf("blind.files: %q is not a file name of at most %d bytes", f.Path, filter.MaxNameLen)
+			}
+		default:
+			return nil, fmt.Errorf("blind.files %q: kind %q is not exact or name", f.Path, f.Kind)
+		}
+		if len(f.Ops) == 0 {
+			return nil, fmt.Errorf("blind.files %q: ops is empty (read, write)", f.Path)
+		}
+		for _, op := range f.Ops {
+			switch op {
+			case "read":
+				w.Bits |= filter.BlindRead
+			case "write":
+				w.Bits |= filter.BlindWrite
+			default:
+				return nil, fmt.Errorf("blind.files %q: op %q is not read or write", f.Path, op)
+			}
+		}
+		out = append(out, w)
+	}
+	return out, nil
 }
 
 // Load reads a configuration file over the defaults. An empty path gives
@@ -222,6 +329,28 @@ func (c *Config) Validate() error {
 	}
 	if p := c.Tamper.PinDir; len(p) < 2 || p[0] != '/' {
 		return fmt.Errorf("tamper.pin_dir %q is not an absolute path", p)
+	}
+	if w := c.FileSummaryWindow; w != 0 && w < time.Second {
+		return fmt.Errorf("file_summary_window %s is under 1s (0 turns it off)", w)
+	}
+	switch b := c.Blind; {
+	case b.Mode != BlindOn && b.Mode != BlindDryRun && b.Mode != BlindOff:
+		return fmt.Errorf("blind.mode %q is not on, dry_run or off", b.Mode)
+	case b.Mode != BlindOff && b.StaleAfter < 2*time.Second:
+		return fmt.Errorf("blind.stale_after %s is under 2s: the agent's heartbeat is every second", b.StaleAfter)
+	case b.Mode != BlindOff && !c.Tamper.KeepRecording:
+		// Without the pinned signal record the agent cannot tell a stop
+		// by Kubernetes from one by an attacker, and every stop would
+		// leave the node blind.
+		return fmt.Errorf("blind.mode %q needs tamper.keep_recording: a planned stop is told from an attack by the record of who sent the signal", b.Mode)
+	}
+	for _, a := range c.Blind.Actions {
+		if !BlindActions[a] {
+			return fmt.Errorf("blind.actions: %q is not exec_unlinked, ptrace, module_load or mount", a)
+		}
+	}
+	if _, err := c.BlindWatches(); err != nil {
+		return err
 	}
 	switch w := c.RingWakeup; {
 	case w.Bytes == 0 && w.Interval != 0:

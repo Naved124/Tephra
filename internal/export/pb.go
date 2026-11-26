@@ -71,6 +71,7 @@ func ToProto(r *Record) *tephrav1.Record {
 			Path: x.Path, Target: x.Target, Flags: x.Flags, Write: x.Write, Truncate: x.Truncate,
 			Inode: x.Inode, Dev: x.Dev, MatchedBy: x.MatchedBy, Op: x.Op, Error: x.Error,
 			K8SCredential: x.K8sCredential, CredentialPod: x.CredentialPod, CredentialOtherPod: x.CredentialOtherPod,
+			Count: x.Count, FirstSeen: x.FirstSeen, LastSeen: x.LastSeen,
 		}
 	}
 	if x := r.Signal; x != nil {
@@ -104,7 +105,7 @@ func ToProto(r *Record) *tephrav1.Record {
 		p.Namespaces = &tephrav1.Namespaces{Changed: x.Changed, Host: x.Host, OtherPod: x.OtherPod}
 	}
 	if x := r.Enforce; x != nil {
-		p.Enforce = &tephrav1.Enforce{Action: x.Action, Denied: x.Denied}
+		p.Enforce = &tephrav1.Enforce{Action: x.Action, Denied: x.Denied, Blind: x.Blind}
 	}
 	return p
 }
@@ -176,6 +177,7 @@ func FromProto(p *tephrav1.Record) *Record {
 			Path: x.GetPath(), Target: x.GetTarget(), Flags: x.GetFlags(), Write: x.GetWrite(), Truncate: x.GetTruncate(),
 			Inode: x.GetInode(), Dev: x.GetDev(), MatchedBy: x.GetMatchedBy(), Op: x.GetOp(), Error: x.GetError(),
 			K8sCredential: x.GetK8SCredential(), CredentialPod: x.GetCredentialPod(), CredentialOtherPod: x.GetCredentialOtherPod(),
+			Count: x.GetCount(), FirstSeen: x.GetFirstSeen(), LastSeen: x.GetLastSeen(),
 		}
 	}
 	if x := p.GetSignal(); x != nil {
@@ -218,7 +220,7 @@ func FromProto(p *tephrav1.Record) *Record {
 		}
 	}
 	if x := p.GetEnforce(); x != nil {
-		r.Enforce = &Enforce{Action: x.GetAction(), Denied: x.GetDenied()}
+		r.Enforce = &Enforce{Action: x.GetAction(), Denied: x.GetDenied(), Blind: x.GetBlind()}
 	}
 	return r
 }

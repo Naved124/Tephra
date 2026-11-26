@@ -363,7 +363,7 @@ func TestEvasionVerdicts(t *testing.T) {
 		"## Checks",
 		"| E09 | y | R005 missed | R027 | missed | detected | corrected |",
 		"| E17 | z | R005 missed | missed | missed | held |",
-		"1 of 1 detected or visible; 0 of 1 predictions held.",
+		"1 of 1 detected, visible or refused while blind; 0 of 1 predictions held.",
 	} {
 		if !strings.Contains(md, want) {
 			t.Errorf("markdown lacks %q:\n%s", want, md)
@@ -454,5 +454,49 @@ func TestReportOnlyFalsePositives(t *testing.T) {
 	}
 	if strings.Index(full, "## Detection scenarios") > strings.Index(full, "## False-positive run") {
 		t.Error("full report puts the false-positive run above the scenarios")
+	}
+}
+
+// A technique run.sh could not carry out counts as refused while blind only
+// on an R038 from the scenario's time, naming its pod when one is given.
+func TestBlindRefused(t *testing.T) {
+	start := time.Now()
+	r038 := alert("R038", "victim", "victim", "/bin/dd", start.Add(3*time.Second))
+	for _, tc := range []struct {
+		name   string
+		alerts []*Alert
+		pod    string
+		want   bool
+	}{
+		{"R038 for the pod", []*Alert{r038}, "victim", true},
+		{"R038, no pod asked", []*Alert{r038}, "", true},
+		{"R038 for another pod", []*Alert{r038}, "flood", false},
+		{"R038 from before the scenario", []*Alert{alert("R038", "victim", "", "", start.Add(-time.Minute))}, "victim", false},
+		{"other rules only", []*Alert{alert("R030", "victim", "", "", start), alert("R005", "victim", "", "", start)}, "victim", false},
+		{"nothing", nil, "victim", false},
+	} {
+		if got := blindRefused(tc.alerts, tc.pod, start); got != tc.want {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
+	}
+
+	// The verdict, and how a held-out evasion and the reports count it.
+	res := &Result{ID: "E19", Heldout: true, Predicted: Partial, RefusedBlind: true, Noticed: []string{"R030", "R038"}}
+	if v := res.Verdict(); v != RefusedWhileBlind {
+		t.Errorf("verdict %q, want %q", v, RefusedWhileBlind)
+	}
+	if m := res.Measured(); m != RefusedWhileBlind {
+		t.Errorf("measured %q, want %q: a refusal is not a detection", m, RefusedWhileBlind)
+	}
+	if res.PredictionHeld() {
+		t.Error("prediction partial held against a refusal")
+	}
+	md := (&EvasionReport{Results: []*Result{res}}).Markdown()
+	if !strings.Contains(md, "1 of 1 detected, visible or refused while blind") {
+		t.Errorf("evasion report does not count the refusal:\n%s", md)
+	}
+	// An error is never a refusal.
+	if v := (&Result{Error: "run.sh: technique not carried out", RefusedBlind: true}).Verdict(); v != "error" {
+		t.Errorf("verdict of an error %q", v)
 	}
 }

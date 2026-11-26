@@ -82,7 +82,18 @@ type Result struct {
 	// TookEffect says whether the technique went through, in an
 	// enforcement run.
 	TookEffect *bool `json:"took_effect,omitempty"`
+	// RefusedBlind: run.sh could not carry the technique out, and R038
+	// says the kernel refused it in the scenario's namespace because the
+	// sensor was blind. The scenario was defended, not left unrun.
+	RefusedBlind bool `json:"refused_blind,omitempty"`
 }
+
+// RefusedWhileBlind is the verdict of a scenario whose technique blind
+// mode refused.
+const RefusedWhileBlind = "refused-while-blind"
+
+// blindRule is the rule a refusal made while the sensor was blind raises.
+const blindRule = "R038"
 
 // Enforcement modes of a run.
 const (
@@ -94,6 +105,9 @@ const (
 func (r *Result) Verdict() string {
 	if r.Error != "" {
 		return "error"
+	}
+	if r.RefusedBlind {
+		return RefusedWhileBlind
 	}
 	if r.TookEffect != nil {
 		switch {
@@ -310,10 +324,25 @@ func (r *Runner) Run(ctx context.Context, s *Scenario) *Result {
 	if runErr != nil {
 		// Many techniques end with a non-zero status; what counts is
 		// whether the alert fires. Status 99 is run.sh saying that it
-		// could not carry the technique out at all.
+		// could not carry the technique out at all. That is a defence
+		// only when blind mode refused it, which R038 in the scenario's
+		// namespace shows once an agent is back; otherwise the scenario
+		// did not run.
 		var ee *exec.ExitError
 		if errors.As(runErr, &ee) && ee.ExitCode() == notCarriedOut {
-			return fail("run.sh", fmt.Errorf("technique not carried out: %s", strings.TrimSpace(string(out))))
+			why := strings.TrimSpace(string(out))
+			if r.awaitBlindRefusal(ctx, ns, s, start) {
+				r.logf("  run.sh: not carried out, refused while the sensor was blind (%s): %s", blindRule, why)
+				res.RefusedBlind = true
+				res.VisibleMS = time.Since(start).Milliseconds()
+				if s.Heldout {
+					res.Heldout = true
+					res.Noticed = r.noticed(ctx, ns, s, start)
+				}
+				res.Check = s.Check
+				return res
+			}
+			return fail("run.sh", fmt.Errorf("technique not carried out: %s", why))
 		}
 		r.logf("  run.sh: %v %s", runErr, strings.TrimSpace(string(out)))
 	}
@@ -365,6 +394,39 @@ func (r *Runner) Run(ctx context.Context, s *Scenario) *Result {
 	}
 	res.DropsVisible = s.ExpectDrops && res.Drops > 0
 	return res
+}
+
+// awaitBlindRefusal waits, up to the scenario's time, for an R038 alert in
+// its namespace, naming its pod when the scenario says which pod alerts
+// name.
+func (r *Runner) awaitBlindRefusal(ctx context.Context, ns string, s *Scenario, start time.Time) bool {
+	selector := fmt.Sprintf(`{stream="alert", namespace=%q}`, ns)
+	deadline := time.Now().Add(s.Timeout)
+	for {
+		alerts, err := r.Cluster.Alerts(ctx, selector, start.Add(-2*time.Second))
+		if err == nil && blindRefused(alerts, s.AlertPod, start) {
+			return true
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			return false
+		}
+		time.Sleep(time.Second)
+	}
+}
+
+// blindRefused says whether the alerts hold an R038 from the scenario's
+// time, for pod when it is given.
+func blindRefused(alerts []*Alert, pod string, start time.Time) bool {
+	for _, a := range alerts {
+		if a.Rule.ID != blindRule || a.Time().Before(start.Add(-2*time.Second)) {
+			continue
+		}
+		if pod != "" && a.K8s.Pod != pod {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // nodeAlerts selects the alerts about a node that belong to no pod. The
