@@ -1,4 +1,4 @@
-module github.com/Naved124/tephra
+module github.com/tephrasec/tephra
 
 go 1.27.3
 

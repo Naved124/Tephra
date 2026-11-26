@@ -19,9 +19,9 @@ import (
 
 	"google.golang.org/grpc"
 
-	tephrav1 "github.com/Naved124/tephra/api/tephra/v1"
-	"github.com/Naved124/tephra/internal/collector"
-	"github.com/Naved124/tephra/internal/export"
+	tephrav1 "github.com/tephrasec/tephra/api/tephra/v1"
+	"github.com/tephrasec/tephra/internal/collector"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 // fakeLoki keeps what is pushed, dropping exact duplicates as Loki does.

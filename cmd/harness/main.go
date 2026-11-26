@@ -2,7 +2,7 @@
 
 // harness runs the attack scenarios under attacks/ against the lab cluster
 // and writes the coverage report. Lab use only: it refuses to run unless
-// every node of the cluster is labelled tephra.dev/lab=true.
+// every node of the cluster is labelled tephrasec.tech/lab=true.
 package main
 
 import (
@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Naved124/tephra/internal/harness"
+	"github.com/tephrasec/tephra/internal/harness"
 )
 
 const usage = `usage:
@@ -33,7 +33,7 @@ The agents must already run enforcement in that mode.
 
 Runs real attack techniques. Use it only on the lab VM or a throwaway
 cluster you own; it refuses a cluster whose nodes are not labelled
-tephra.dev/lab=true.
+tephrasec.tech/lab=true.
 
 `
 

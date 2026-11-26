@@ -10,7 +10,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/Naved124/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 // A sequence rule fires when its steps match in order on events that belong

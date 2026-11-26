@@ -5,7 +5,7 @@ package rules
 import (
 	"strings"
 
-	"github.com/Naved124/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 // kind is the type of a field's value.

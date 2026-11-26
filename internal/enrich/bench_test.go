@@ -10,10 +10,10 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/identity"
-	"github.com/Naved124/tephra/internal/proctree"
-	"github.com/Naved124/tephra/internal/rules"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/identity"
+	"github.com/tephrasec/tephra/internal/proctree"
+	"github.com/tephrasec/tephra/internal/rules"
 )
 
 // BenchmarkExecChurn replays the event shape of the exec benchmark: a

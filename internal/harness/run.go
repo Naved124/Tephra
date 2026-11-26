@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Naved124/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 // Verdicts for one expected rule.
@@ -225,7 +225,7 @@ type Runner struct {
 }
 
 // EnforceLabel opts a pod in to enforcement, as in the chart's default.
-const EnforceLabel = "tephra.dev/enforce"
+const EnforceLabel = "tephrasec.tech/enforce"
 
 func (r *Runner) logf(format string, args ...any) {
 	if r.Log != nil {
@@ -292,7 +292,7 @@ func (r *Runner) Run(ctx context.Context, s *Scenario) *Result {
 			r.logf("  namespace %s not gone yet: %v", ns, err)
 		}
 	}()
-	_, _ = c.kubectl(ctx, nil, "label", "namespace", ns, "tephra.dev/harness=true")
+	_, _ = c.kubectl(ctx, nil, "label", "namespace", ns, "tephrasec.tech/harness=true")
 
 	if _, err := c.kubectl(ctx, nil, "-n", ns, "apply", "-f", filepath.Join(s.Dir, "target.yaml")); err != nil {
 		return fail("apply target", err)

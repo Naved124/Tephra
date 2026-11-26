@@ -842,7 +842,7 @@ All six refuse only inside pods that opted in, as below.
 
 A blocking bug on a node can stop workloads or the node itself, so the defaults are conservative.
 
-- Containers only, by opt-in. The agent writes to enforce_cgroups the pod-level cgroup of every pod on its node that carries the label `tephra.dev/enforce=true`, every 250 ms when something changed. Host processes are never denied.
+- Containers only, by opt-in. The agent writes to enforce_cgroups the pod-level cgroup of every pod on its node that carries the label `tephrasec.tech/enforce=true`, every 250 ms when something changed. Host processes are never denied.
 - Protected namespaces. Pods in kube-system and in the agent's own namespace go into protect_cgroups, label or not; the list is configurable. The agent's own cgroup is always there.
 - The container runtime is let through by file identity (runtime_inodes), as in detection, and its copy of itself that sets a container up is marked in runtime_tasks until it executes the container's program.
 - Off and dry-run by default. `enforcement.enabled` is false; with it true, `enforcement.dry_run` is true until set otherwise, and nothing is refused, only reported. The harness asserts would-deny events before any real deny is enabled.
@@ -1017,7 +1017,7 @@ M3 to M5 were run on the dev VM (Ubuntu 24.04, kernel 6.8.0-147) on a freshly cr
 
 ### M7
 
-- **Lab guard.** The harness reads the node list first and refuses unless every node has `tephra.dev/lab=true`. It has no override.
+- **Lab guard.** The harness reads the node list first and refuses unless every node has `tephrasec.tech/lab=true`. It has no override.
 - **Alerts are read through Grafana.** Loki accepts connections only from the collector and Grafana (M5), so the harness uses Grafana's datasource proxy over a port-forward, with the credentials read from the Secret and kept in the process.
 - **Verdicts are by namespace.** Each scenario has a namespace of its own, so an alert is attributed to the scenario by its namespace label; "detected" also needs the expected pod name, a container and a process image in the alert.
 - **Two times per scenario.** "Event after" is from the start of run.sh to the kernel timestamp of the event that raised the alert. "Visible after" is until every expected alert could be queried, and includes the harness's one-second polling.
@@ -1320,3 +1320,4 @@ Not verified: the release workflow, which has not run; the dashboard as rendered
     - The rate limit mattered: 10,444 refusals went unreported against a handful reported, all from the flood pods.
     - File summaries never started: the main buffer was not half full in any scenario, because the fresh agent kept up, so `tephra_file_opens_counted_total` stayed 0. They are shown by the kernel test only.
   - **Not covered.** A move not on the list (a plain `curl` out, a read of a file not in `blind.files`) goes ahead while blind and is seen only if the agent comes back in time to read its record. A process in a protected namespace is never refused. The 12 s staleness leaves a freeze shorter than that unrefused unless it came with a stop signal. An attacker with root on the node can unpin the maps; that is outside the threat model (kernel and host root, section 1). Tier 2 (refusing while the main buffer is full, with an agent alive) is issue #7.
+- **Moved to the tephrasec organisation (27 Nov).** The repository moved to `github.com/tephrasec/tephra`, with its own domain, `tephrasec.tech`. The Go module, the generated protobuf package, the image names (`ghcr.io/tephrasec/tephrad`, `ghcr.io/tephrasec/tephra-collector`) and the chart's OCI repository follow it. The label keys move from `tephra.dev/` to `tephrasec.tech/` (`enforce`, and the harness's `lab` guard), because the project does not own `tephra.dev`, and a switch that turns blocking on should not sit under someone else's domain. The old enforcement label is not honoured: a pod that still carries only `tephra.dev/enforce` is not refused anything, which is the safe direction for a change of name, and the release notes say so. Nothing is fetched from the domain: the module path is GitHub's, and the chart is an OCI package on GHCR. Recorded results keep the names they were recorded with. The release prepared as v0.2.0 ships as the first public release, `v0.1.0`, starting with `v0.1.0-rc.1` for testers; the build log keeps the "v0.2.0 item" names it was written with.

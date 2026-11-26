@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Naved124/tephra/internal/k8s"
+	"github.com/tephrasec/tephra/internal/k8s"
 )
 
 // ProcFS reads process state from a mounted /proc. With hostPID the pids it

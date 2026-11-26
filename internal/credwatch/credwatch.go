@@ -24,7 +24,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/Naved124/tephra/internal/k8s"
+	"github.com/tephrasec/tephra/internal/k8s"
 )
 
 // Sink is where watches are written; the loaded sensor implements it.

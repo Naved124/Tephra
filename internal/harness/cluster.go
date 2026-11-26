@@ -20,7 +20,7 @@ import (
 )
 
 // LabLabel must be on every node of a cluster the harness may attack.
-const LabLabel = "tephra.dev/lab"
+const LabLabel = "tephrasec.tech/lab"
 
 // Cluster reaches the lab cluster through kubectl, and Loki through
 // Grafana.
@@ -416,7 +416,7 @@ func (c *Cluster) deleteNamespace(ctx context.Context, ns string) error {
 func (c *Cluster) awaitHarnessGone(ctx context.Context, limit time.Duration) error {
 	deadline := time.Now().Add(limit)
 	for {
-		out, err := c.kubectl(ctx, nil, "get", "namespace", "-l", "tephra.dev/harness=true", "-o", "name")
+		out, err := c.kubectl(ctx, nil, "get", "namespace", "-l", "tephrasec.tech/harness=true", "-o", "name")
 		left := strings.Fields(string(out))
 		if err == nil && len(left) == 0 {
 			return nil

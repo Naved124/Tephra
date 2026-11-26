@@ -5,8 +5,8 @@ package main
 import (
 	"time"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/loader"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/loader"
 )
 
 // tamperStore is the kernel's side of tamper records: how many were lost,

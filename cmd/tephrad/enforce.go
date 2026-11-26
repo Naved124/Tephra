@@ -9,11 +9,11 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Naved124/tephra/internal/config"
-	"github.com/Naved124/tephra/internal/export"
-	"github.com/Naved124/tephra/internal/k8s"
-	"github.com/Naved124/tephra/internal/loader"
-	"github.com/Naved124/tephra/internal/rules"
+	"github.com/tephrasec/tephra/internal/config"
+	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/k8s"
+	"github.com/tephrasec/tephra/internal/loader"
+	"github.com/tephrasec/tephra/internal/rules"
 )
 
 const enforceUsage = `usage:

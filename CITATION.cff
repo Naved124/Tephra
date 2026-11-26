@@ -6,7 +6,7 @@ authors:
   - given-names: "MD Naved Raja"
     family-names: "Khan"
     orcid: "https://orcid.org/0009-0004-0426-2822"
-repository-code: "https://github.com/Naved124/tephra"
+repository-code: "https://github.com/tephrasec/tephra"
 url: "https://navedkhan.dev/"
 abstract: >-
   An eBPF sensor that watches process, file and network activity on

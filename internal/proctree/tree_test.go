@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/k8s"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/k8s"
 )
 
 func fork(parent, child Key) *events.Fork {

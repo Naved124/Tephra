@@ -5,7 +5,7 @@ package main
 import (
 	"testing"
 
-	"github.com/Naved124/tephra/internal/loader"
+	"github.com/tephrasec/tephra/internal/loader"
 )
 
 func sumKey(pid uint32) loader.SummaryKey { return loader.SummaryKey{Pid: pid} }

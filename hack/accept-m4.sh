@@ -130,7 +130,7 @@ n=$(events_since "$t0" | jq -c 'select(.rule.id == "R900")' | grep -c . || true)
 kubectl -n "$NAMESPACE" patch configmap "${RELEASE}-rules" --type merge -p "$(jq -n '{data: {"R900-reload-test.yaml": "id: R900\ntitle: Reload test\nlevel: info\ntags: [attack.execution, attack.t1059]\nevent: exec\ndetection:\n  selection:\n    process.CommandLine|contains: tephra-reload-marker\n  condition: selection\n"}}')" >/dev/null
 # The kubelet refreshes ConfigMap volumes on its own schedule; touching the
 # pod makes it look now.
-kubectl -n "$NAMESPACE" annotate "$agent" --overwrite "tephra.dev/sync=$(date +%s)" >/dev/null
+kubectl -n "$NAMESPACE" annotate "$agent" --overwrite "tephrasec.tech/sync=$(date +%s)" >/dev/null
 loaded=""
 for _ in $(seq 1 60); do
 	hup
@@ -153,7 +153,7 @@ pass "a rule added to the ConfigMap fires after SIGHUP, same pod, ${restarts_aft
 errors_before=$(scrape "$agent" | metric tephra_agent_reload_errors_total)
 kubectl -n "$NAMESPACE" patch configmap "${RELEASE}-rules" --type merge \
 	-p '{"data":{"R901-broken.yaml":"id: R901\ntitle: Broken\nlevel: high\nevent: exec\ndetection:\n  selection:\n    nope: 1\n  condition: selection\n"}}' >/dev/null
-kubectl -n "$NAMESPACE" annotate "$agent" --overwrite "tephra.dev/sync=$(date +%s)" >/dev/null
+kubectl -n "$NAMESPACE" annotate "$agent" --overwrite "tephrasec.tech/sync=$(date +%s)" >/dev/null
 errors_after="$errors_before"
 for _ in $(seq 1 60); do
 	hup
@@ -171,7 +171,7 @@ pass "an invalid rule is refused on reload and the running rules stay in force: 
 
 # Restore the shipped set and confirm it.
 cleanup
-kubectl -n "$NAMESPACE" annotate "$agent" --overwrite "tephra.dev/sync=$(date +%s)" >/dev/null
+kubectl -n "$NAMESPACE" annotate "$agent" --overwrite "tephrasec.tech/sync=$(date +%s)" >/dev/null
 for _ in $(seq 1 60); do
 	hup
 	sleep 3

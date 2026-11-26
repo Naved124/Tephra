@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Naved124/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 // Quiet connections. Most connect and accept rules decide on the process

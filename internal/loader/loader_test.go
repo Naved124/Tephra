@@ -13,7 +13,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	"github.com/Naved124/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/events"
 )
 
 // Runs unprivileged: it only inspects the embedded object.

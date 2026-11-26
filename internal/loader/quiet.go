@@ -9,7 +9,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	"github.com/Naved124/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/events"
 )
 
 // Directions of a quiet mark, NET_QUIET_* in bpf/common.h.

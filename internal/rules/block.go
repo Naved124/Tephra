@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Naved124/tephra/internal/export"
-	"github.com/Naved124/tephra/internal/filter"
+	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/filter"
 )
 
 // A rule with "action: block" also refuses what it detects, in the pods

@@ -9,8 +9,8 @@ import (
 
 	"github.com/cilium/ebpf/btf"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/loader"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/loader"
 )
 
 // The decoder's offsets must match the structs the kernel programs were

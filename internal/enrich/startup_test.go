@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 // Pid namespaces in the replays: the node's, and the container's.

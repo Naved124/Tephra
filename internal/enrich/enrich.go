@@ -17,12 +17,12 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/Naved124/tephra/internal/credwatch"
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/export"
-	"github.com/Naved124/tephra/internal/identity"
-	"github.com/Naved124/tephra/internal/k8s"
-	"github.com/Naved124/tephra/internal/proctree"
+	"github.com/tephrasec/tephra/internal/credwatch"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/identity"
+	"github.com/tephrasec/tephra/internal/k8s"
+	"github.com/tephrasec/tephra/internal/proctree"
 )
 
 // Enricher is used by one goroutine, the pipeline's enrich stage.

@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/Naved124/tephra/internal/k8s"
+	"github.com/tephrasec/tephra/internal/k8s"
 )
 
 type sink struct{ m map[fileID]uint32 }

@@ -10,7 +10,7 @@ import (
 
 	"github.com/cilium/ebpf"
 
-	"github.com/Naved124/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/events"
 )
 
 // FileSumKey names one file summary: the opens of one file by one program in

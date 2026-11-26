@@ -7,7 +7,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/Naved124/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/export"
 )
 
 func sigRec(image string, pid uint32, runtime, inPod bool, sig syscall.Signal) *export.Record {

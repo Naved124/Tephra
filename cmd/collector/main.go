@@ -23,8 +23,8 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 
-	tephrav1 "github.com/Naved124/tephra/api/tephra/v1"
-	"github.com/Naved124/tephra/internal/collector"
+	tephrav1 "github.com/tephrasec/tephra/api/tephra/v1"
+	"github.com/tephrasec/tephra/internal/collector"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".

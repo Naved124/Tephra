@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Naved124/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/events"
 )
 
 // dialSelf connects to ln and accepts the connection, then returns the

@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/Naved124/tephra/internal/events"
-	"github.com/Naved124/tephra/internal/export"
-	"github.com/Naved124/tephra/internal/k8s"
+	"github.com/tephrasec/tephra/internal/events"
+	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/k8s"
 )
 
 // metricsHandler serves the Prometheus text format. The kernel counters are
