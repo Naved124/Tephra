@@ -7,7 +7,9 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/tephrasec/tephra/internal/events"
 	"github.com/tephrasec/tephra/internal/export"
+	"github.com/tephrasec/tephra/internal/loader"
 )
 
 func sigRec(image string, pid uint32, runtime, inPod bool, sig syscall.Signal) *export.Record {
@@ -52,5 +54,49 @@ func TestStopJudgement(t *testing.T) {
 	a.noteSignal(r)
 	if a.stop.seen {
 		t.Error("signal to another process taken as the agent's")
+	}
+}
+
+type countCloser struct{ n int }
+
+func (c *countCloser) Close() error { c.n++; return nil }
+
+// An agent whose recording outlives it stops reading the kernel first, then
+// handles what it had already read, so nothing between its stop and the
+// next agent is lost. After a planned stop it marks the tamper records it
+// handled done, so the next agent does not raise Kubernetes' own SIGTERM as
+// an attack; after an unplanned one it leaves them, so the next agent raises
+// them again if this one's alerts never got out.
+func TestHandOver(t *testing.T) {
+	for _, planned := range []bool{true, false} {
+		f := &fakeTamper{reported: map[loader.TamperKind]uint64{}}
+		a, out := tamperAgent(t, f)
+		const seq = 1<<12 | 7
+		ev, err := events.Decode(tamperRaw(events.TypeSignal, seq, 90e9, 555, 4242, uint32(syscall.SIGTERM)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		queue := make(chan events.Event, 4)
+		queue <- ev
+		readErr := make(chan error, 2)
+		readErr <- nil
+		readErr <- nil
+		rd1, rd2 := &countCloser{}, &countCloser{}
+
+		if err := a.handOver(planned, queue, readErr, 2, rd1, rd2); err != nil {
+			t.Fatal(err)
+		}
+		if rd1.n != 1 || rd2.n != 1 {
+			t.Errorf("planned=%v: readers closed %d and %d times, want once each", planned, rd1.n, rd2.n)
+		}
+		if len(queue) != 0 {
+			t.Errorf("planned=%v: %d events left in the queue, lost with the agent", planned, len(queue))
+		}
+		if got := alerts(t, a, out); got["R030"] == nil {
+			t.Errorf("planned=%v: the queued signal was not handled: %v", planned, got)
+		}
+		if f.done[seq] != planned {
+			t.Errorf("planned=%v: tamper record marked done = %v, want %v", planned, f.done[seq], planned)
+		}
 	}
 }

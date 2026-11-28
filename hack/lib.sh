@@ -80,6 +80,21 @@ root_exec() {
 	kubectl -n "$TEST_NS" exec probe -c root -- "$@"
 }
 
+# Prints every record matching a jq filter since a time, once they have
+# arrived: it waits until one is there (up to the timeout), then a second
+# more for any duplicate, so a check of "exactly one" is not decided by how
+# fast the agent's log happens to be. With none after the timeout it prints
+# nothing, and the caller's count fails as before.
+settled() { # since, jq filter, timeout seconds
+	local since="$1" filter="$2" deadline=$((SECONDS + $3))
+	while [ "$SECONDS" -lt "$deadline" ]; do
+		events_since "$since" | jq -e -c "select(${filter})" >/dev/null 2>&1 && break
+		sleep 1
+	done
+	sleep 1
+	events_since "$since" | jq -c "select(${filter})"
+}
+
 # Waits for one record matching a jq filter and prints it.
 wait_record() { # since, jq filter, timeout seconds
 	local since="$1" filter="$2" deadline=$((SECONDS + $3)) found=""

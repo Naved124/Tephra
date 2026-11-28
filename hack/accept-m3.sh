@@ -36,9 +36,8 @@ for ip in "${ips[@]}"; do
 	# The web server in the root container answers 404; the connection is
 	# what matters.
 	probe_exec wget -q -T 5 -O /dev/null "$url" 2>/dev/null || true
-	sleep 1
 
-	found=$(events_since "$t0" | jq -c "select(.type == \"connect\" and .network.DestinationIp == \"${ip}\" and .network.DestinationPort == 8080)")
+	found=$(settled "$t0" ".type == \"connect\" and .network.DestinationIp == \"${ip}\" and .network.DestinationPort == 8080" 10)
 	n=$(printf '%s' "$found" | grep -c . || true)
 	[ "$n" -eq 1 ] || fail "${family}: expected exactly one connect event to ${ip}:8080, got ${n}: ${found}"
 	check_record "$found" "${family} connect: wrong family or protocol" ".network.family == \"${family}\" and .network.protocol == \"tcp\" and .network.direction == \"outbound\""
@@ -57,20 +56,31 @@ done
 # /etc/shadow is watched by the shipped rule R005.
 t0=$(now)
 root_exec cat /etc/shadow >/dev/null
-sleep 1
-found=$(events_since "$t0" | jq -c 'select(.type == "file_open" and .rule == null and .file.path == "/etc/shadow")')
+found=$(settled "$t0" '.type == "file_open" and .rule == null and .file.path == "/etc/shadow"' 10)
 n=$(printf '%s' "$found" | grep -c . || true)
 [ "$n" -eq 1 ] || fail "expected exactly one file_open event for /etc/shadow, got ${n}: ${found}"
 check_record "$found" "wrong process or flags" '.process.Image == "/bin/cat" and .file.write == false and .process.uid == 0'
 check_record "$found" "wrong pod" ".k8s.pod == \"probe\" and .container.name == \"root\" and .node == \"${node}\""
 pass "one file_open event for a watched path: $(jq -c '{Image: .process.Image, file}' <<<"$found")"
 
+# A program is known by its content, and a busybox applet is not the main
+# binary of a container whose program is another applet of the same file.
+# The root container runs busybox's httpd. Without recognition by content,
+# every applet in it would pass for its main binary, and the rules that
+# leave the application alone would spare an attacker's shell (A05, 27 Nov).
+t0=$(now)
+root_exec sh -c 'exit 0'
+found=$(settled "$t0" '.type == "exec" and .rule == null and .k8s.pod == "probe" and .container.name == "root" and .process.Image == "/bin/sh"' 10 | sed -n 1p)
+[ -n "$found" ] || fail "no exec event for sh in the probe's root container"
+check_record "$found" "sh in a busybox container not recognised by content" '.process.identity == "shell"'
+check_record "$found" "a busybox applet taken for the main binary of a container running another applet" '(.process.is_main_binary // false) == false'
+pass "a busybox shell is known by its content and is not the container's main binary: $(jq -c '{Image: .process.Image, identity: .process.identity}' <<<"$found")"
+
 # A hard link under an unwatched directory, with an unwatched name.
 root_exec sh -c 'rm -f /tmp/innocent && ln /etc/shadow /tmp/innocent'
 t0=$(now)
 root_exec cat /tmp/innocent >/dev/null
-sleep 1
-found=$(events_since "$t0" | jq -c 'select(.type == "file_open" and .rule == null and .file.path == "/tmp/innocent")')
+found=$(settled "$t0" '.type == "file_open" and .rule == null and .file.path == "/tmp/innocent"' 10)
 root_exec rm -f /tmp/innocent
 n=$(printf '%s' "$found" | grep -c . || true)
 [ "$n" -eq 1 ] || fail "expected exactly one file_open event for the hard link /tmp/innocent, got ${n}: ${found}"
@@ -82,7 +92,10 @@ pass "the same file through a hard link is reported by identity: $(jq -c '.file'
 before=$(scrape "$agent")
 t0=$(now)
 root_exec cat /etc/hostname >/dev/null
-sleep 1
+# Nothing must come of the open. Once the cat's exit is in, everything it
+# did before has been handled, so the count is final.
+[ -n "$(settled "$t0" '.type == "exit" and .process.CommandLine == "cat /etc/hostname"' 10)" ] ||
+	fail "no exit record for cat /etc/hostname, so the absence of its open proves nothing"
 n=$(events_since "$t0" | jq -c 'select(.type == "file_open" and .file.path == "/etc/hostname")' | grep -c . || true)
 [ "$n" -eq 0 ] || fail "unwatched /etc/hostname produced ${n} file_open events"
 after=$(scrape "$agent")

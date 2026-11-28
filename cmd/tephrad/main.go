@@ -61,6 +61,11 @@ type options struct {
 // counters are the agent's own metrics; kernel counters come from the stats
 // map.
 type counters struct {
+	// ready is true while the agent reads and handles events: after its
+	// programs are attached and its readers started, until it is asked to
+	// stop. /readyz answers from it, so Kubernetes counts a new agent as
+	// ready, and a rollout moves on to the next node, only once it watches.
+	ready        atomic.Bool
 	decodeErrors atomic.Uint64
 	nestedOpens  atomic.Uint64
 	// deniedUnwatched counts refused opens of files no watch covers.
@@ -826,6 +831,7 @@ func run(log *slog.Logger, o options) error {
 	defer groups.Stop()
 	sums := time.NewTicker(summaryEvery)
 	defer sums.Stop()
+	c.ready.Store(true)
 	for {
 		select {
 		case now := <-sums.C:
@@ -848,6 +854,7 @@ func run(log *slog.Logger, o options) error {
 				a.drainSummaries(now)
 			}
 		case <-ctx.Done():
+			c.ready.Store(false)
 			log.Info("signal received, shutting down")
 			// What was counted so far is sent, not lost with the agent.
 			a.drainSummaries(time.Now())
@@ -865,10 +872,30 @@ func run(log *slog.Logger, o options) error {
 					if _, err := sensor.SetBlind(loader.BlindOff, nil, 0); err != nil {
 						log.Error("could not switch blind mode off for the planned stop", "error", err.Error())
 					}
-					sensor.UnpinDetection()
-					log.Info("planned stop: detection unpinned", "reason", why)
+					// Only an uninstall takes the recording away. A
+					// rollout, a deleted pod or a drained node leaves
+					// the DaemonSet in place and another agent follows:
+					// the kernel keeps recording for it, so the seconds
+					// in between are not a gap. When the API cannot say,
+					// recording goes on; "tephrad detect off" removes it.
+					uctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					removing, err := k8s.DaemonSetRemoving(uctx, os.Getenv("POD_NAMESPACE"), os.Getenv("DAEMONSET_NAME"))
+					cancel()
+					switch {
+					case err != nil:
+						log.Warn("planned stop: could not tell an uninstall from a restart; detection stays pinned and keeps recording for the next agent",
+							"reason", why, "error", err.Error())
+						return a.handOver(true, queue, readErr, 2, sensor.Events(), sensor.TamperEvents())
+					case removing:
+						sensor.UnpinDetection()
+						log.Info("planned stop: uninstall, detection unpinned", "reason", why)
+					default:
+						log.Info("planned stop: restart, detection stays pinned and keeps recording for the next agent", "reason", why)
+						return a.handOver(true, queue, readErr, 2, sensor.Events(), sensor.TamperEvents())
+					}
 				} else {
 					log.Warn("unplanned stop: detection stays pinned and keeps recording for the next agent", "reason", why)
+					return a.handOver(false, queue, readErr, 2, sensor.Events(), sensor.TamperEvents())
 				}
 			}
 			return a.stdout.Flush()
