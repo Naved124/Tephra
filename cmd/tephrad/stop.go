@@ -103,3 +103,54 @@ func detectCmd(args []string, stdout, stderr io.Writer) int {
 	_, _ = fmt.Fprintln(stdout, "pinned detection removed")
 	return 0
 }
+
+// handOver ends an agent whose kernel recording outlives it, so that the
+// next agent picks up exactly where this one stopped. The readers stop
+// first: what is still in the kernel's buffers stays there for the next
+// agent. What was already read into the queue is handled here, since it is
+// no longer in the kernel and would otherwise be lost with this process.
+// After a planned stop, once the output is flushed, the tamper records
+// handled are marked done, so the next agent does not raise them again from
+// the kernel's table with less to go on (a planned SIGTERM whose runc has
+// exited would read as an attack). After an unplanned one they are left for
+// the next agent to raise again: this agent's alerts may not have got out.
+func (a *agent) handOver(planned bool, queue <-chan events.Event, readErr <-chan error, readers int, closers ...io.Closer) error {
+	for _, c := range closers {
+		_ = c.Close()
+	}
+	for stopped := 0; stopped < readers; {
+		select {
+		case ev := <-queue:
+			a.handle(ev)
+		case err := <-readErr:
+			// A reader that ended with an error has stopped all the same.
+			if err != nil && a.log != nil {
+				a.log.Warn("ring buffer reader ended with an error while handing over", "error", err.Error())
+			}
+			stopped++
+		}
+	}
+	for {
+		select {
+		case ev := <-queue:
+			a.handle(ev)
+			continue
+		default:
+		}
+		break
+	}
+	a.flushGroups(time.Now().Add(export.GroupWindow))
+	if err := a.stdout.Flush(); err != nil {
+		return err
+	}
+	if planned && a.tamper != nil {
+		for seq := range a.tamperSeen {
+			if err := a.tamper.SetTamperDone(seq); err != nil {
+				a.c.tamperErrors.Add(1)
+				continue
+			}
+			delete(a.tamperSeen, seq)
+		}
+	}
+	return nil
+}

@@ -782,8 +782,15 @@ func (e *Enricher) identify(ev *events.Exec, rec *export.Record, p proctree.Proc
 	}
 	var rootPID uint32
 	modified := false
+	// A process in the node's mount namespace sees the node's root, not
+	// the container's: a runtime hook running in the container's cgroup
+	// (kind's mount-product-files.sh) or runc before it enters the
+	// container. Its root must not be read, nor count, as the container's.
+	onNode := func(mnt uint32) bool { return mnt != 0 && mnt == e.hostNS["mnt"] }
 	if first, ok := e.tree.OldestInContainer(rec.Container.ID); ok {
-		rootPID = first.Key.PID
+		if !onNode(first.MntNS) {
+			rootPID = first.Key.PID
+		}
 		started := e.boot.Add(time.Duration(first.Key.StartNS))
 		if ev.CtimeNS != 0 && time.Unix(0, int64(ev.CtimeNS)).After(started.Add(exeSlack)) {
 			modified = true
@@ -802,13 +809,16 @@ func (e *Enricher) identify(ev *events.Exec, rec *export.Record, p proctree.Proc
 	// exited but still in the tree; the oldest live process of the mount
 	// namespace has the same root. It is looked for only when needed.
 	liveRoot := func() uint32 {
-		if o, ok := e.tree.MntOwner(ev.MntNS); ok && ev.MntNS != 0 {
+		if o, ok := e.tree.MntOwner(ev.MntNS); ok && ev.MntNS != 0 && !onNode(ev.MntNS) {
 			return o.Key.PID
 		}
 		return 0
 	}
 	if !e.idRoots[rec.Container.ID] {
-		ok := e.ids.ObserveRoot(p.Key.PID)
+		ok := false
+		if !onNode(ev.MntNS) {
+			ok = e.ids.ObserveRoot(p.Key.PID)
+		}
 		if !ok && rootPID != 0 && rootPID != p.Key.PID {
 			ok = e.ids.ObserveRoot(rootPID)
 		}

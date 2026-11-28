@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -1270,5 +1271,41 @@ func TestGhostNamespaceOwner(t *testing.T) {
 	f.dead[50] = true
 	if n, _ := f.e.Sweep(time.Now()); n != 1 || f.e.Ghosts() != 1 {
 		t.Errorf("sweep: %d found, %d counted, want 1", n, f.e.Ghosts())
+	}
+}
+
+// A runtime hook runs in the container's cgroup with the node's root
+// filesystem (kind's mount-product-files.sh, before the container's
+// program). It is often the first program the agent sees in a container.
+// Reading the container's files through it would learn the node's, and the
+// container would count as read: nothing in it would ever be known by
+// content, and in a busybox pod every applet would then pass for the main
+// binary (A05). Only a process outside the node's mount namespace shows the
+// container's root.
+func TestIdentityRootNotFromNodeMountNamespace(t *testing.T) {
+	const hostMnt, podMnt = 4026531841, 4026532900
+	f := newFixture(t)
+	f.e.hostNS = map[string]uint32{"mnt": hostMnt}
+	ids := &fakeIdentifier{gone: map[uint32]bool{48190: true}}
+	f.e.SetIdentity(ids)
+	f.webPod()
+	cg := f.cgroup(scope)
+	f.procEntry(100, 1, 1000, "/usr/bin/containerd-shim-runc-v2", "containerd-shim-runc-v2")
+	f.procEntry(48190, 100, 2000, "/usr/sbin/nginx", "nginx: master process")
+	f.inContainer(48190)
+	if _, err := f.tree.Seed(proctree.ProcFS{Root: f.proc}); err != nil {
+		t.Fatal(err)
+	}
+
+	hook := events.Header{Type: events.TypeExec, PID: 48200, StartTimeNS: 98_000_000_000, PPID: 100, CgroupID: cg, MntNS: hostMnt}
+	f.e.Handle(&events.Exec{Header: hook, Path: "/bin/bash", Argv: []string{"/bin/bash", "/kind/bin/mount-product-files.sh"}, Dev: 9, Inode: 1}, time.Now())
+	if slices.Contains(ids.roots, hook.PID) {
+		t.Fatalf("container's files read through a process in the node's mount namespace: roots %v", ids.roots)
+	}
+
+	sh := events.Header{Type: events.TypeExec, PID: 48300, StartTimeNS: 99_000_000_000, PPID: 48190, CgroupID: cg, MntNS: podMnt}
+	f.e.Handle(&events.Exec{Header: sh, Path: "/bin/sh", Argv: []string{"sh"}, Dev: 5, Inode: 7}, time.Now())
+	if !slices.Contains(ids.roots, sh.PID) {
+		t.Errorf("the container's own process was not used to read its files: roots %v", ids.roots)
 	}
 }

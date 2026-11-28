@@ -17,6 +17,14 @@ import (
 // read from the stats map on every scrape.
 func metricsHandler(a *agent, pods *k8s.PodIndex) http.Handler {
 	mux := http.NewServeMux()
+	// /readyz is what the chart's readiness probe asks.
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if !a.c.ready.Load() {
+			http.Error(w, "not reading events yet", http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("ok\n"))
+	})
 	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
 		var b strings.Builder
 		c := a.c

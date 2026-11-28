@@ -46,6 +46,14 @@ spec:
           ports:
             - name: metrics
               containerPort: {{ .Values.agent.metricsPort }}
+          # Ready only once the agent's programs are attached and it reads
+          # events, so a rollout does not move on to the next node before.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            periodSeconds: 2
+            failureThreshold: 1
           env:
             - name: NODE_NAME
               valueFrom:
@@ -55,6 +63,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # A planned stop is an uninstall only if this DaemonSet is
+            # gone or being deleted; otherwise the kernel keeps recording
+            # for the next agent.
+            - name: DAEMONSET_NAME
+              value: {{ .Release.Name }}-agent
           securityContext:
             {{- if .Values.agent.privileged }}
             privileged: true

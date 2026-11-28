@@ -21,8 +21,7 @@ echo "probe pod on ${node}, agent ${agent}"
 t0=$(now)
 probe_exec ls -la /tmp >/dev/null
 t1=$(now)
-sleep 1
-found=$(events_since "$t0" | jq -c 'select(.type == "exec" and .process.CommandLine == "ls -la /tmp")')
+found=$(settled "$t0" '.type == "exec" and .process.CommandLine == "ls -la /tmp"' 10)
 count=$(printf '%s' "$found" | grep -c . || true)
 [ "$count" -eq 1 ] || fail "expected exactly one exec event for 'ls -la /tmp' across all agents, got ${count}: ${found}"
 

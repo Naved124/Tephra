@@ -34,7 +34,9 @@ check() { # event, description, jq filter that must be true
 
 t0=$(now)
 probe_exec ls -la /var >/dev/null
-ev=$(wait_event "$t0" '.process.CommandLine == "ls -la /var"' 5)
+# 15 s: M1 has just started 10,000 programs, and a newly installed agent can
+# still be working through them.
+ev=$(wait_event "$t0" '.process.CommandLine == "ls -la /var"' 15)
 [ -n "$ev" ] || fail "no exec event for 'ls -la /var'"
 check "$ev" "wrong namespace" ".k8s.namespace == \"${TEST_NS}\""
 check "$ev" "wrong pod" '.k8s.pod == "probe"'
