@@ -11,16 +11,21 @@
 # session-manager-plugin and terraform.
 #
 # Several labs can run at once, each named by LAB_NAME. A profile picks the
-# region, the image and the kernel together, one region per kernel so the
-# labs can run side by side within each region's vCPU quota:
+# image and the kernel, and a default region, one per kernel so the labs can
+# run side by side within each region's 8-vCPU quota:
 #
-#   LAB_PROFILE=floor-ubuntu    ap-south-1      Ubuntu 22.04, Canonical's 5.15
+#   LAB_PROFILE=floor-ubuntu    eu-central-1    Ubuntu 22.04, Canonical's 5.15
 #   LAB_PROFILE=current-ubuntu  us-east-1       Ubuntu 26.04, its 7.0 kernel
-#   LAB_PROFILE=floor-vanilla   ap-northeast-2  Ubuntu 22.04, upstream 5.15.y
+#   LAB_PROFILE=floor-vanilla   ap-northeast-1  Ubuntu 22.04, upstream 5.15.y
 #                                               from kernel.org, unpatched
 #
 # A profile names the lab after itself unless LAB_NAME is set, and uses an
-# 8-vCPU c7i.2xlarge on demand. Without a profile the variables below apply
+# 8-vCPU c8a.2xlarge on demand: AMD, one whole core per vCPU, so a sensor
+# never shares a core with the workload it watches. c8a is offered in only a
+# few regions (C8A_REGIONS); LAB_REGION runs a lab in another one, for
+# instance to run several labs of one kernel at once. A region that does not
+# offer the instance type is refused before anything is created. Without a
+# profile the variables below apply
 # as before: KERNEL_FLOOR=1 with UBUNTU_VERSION=22.04 boots Canonical's 5.15,
 # KERNEL_VANILLA=1 the upstream one, and the region is the AWS profile's.
 # SPOT=1 runs a lab on spot capacity (cheaper, a separate vCPU quota, may be
@@ -35,7 +40,7 @@ PROFILE_REGION=""
 case "$LAB_PROFILE" in
 "") ;;
 floor-ubuntu)
-	PROFILE_REGION=ap-south-1
+	PROFILE_REGION=eu-central-1
 	: "${UBUNTU_VERSION:=22.04}" "${KERNEL_FLOOR:=1}"
 	;;
 current-ubuntu)
@@ -43,7 +48,7 @@ current-ubuntu)
 	: "${UBUNTU_VERSION:=26.04}"
 	;;
 floor-vanilla)
-	PROFILE_REGION=ap-northeast-2
+	PROFILE_REGION=ap-northeast-1
 	: "${UBUNTU_VERSION:=22.04}" "${KERNEL_VANILLA:=1}"
 	;;
 *)
@@ -51,12 +56,20 @@ floor-vanilla)
 	exit 2
 	;;
 esac
-# The regions lab.sh status looks in, besides any a lab was created in.
-LAB_REGIONS="ap-south-1 us-east-1 ap-northeast-2"
+# Every region that offers c8a (checked 28 Nov 2026; eu-south-2 also does,
+# but is not enabled on the account).
+C8A_REGIONS="us-east-1 us-east-2 us-west-2 eu-west-1 eu-central-1 ap-northeast-1"
+[ -z "${LAB_REGION:-}" ] || PROFILE_REGION="$LAB_REGION"
+# The regions lab.sh status looks in, besides any a lab was created in: the
+# c8a ones and those the earlier c7i labs used.
+LAB_REGIONS="$C8A_REGIONS ap-south-1 ap-northeast-2"
+# Built upstream kernels are kept in one bucket, in the region where they
+# were first built, and fetched from there by labs in any region.
+KERNEL_CACHE_REGION="${KERNEL_CACHE_REGION:-ap-northeast-2}"
 
 if [ -n "$LAB_PROFILE" ]; then
 	LAB_NAME="${LAB_NAME:-$LAB_PROFILE}"
-	INSTANCE_TYPE="${INSTANCE_TYPE:-c7i.2xlarge}"
+	INSTANCE_TYPE="${INSTANCE_TYPE:-c8a.2xlarge}"
 fi
 LAB_NAME="${LAB_NAME:-tephra-dev}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-m7i.xlarge}"
@@ -134,26 +147,38 @@ wait_ssh() {
 	die "the instance did not accept a session within 5 minutes"
 }
 
-# The bucket that keeps upstream kernel packages between labs, in the lab's
-# region. It is not part of any lab, so lab.sh destroy leaves it; it is
-# private, encrypted, and holds about 100 MB per kernel release.
+# The bucket that keeps upstream kernel packages between labs, in
+# KERNEL_CACHE_REGION whatever the lab's region, so a kernel is built once.
+# It is not part of any lab, so lab.sh destroy leaves it; it is private,
+# encrypted, and holds about 100 MB per kernel release.
 kernel_cache_bucket() {
-	local account bucket
+	local account bucket r="$KERNEL_CACHE_REGION"
 	account=$(aws sts get-caller-identity --query Account --output text)
-	bucket="tephra-kernel-cache-$account-$AWS_REGION"
-	if ! aws s3api head-bucket --bucket "$bucket" >/dev/null 2>&1; then
-		if [ "$AWS_REGION" = us-east-1 ]; then
-			aws s3api create-bucket --bucket "$bucket" >/dev/null
+	bucket="tephra-kernel-cache-$account-$r"
+	if ! aws s3api head-bucket --region "$r" --bucket "$bucket" >/dev/null 2>&1; then
+		if [ "$r" = us-east-1 ]; then
+			aws s3api create-bucket --region "$r" --bucket "$bucket" >/dev/null
 		else
-			aws s3api create-bucket --bucket "$bucket" \
-				--create-bucket-configuration "LocationConstraint=$AWS_REGION" >/dev/null
+			aws s3api create-bucket --region "$r" --bucket "$bucket" \
+				--create-bucket-configuration "LocationConstraint=$r" >/dev/null
 		fi
-		aws s3api put-public-access-block --bucket "$bucket" --public-access-block-configuration \
+		aws s3api put-public-access-block --region "$r" --bucket "$bucket" --public-access-block-configuration \
 			BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
-		aws s3api put-bucket-tagging --bucket "$bucket" --tagging 'TagSet=[{Key=project,Value=tephra-demo}]'
+		aws s3api put-bucket-tagging --region "$r" --bucket "$bucket" --tagging 'TagSet=[{Key=project,Value=tephra-demo}]'
 		echo "created s3://$bucket for built kernels" >&2
 	fi
 	echo "$bucket"
+}
+
+# Refuses a region that does not offer the instance type, before Terraform
+# creates anything there.
+check_offered() {
+	local got
+	got=$(aws ec2 describe-instance-type-offerings --location-type region \
+		--filters "Name=instance-type,Values=$INSTANCE_TYPE" \
+		--query 'InstanceTypeOfferings[0].InstanceType' --output text 2>/dev/null || true)
+	[ "$got" = "$INSTANCE_TYPE" ] ||
+		die "$INSTANCE_TYPE is not offered in ${AWS_REGION:-this region}; c8a regions: $C8A_REGIONS (set LAB_REGION)"
 }
 
 cmd_up() {
@@ -165,6 +190,9 @@ cmd_up() {
 	tf init -input=false >/dev/null
 	tf workspace select -or-create "$LAB_NAME" >/dev/null 2>&1 || true
 	local cache_bucket=""
+	if [ -z "$(instance_id)" ]; then
+		check_offered
+	fi
 	if [ "$KERNEL_VANILLA" = 1 ]; then
 		cache_bucket=$(kernel_cache_bucket)
 	fi
@@ -208,7 +236,7 @@ cmd_up() {
 		# The build takes long enough for an idle session to be dropped, so
 		# it runs as a job on the instance and is polled with short sessions.
 		lab_ssh 'cat >/tmp/kernel-vanilla.sh' <"$REPO/deploy/vm/kernel-vanilla.sh"
-		lab_ssh "sudo systemctl reset-failed tephra-kernel 2>/dev/null; sudo systemd-run --unit tephra-kernel --setenv VANILLA_VERSION=${VANILLA_VERSION:-} --setenv KERNEL_CACHE_S3=s3://$cache_bucket/kernel-vanilla --setenv AWS_DEFAULT_REGION=$AWS_REGION bash /tmp/kernel-vanilla.sh"
+		lab_ssh "sudo systemctl reset-failed tephra-kernel 2>/dev/null; sudo systemd-run --unit tephra-kernel --setenv VANILLA_VERSION=${VANILLA_VERSION:-} --setenv KERNEL_CACHE_S3=s3://$cache_bucket/kernel-vanilla --setenv AWS_DEFAULT_REGION=$KERNEL_CACHE_REGION bash /tmp/kernel-vanilla.sh"
 		local state=""
 		while :; do
 			state=$(lab_ssh 'systemctl show -p ActiveState --value tephra-kernel' 2>/dev/null || echo unknown)
