@@ -47,14 +47,18 @@ check_record "$alert" "R001: wrong rule metadata" '.rule.level == "high" and (.r
 check_record "$alert" "R001: wrong pod" ".k8s.namespace == \"${TEST_NS}\" and .k8s.pod == \"probe\" and .container.name == \"root\""
 pass "R001 fired on a bind shell: $(jq -c '{rule: .rule.id, level: .rule.level, Image: .process.Image, parent: .parent.Image, pod: .k8s.pod}' <<<"$alert")"
 
+# Each read uses a program no earlier test reads /etc/shadow with. Repeats
+# of an alert (same rule, pod, program and file, a hard link included) are
+# counted for 10 s and sent as one summary; with cat, as in M3, these reads
+# would be repeats or not depending only on timing.
 t0=$(now)
-root_exec cat /etc/shadow >/dev/null
+root_exec tail -n1 /etc/shadow >/dev/null
 alert=$(wait_record "$t0" '.rule.id == "R005" and .file.path == "/etc/shadow"' 10)
-[ -n "$alert" ] || fail "no R005 alert for cat /etc/shadow"
-check_record "$alert" "R005: wrong event" '.type == "file_open" and .process.Image == "/bin/cat" and .rule.level == "high"'
+[ -n "$alert" ] || fail "no R005 alert for tail /etc/shadow"
+check_record "$alert" "R005: wrong event" '.type == "file_open" and .process.Image == "/bin/tail" and .rule.level == "high"'
 root_exec sh -c 'rm -f /tmp/innocent && ln /etc/shadow /tmp/innocent'
 t0=$(now)
-root_exec cat /tmp/innocent >/dev/null
+root_exec head -n1 /tmp/innocent >/dev/null
 alert=$(wait_record "$t0" '.rule.id == "R005" and .file.path == "/tmp/innocent"' 10)
 root_exec rm -f /tmp/innocent
 [ -n "$alert" ] || fail "no R005 alert for /etc/shadow read through a hard link"
