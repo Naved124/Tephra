@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The project's PR and issue bot. It runs no code from pull requests and
+# checks out nothing: it only calls the GitHub API with gh.
+#
+#   - A pull request opened by an admin of the repository gets squash
+#     auto-merge: GitHub merges it once the required checks pass.
+#   - "/merge" on a pull request, from an admin or maintainer, does the same.
+#   - "/label false-positive" or "/label detection-gap" on an issue or pull
+#     request, from anyone with Triage or more (the testers team), adds the
+#     label and posts what a report of that kind needs.
+#
+# A command is the whole first line of a comment, nothing else, so text that
+# only mentions one does nothing. Comments are passed to the shell through
+# the environment, never pasted into the script.
+#
+# It acts as the project's GitHub App (secrets BOT_APP_ID and
+# BOT_PRIVATE_KEY), not with the workflow token: GitHub starts no workflows
+# from what the workflow token does, so a merge made with it would not run
+# CI on main. GitHub signs the squash commit with its own key either way.
+name: bot
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+
+# The workflow token is not used; the App's installation token is.
+permissions: {}
+
+concurrency:
+  group: bot-${{ github.event.pull_request.number || github.event.issue.number }}
+
+jobs:
+  auto-merge-own:
+    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      AUTHOR: ${{ github.event.pull_request.user.login }}
+    steps:
+      - name: Act as the project's GitHub App
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+      - name: Turn on auto-merge for an admin's pull request
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          role=$(gh api "repos/$REPO/collaborators/$AUTHOR/permission" --jq .role_name 2>/dev/null || echo none)
+          if [ "$role" != admin ]; then
+            echo "author $AUTHOR has role $role: not an admin, left for review"
+            exit 0
+          fi
+          gh pr merge "$PR" --repo "$REPO" --auto --squash --delete-branch
+          echo "auto-merge on for #$PR: it lands once the required checks pass"
+
+  command:
+    if: github.event_name == 'issue_comment' && github.event.comment.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      REPO: ${{ github.repository }}
+      NUMBER: ${{ github.event.issue.number }}
+      IS_PR: ${{ github.event.issue.pull_request && 'yes' || 'no' }}
+      COMMENTER: ${{ github.event.comment.user.login }}
+      COMMENT_ID: ${{ github.event.comment.id }}
+      BODY: ${{ github.event.comment.body }}
+    steps:
+      - name: Act as the project's GitHub App
+        id: app
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+      - name: Run the command
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          set -euo pipefail
+          cmd=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+          case "$cmd" in
+            /merge | "/label false-positive" | "/label detection-gap") ;;
+            *) exit 0 ;;
+          esac
+          role=$(gh api "repos/$REPO/collaborators/$COMMENTER/permission" --jq .role_name 2>/dev/null || echo none)
+          react() { gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" -f content="$1" >/dev/null; }
+          refuse() { react -1; gh issue comment "$NUMBER" --repo "$REPO" --body "$1" >/dev/null; exit 0; }
+
+          case "$cmd" in
+            /merge)
+              case "$role" in admin | maintain) ;; *) refuse "\`/merge\` is for maintainers. @$COMMENTER, your role here is $role." ;; esac
+              [ "$IS_PR" = yes ] || refuse "\`/merge\` works on pull requests, not issues."
+              gh pr merge "$NUMBER" --repo "$REPO" --auto --squash --delete-branch
+              react rocket
+              ;;
+            "/label false-positive" | "/label detection-gap")
+              case "$role" in admin | maintain | write | triage) ;; *) refuse "Labels are for the testers team. @$COMMENTER, your role here is $role." ;; esac
+              if [ "$cmd" = "/label false-positive" ]; then
+                label="false positive"
+                note=$'Labelled **false positive**. To act on it we need:\n\n- [ ] the full alert (rule ID, level, process, command line, pod)\n- [ ] what the workload was doing and why it is harmless\n- [ ] the Tephra version and the kernel (`uname -r`)\n- [ ] whether it repeats, and how often'
+              else
+                label="detection gap"
+                note=$'Labelled **detection gap**. To act on it we need:\n\n- [ ] the steps of the technique, enough to repeat it in a lab\n- [ ] the rule you expected to fire, if any\n- [ ] what Tephra reported instead (nothing, another rule, a lower level)\n- [ ] the Tephra version and the kernel (`uname -r`)\n\nA way to switch the sensor off or blind it goes through private vulnerability reporting, not here (see SECURITY.md).'
+              fi
+              gh issue edit "$NUMBER" --repo "$REPO" --add-label "$label" >/dev/null
+              gh issue comment "$NUMBER" --repo "$REPO" --body "$note" >/dev/null
+              react +1
+              ;;
+          esac
